@@ -38,7 +38,7 @@ Para datos de empresa, usuarios, zonas y T&C → leer `docs/empresa.md`.
 - React 18 + Vite — sin Next.js, sin SSR
 - TypeScript — tipado estricto desde el inicio
 - Supabase — base de datos PostgreSQL + Auth + Storage
-- React Router v6 — navegación entre secciones
+- React Router v7 — navegación entre secciones
 - Tanstack Query — fetching y caché de datos del servidor
 - Tailwind CSS — estilos utilitarios, sin CSS-in-JS
 - Lucide React — iconos (únicos iconos permitidos)
@@ -332,17 +332,17 @@ Nunca hardcodear credenciales en el código.
     "lucide-react": "^0.383.0",
     "react": "^18",
     "react-dom": "^18",
-    "react-router-dom": "^6"
+    "react-router-dom": "^7"
   },
   "devDependencies": {
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "@vitejs/plugin-react": "^4",
+    "@vitejs/plugin-react": "^6",
     "autoprefixer": "^10",
     "postcss": "^8",
     "tailwindcss": "^3",
     "typescript": "^5",
-    "vite": "^5"
+    "vite": "^8"
   }
 }
 ```
@@ -392,3 +392,18 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   nuevas sin revisar, manda un resumen a reformasordonezeus@gmail.com. Si no hay nada urgente, no envía nada
   (evita ruido diario). Reutiliza el envío por Gmail de `notificar-visita`. No cubre alertas fiscales (fuera
   de alcance a propósito, esas ya se ven en Fiscalidad).
+- **Control de versiones** (2026-08-11): el proyecto vive en git desde esta fecha, repo privado en
+  `github.com/GabrielOrdo894/ordonez-crm`, con CI en GitHub Actions (build + test + lint en cada push a
+  `main`). Antes de esto no había historial — cualquier referencia a "commits antiguos" antes del
+  2026-08-11 no existe. Las carpetas de negocio (`avatares/`, `catalogos/`, `equipo-marketing/`,
+  `equipo-presupuestos/`, `guias/`, `modificaciones/`, `nueva solicitud de presupuesto/`,
+  `plantilla de presupuesto/`, `plantillas-email/`, `solicitudes-presupuesto/`) están excluidas del repo a
+  propósito (datos de clientes, no son código) — siguen solo en disco local.
+- **Vite 8 y React Router 7** (2026-08-11): actualizados desde Vite 5 y React Router 6 para corregir
+  vulnerabilidades de `npm audit` (alta en esbuild, moderadas en react-router). El routing sigue siendo
+  declarativo clásico (`BrowserRouter`/`Routes`/`Route`/`useNavigate`/`Link`, sin rutas splat ni data
+  routers) — es el modo con menos cambios de comportamiento entre v6 y v7.
+- **ESLint + Prettier** (2026-08-11): `npm run lint` / `npm run format`. Tipado estricto también en las
+  Edge Functions de `supabase/functions/` (antes tenían 36 usos de `any`) — ojo, esos ficheros no están
+  cubiertos por `tsc -b` (fuera de `tsconfig.app.json`), así que un error de tipos ahí solo lo pilla el
+  lint o Deno, no el build.
