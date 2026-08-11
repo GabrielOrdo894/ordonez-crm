@@ -13,11 +13,17 @@ import { limitesEjercicio } from '../fiscalidad/calculos';
 // La sociedad empezó a operar como tal en julio de 2026 — no hay TVA que declarar antes.
 const INICIO_SOCIEDAD_MES = limitesEjercicio(2026).inicio.slice(0, 7);
 
-type Declaracion = { mes: string; declarado: boolean; fecha_declaracion: string | null };
+type Declaracion = { mes: string; declarado: boolean; fecha_declaracion: string | null; credito_reportado: number | null };
 type EstadoMes = 'en_curso' | 'disponible' | 'declarado';
 
 function mesISODe(anio: number, mes: number) {
   return `${anio}-${String(mes).padStart(2, '0')}`;
+}
+
+function mesAnteriorISO(mesISO: string): string {
+  const [a, m] = mesISO.split('-').map(Number);
+  const d = new Date(a, m - 2, 1);
+  return mesISODe(d.getFullYear(), d.getMonth() + 1);
 }
 
 function fechaLimiteDeclaracion(anio: number, mes: number) {
@@ -52,6 +58,7 @@ const MESES = [
 ];
 
 const TASA_ESTANDAR = 0.2;
+const TASA_REDUCIDA_10 = 0.1;
 const CUENTAS_IMMOBILISATIONS = GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? [];
 
 function baseFactura(f: FacturaFr) {
@@ -102,10 +109,6 @@ export default function AsistenteIvaPage() {
   const inicioMes = `${mesISO}-01`;
   const finMes = new Date(anio, mes, 0).toISOString().slice(0, 10);
 
-  useEffect(() => {
-    setCreditoAnterior(0);
-  }, [mesISO]);
-
   const { data: declaraciones } = useQuery({
     queryKey: ['declaraciones_iva'],
     queryFn: async () => {
@@ -115,14 +118,32 @@ export default function AsistenteIvaPage() {
     },
   });
 
+  // El crédit reporté (ligne 22) se carga solo desde la ligne 27 guardada del mes ANTERIOR —
+  // antes se reseteaba siempre a 0 y había que volver a teclearlo a mano cada mes (bug real
+  // corregido 2026-08-11). Sigue siendo editable por si el importe declarado de verdad difiere.
+  useEffect(() => {
+    const declaracionAnterior = declaraciones?.find((d) => d.mes === mesAnteriorISO(mesISO));
+    setCreditoAnterior(declaracionAnterior?.credito_reportado ?? 0);
+  }, [mesISO, declaraciones]);
+
   const declaracionMesActivo = declaraciones?.find((d) => d.mes === mesISO);
-  const estadoMesActivo: EstadoMes = mesISO === mesActualISO ? 'en_curso' : declaracionMesActivo?.declarado ? 'declarado' : 'disponible';
+  // `>=` (no `===`) para que un mes FUTURO (alcanzable eligiéndolo a mano en los selectores de
+  // Mes/Año, que permiten hasta 2 años vista) también caiga en "en_curso" y no se pueda marcar
+  // como declarada — antes solo se bloqueaba el mes actual, cualquier mes posterior quedaba
+  // "disponible" sin ningún aviso (bug real corregido 2026-08-11).
+  const estadoMesActivo: EstadoMes = mesISO >= mesActualISO ? 'en_curso' : declaracionMesActivo?.declarado ? 'declarado' : 'disponible';
 
   const marcarDeclaradaMutation = useMutation({
     mutationFn: async (declarado: boolean) => {
-      const { error } = await supabase
-        .from('declaraciones_iva')
-        .upsert({ mes: mesISO, declarado, fecha_declaracion: declarado ? new Date().toISOString().slice(0, 10) : null });
+      // Guarda también la ligne 27 (crédit à reporter) ya calculada de este mes, para que el mes
+      // siguiente la cargue sola como su ligne 22 en vez de tener que teclearla a mano.
+      const ligne27 = datos.credito.find((f) => f.linea === '27')?.taxe ?? 0;
+      const { error } = await supabase.from('declaraciones_iva').upsert({
+        mes: mesISO,
+        declarado,
+        fecha_declaracion: declarado ? new Date().toISOString().slice(0, 10) : null,
+        credito_reportado: ligne27,
+      });
       if (error) throw error;
     },
     onSuccess: (_data, declarado) => {
@@ -137,7 +158,7 @@ export default function AsistenteIvaPage() {
       .filter((m) => m.mesISO >= INICIO_SOCIEDAD_MES)
       .map((m) => {
       const declaracion = declaraciones?.find((d) => d.mes === m.mesISO);
-      const estado: EstadoMes = m.mesISO === mesActualISO ? 'en_curso' : declaracion?.declarado ? 'declarado' : 'disponible';
+      const estado: EstadoMes = m.mesISO >= mesActualISO ? 'en_curso' : declaracion?.declarado ? 'declarado' : 'disponible';
       return { ...m, estado, limite: fechaLimiteDeclaracion(m.anio, m.mes) };
     });
   }, [declaraciones, mesActualISO, hoy]);
@@ -188,11 +209,16 @@ export default function AsistenteIvaPage() {
     const base08 = facturas20.reduce((s, f) => s + baseFactura(f), 0);
     const taxe08 = base08 * TASA_ESTANDAR;
     const base9B = facturas10.reduce((s, f) => s + baseFactura(f), 0);
-    const taxe9B = base9B * 0.1;
+    const taxe9B = base9B * TASA_REDUCIDA_10;
 
     const taxe17 = baseB2 * TASA_ESTANDAR;
     const taxe16 = taxe08 + taxe9B + taxe17;
 
+    // OJO revisado 2026-08-11: iva19 no excluye tipo_iva === 'INTRACOM' a propósito — no hace
+    // falta. GastoForm.tsx fuerza `porcentaje = 0` (y por tanto importe_iva = 0) para cualquier
+    // gasto marcado como intracomunitario, así que un gasto intracom de inmovilizado nunca aporta
+    // nada aquí — su IVA solo entra por taxe17/iva20 (autoliquidación), sin duplicarse. Si algún
+    // día se permite editar importe_iva a mano en gastos intracom, esto habría que revisarlo.
     const iva19 = gs
       .filter((g) => g.cuenta_contable && CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable))
       .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
@@ -210,6 +236,11 @@ export default function AsistenteIvaPage() {
     return {
       seccionA_taxadas: [
         { linea: 'A1', label: 'Ventes, prestations de services', base: baseA1 },
+        // Revisado 2026-08-11: A3 (servicios intracomunitarios) siempre 0 a propósito por ahora
+        // — GastoForm.tsx solo tiene un checkbox "intracomunitario" sin distinguir bienes de
+        // servicios, así que todo gasto intracom cae en B2 (bienes). Si algún día se compra un
+        // servicio a un proveedor de otro país UE (ej. software, consultoría), habría que añadir
+        // esa distinción al formulario de gastos para que A3 refleje datos reales.
         { linea: 'A3', label: 'Achats de prestations de services intracommunautaires', base: 0 },
         { linea: 'B2', label: 'Acquisitions intra-communautaires', base: baseB2 },
         { linea: 'B5', label: 'Régularisations', base: 0 },

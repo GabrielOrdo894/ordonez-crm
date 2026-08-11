@@ -56,10 +56,16 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
     mutationFn: async (factura: Factura) => {
       if (!movimiento) return;
       const total = totalFactura(factura);
-      const estado_cobro = movimiento.importe >= total - 0.01 ? 'Cobrada' : 'Cobrada parcialmente';
+      // monto_pagado es el TOTAL acumulado cobrado, no "el último movimiento" — una factura ya
+      // con un pago parcial vinculado (sigue apareciendo en la lista mientras no llegue al 100%)
+      // perdía ese pago anterior al vincular un segundo movimiento, quedándose sin cobrar del todo
+      // aunque ya lo estuviera (bug real corregido 2026-08-11). RegistrarPagoModal.tsx ya trataba
+      // monto_pagado como acumulado editable — aquí se sigue el mismo criterio.
+      const montoPagadoAcumulado = (factura.monto_pagado ?? 0) + movimiento.importe;
+      const estado_cobro = montoPagadoAcumulado >= total - 0.01 ? 'Cobrada' : 'Cobrada parcialmente';
       const { error: errorFactura } = await supabase
         .from('facturas')
-        .update({ fecha_pago: movimiento.fecha, monto_pagado: movimiento.importe, estado_cobro })
+        .update({ fecha_pago: movimiento.fecha, monto_pagado: montoPagadoAcumulado, estado_cobro })
         .eq('id', factura.id);
       if (errorFactura) throw errorFactura;
 
