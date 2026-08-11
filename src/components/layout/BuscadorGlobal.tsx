@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, User, FileText, Receipt } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { agruparClientes } from '../../modules/clientes/types';
+import { useDebounced } from '../../hooks/useDebounced';
 import type { Visita } from '../../modules/visitas/types';
 import type { Presupuesto } from '../../modules/finanzas/presupuestos/types';
 import type { Factura } from '../../modules/finanzas/facturas/types';
@@ -12,15 +13,6 @@ type BuscadorGlobalProps = {
   abierto: boolean;
   onClose: () => void;
 };
-
-function useDebounced<T>(valor: T, ms: number): T {
-  const [debounced, setDebounced] = useState(valor);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(valor), ms);
-    return () => clearTimeout(t);
-  }, [valor, ms]);
-  return debounced;
-}
 
 export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
   const navigate = useNavigate();

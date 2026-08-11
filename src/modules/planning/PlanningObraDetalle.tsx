@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { cargarEntidad, cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import { useToast } from '../../hooks/useToast';
+import { useDebounced } from '../../hooks/useDebounced';
 import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { Select } from '../../components/ui/Select';
@@ -17,7 +18,7 @@ import { mensajeError } from '../../lib/mensajeError';
 import { PlanningPreview } from './PlanningPreview';
 import { configPlanningDesde } from './configPlanning';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
-import type { Proyecto } from './PlanningObraPage';
+import type { Proyecto, FaseObra } from './PlanningObraPage';
 
 const ESTADOS_PROYECTO = ['Planificado', 'En curso', 'Pausado', 'Finalizado'];
 
@@ -81,20 +82,39 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
     onError: (error) => toast.error(error.message),
   });
 
+  // Nombre de la obra y fases se editan en estado LOCAL, no directamente contra `proyecto.fases`
+  // (dato de servidor) — antes cada tecla disparaba un UPDATE completo a Supabase y el input,
+  // controlado por el dato del servidor, "rebotaba"/perdía pulsaciones mientras ese guardado
+  // estaba en vuelo (bug real corregido 2026-08-11). Ahora se guarda solo, con 600ms de debounce,
+  // cuando el usuario deja de escribir.
+  const [nombreObraLocal, setNombreObraLocal] = useState(proyectoInicial.nombre_obra);
+  const [fasesLocal, setFasesLocal] = useState<FaseObra[]>(proyectoInicial.fases);
+  const nombreObraDebounced = useDebounced(nombreObraLocal, 600);
+  const fasesDebounced = useDebounced(fasesLocal, 600);
+  const primerRenderRef = useRef(true);
+
+  useEffect(() => {
+    if (primerRenderRef.current) {
+      primerRenderRef.current = false;
+      return;
+    }
+    actualizarMutation.mutate({ nombre_obra: nombreObraDebounced, fases: fasesDebounced });
+    // actualizarMutation.mutate es estable (Tanstack Query) — no hace falta en las deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nombreObraDebounced, fasesDebounced]);
+
   const handleAgregarFase = () => {
     if (!nuevaFaseTitulo.trim()) return;
-    actualizarMutation.mutate({
-      fases: [
-        ...proyecto.fases,
-        {
-          nombre: nuevaFaseTitulo.trim(),
-          descripcion: nuevaFaseDescripcion.trim() || null,
-          fecha_inicio: nuevaFaseInicio || null,
-          fecha_fin: nuevaFaseFin || null,
-          completada: false,
-        },
-      ],
-    });
+    setFasesLocal((fases) => [
+      ...fases,
+      {
+        nombre: nuevaFaseTitulo.trim(),
+        descripcion: nuevaFaseDescripcion.trim() || null,
+        fecha_inicio: nuevaFaseInicio || null,
+        fecha_fin: nuevaFaseFin || null,
+        completada: false,
+      },
+    ]);
     setNuevaFaseTitulo('');
     setNuevaFaseDescripcion('');
     setNuevaFaseInicio('');
@@ -102,21 +122,21 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
   };
 
   const handleToggleFase = (index: number) => {
-    const fases = proyecto.fases.map((f, i) => (i === index ? { ...f, completada: !f.completada } : f));
-    actualizarMutation.mutate({ fases });
+    setFasesLocal((fases) => fases.map((f, i) => (i === index ? { ...f, completada: !f.completada } : f)));
   };
 
   const handleCampoFase = (index: number, campo: 'nombre' | 'descripcion' | 'fecha_inicio' | 'fecha_fin', valor: string) => {
-    const fases = proyecto.fases.map((f, i) => {
-      if (i !== index) return f;
-      if (campo === 'nombre') return { ...f, nombre: valor };
-      return { ...f, [campo]: valor || null };
-    });
-    actualizarMutation.mutate({ fases });
+    setFasesLocal((fases) =>
+      fases.map((f, i) => {
+        if (i !== index) return f;
+        if (campo === 'nombre') return { ...f, nombre: valor };
+        return { ...f, [campo]: valor || null };
+      }),
+    );
   };
 
   const handleEliminarFase = (index: number) => {
-    actualizarMutation.mutate({ fases: proyecto.fases.filter((_, i) => i !== index) });
+    setFasesLocal((fases) => fases.filter((_, i) => i !== index));
   };
 
   const presupuestoTotal = presupuesto ? calcularTotales(presupuesto.lineas).totalConIva : null;
@@ -130,13 +150,13 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
             clienteTelefono: presupuesto?.cliente_tel ?? '',
             clienteDir: presupuesto?.cliente_dir ?? '',
             pais,
-            nombreObra: proyecto.nombre_obra,
+            nombreObra: nombreObraLocal,
             estado: proyecto.estado,
             fechaInicio: proyecto.fecha_inicio,
             presupuestoNumero: presupuesto?.numero ?? null,
             presupuestoFecha: presupuesto?.fecha_emision ?? null,
             presupuestoTotal,
-            fases: proyecto.fases,
+            fases: fasesLocal,
           }),
         toast,
       );
@@ -145,10 +165,10 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
     }
   };
 
-  const fasesCompletadas = proyecto.fases.filter((f) => f.completada).length;
-  const porcentajeCompletado = proyecto.fases.length > 0 ? Math.round((fasesCompletadas / proyecto.fases.length) * 100) : 0;
+  const fasesCompletadas = fasesLocal.filter((f) => f.completada).length;
+  const porcentajeCompletado = fasesLocal.length > 0 ? Math.round((fasesCompletadas / fasesLocal.length) * 100) : 0;
   const hoyISO = new Date().toISOString().slice(0, 10);
-  const faseAtrasada = (f: (typeof proyecto.fases)[number]) => !f.completada && !!f.fecha_fin && f.fecha_fin < hoyISO;
+  const faseAtrasada = (f: FaseObra) => !f.completada && !!f.fecha_fin && f.fecha_fin < hoyISO;
 
   return (
     <div className="animate-[scale-in_180ms_ease-out]">
@@ -203,8 +223,8 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Input
                 label="Nombre de la obra"
-                value={proyecto.nombre_obra}
-                onChange={(e) => actualizarMutation.mutate({ nombre_obra: e.target.value })}
+                value={nombreObraLocal}
+                onChange={(e) => setNombreObraLocal(e.target.value)}
               />
               <Select
                 label="Estado"
@@ -223,13 +243,13 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
           <div className="bg-surface border border-gray-200 rounded-sm p-4">
             <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Fases de la obra</p>
-              {proyecto.fases.length > 0 && (
+              {fasesLocal.length > 0 && (
                 <div className="flex items-center gap-2">
                   <div className="w-28 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                     <div className="h-full bg-brand rounded-full" style={{ width: `${porcentajeCompletado}%` }} />
                   </div>
                   <span className="text-xs font-medium text-gray-500">
-                    {fasesCompletadas}/{proyecto.fases.length} · {porcentajeCompletado}%
+                    {fasesCompletadas}/{fasesLocal.length} · {porcentajeCompletado}%
                   </span>
                 </div>
               )}
@@ -248,14 +268,14 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                 </tr>
               </thead>
               <tbody>
-                {proyecto.fases.length === 0 && (
+                {fasesLocal.length === 0 && (
                   <tr>
                     <td colSpan={7} className="text-center text-sm text-gray-400 py-6">
                       Sin fases todavía
                     </td>
                   </tr>
                 )}
-                {proyecto.fases.map((fase, i) => (
+                {fasesLocal.map((fase, i) => (
                   <tr key={i} className={`odd:bg-gray-50 ${faseAtrasada(fase) ? 'border-l-2 border-red-400' : ''}`}>
                     <td className="px-3 py-2">
                       <input
@@ -345,13 +365,13 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
               clienteNombre={presupuesto?.cliente_nombre ?? ''}
               clienteTelefono={presupuesto?.cliente_tel ?? ''}
               clienteDir={presupuesto?.cliente_dir ?? ''}
-              nombreObra={proyecto.nombre_obra}
+              nombreObra={nombreObraLocal}
               estado={proyecto.estado}
               fechaInicio={proyecto.fecha_inicio}
               presupuestoNumero={presupuesto?.numero ?? null}
               presupuestoFecha={presupuesto?.fecha_emision ?? null}
               presupuestoTotal={presupuestoTotal}
-              fases={proyecto.fases}
+              fases={fasesLocal}
             />
           )}
         </div>
