@@ -153,7 +153,7 @@ export function TabCotisations() {
           },
           {
             q: '¿Qué pasa si subo mucho la rémunération, por encima del PASS?',
-            a: 'A partir del 130% del PASS (61.230 € con el valor por defecto de 2026), la fracción de rémunération que supera ese umbral deja de tener el abatimiento del 26% — se cotiza sobre el 100% de esa parte en vez de sobre el 74%. Por eso, a partir de ese punto, la assiette (y las cotisations) crecen más rápido que antes en proporción a la rémunération. Prueba a mover el slider de rémunération por encima de 61.230 € en el simulador para ver el efecto.',
+            a: 'A partir del 130% del PASS (61.230 € con el valor por defecto de 2026), la fracción de rémunération que supera ese umbral deja de tener el abatimiento del 26% — se cotiza sobre el 100% de esa parte en vez de sobre el 74%. Por eso, a partir de ese punto, la assiette (y las cotisations) crecen más rápido que antes en proporción a la rémunération. Prueba a subir la rémunération por encima de 61.230 € en el simulador de arriba para ver el efecto.',
           },
         ]}
       />

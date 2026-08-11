@@ -3,7 +3,7 @@ import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio } from './calculos';
+import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
 
 export type TipoAlertaFiscal = 'tramo_cerca' | 'tramo_superado' | 'tva_declarable' | 'tva_urgente' | 'echeance_urgente';
 
@@ -34,9 +34,12 @@ export function useAlertasFiscales() {
     const lista: AlertaFiscal[] = [];
 
     // 1. Tramo 15% del IS: cerca o superado
+    // Prorrateado por meses transcurridos, no por la duración total del ejercicio — ver
+    // comentario en TabIS.tsx (bug real corregido 2026-08-11).
+    const mesesTranscurridos = mesesTranscurridosEjercicio(ejercicio);
     const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-    const remuneracionPeriodo = remuneracionAnual * (ejercicio.meses / 12);
-    const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (ejercicio.meses / 12);
+    const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
+    const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
     const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
     const is = calcularIS(beneficioNeto, ejercicio.meses, config);
     const pctPlafond = is.plafondReducido > 0 ? beneficioNeto / is.plafondReducido : 0;

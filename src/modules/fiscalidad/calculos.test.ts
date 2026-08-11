@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { limitesEjercicio, calcularIS, calcularTNS, calcularDividendos, generarEcheances, type ConfigFn } from './calculos';
+import {
+  limitesEjercicio,
+  calcularIS,
+  calcularTNS,
+  calcularDividendos,
+  generarEcheances,
+  mesesTranscurridosEjercicio,
+  type ConfigFn,
+} from './calculos';
 
 // Config que siempre devuelve el valor por defecto — para probar la fórmula con las tasas reales.
 const cfgPorDefecto: ConfigFn = (_clave, porDefecto) => porDefecto;
@@ -11,6 +19,31 @@ describe('limitesEjercicio', () => {
 
   it('cualquier otro año es un ejercicio completo de 12 meses', () => {
     expect(limitesEjercicio(2027)).toEqual({ inicio: '2027-01-01', fin: '2027-12-31', meses: 12 });
+  });
+});
+
+describe('mesesTranscurridosEjercicio', () => {
+  const ejercicio2026 = limitesEjercicio(2026); // { inicio: '2026-07-01', fin: '2026-12-31', meses: 6 }
+
+  it('el primer día del ejercicio cuenta como 1 mes transcurrido', () => {
+    expect(mesesTranscurridosEjercicio(ejercicio2026, new Date('2026-07-01T12:00:00'))).toBe(1);
+  });
+
+  it('a mitad de ejercicio cuenta los meses naturales transcurridos', () => {
+    expect(mesesTranscurridosEjercicio(ejercicio2026, new Date('2026-09-15T12:00:00'))).toBe(3);
+  });
+
+  it('el último mes del ejercicio cuenta como el total de meses del ejercicio', () => {
+    expect(mesesTranscurridosEjercicio(ejercicio2026, new Date('2026-12-20T12:00:00'))).toBe(6);
+  });
+
+  it('una fecha posterior al cierre del ejercicio no supera el total de meses', () => {
+    expect(mesesTranscurridosEjercicio(ejercicio2026, new Date('2027-03-01T12:00:00'))).toBe(6);
+  });
+
+  it('un ejercicio completo (12 meses) cuenta igual', () => {
+    const ejercicio2027 = limitesEjercicio(2027);
+    expect(mesesTranscurridosEjercicio(ejercicio2027, new Date('2027-04-10T12:00:00'))).toBe(4);
   });
 });
 

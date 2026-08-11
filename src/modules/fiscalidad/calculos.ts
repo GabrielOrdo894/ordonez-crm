@@ -16,6 +16,20 @@ export function limitesEjercicio(anio: number) {
   return { inicio: iso(anio, 1, 1), fin: iso(anio, 12, 31), meses: 12 };
 }
 
+// Meses transcurridos del ejercicio hasta hoy (o hasta el cierre, si el ejercicio ya terminó) —
+// para prorratear gastos de "todo el ejercicio" (rémunération anual, cotisations) a la misma
+// escala que `useResultadoEjercicio`, que solo suma facturas/gastos hasta hoy, no del ejercicio
+// completo. Sin este prorrateo, "beneficio neto" resta un coste de ejercicio completo a un
+// beneficio parcial y sale en 0 € casi todo el año, saltando de golpe cerca del cierre (bug real
+// corregido 2026-08-11 en TabIS.tsx/DashboardFiscal.tsx/useAlertasFiscales.ts).
+export function mesesTranscurridosEjercicio(ejercicio: { inicio: string; fin: string; meses: number }, hoy: Date = new Date()) {
+  const inicio = new Date(`${ejercicio.inicio}T00:00:00`);
+  const fin = new Date(`${ejercicio.fin}T00:00:00`);
+  const referencia = hoy < fin ? hoy : fin;
+  const meses = (referencia.getFullYear() - inicio.getFullYear()) * 12 + (referencia.getMonth() - inicio.getMonth()) + 1;
+  return Math.min(ejercicio.meses, Math.max(1, meses));
+}
+
 export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
   const tasaReducida = config('is_taux_reduit', 0.15);
   const tasaNormal = config('is_taux_normal', 0.25);

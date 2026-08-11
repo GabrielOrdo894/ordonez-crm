@@ -7,7 +7,7 @@ import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio } from './calculos';
+import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
 
@@ -31,23 +31,20 @@ export function TabIS() {
   const { ingresosHT, beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
   const { echeances, marcarCompletada } = useEcheances();
 
+  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
+
   const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  const remuneracionPeriodo = remuneracionAnual * (ejercicio.meses / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (ejercicio.meses / 12);
+  // Prorrateado por meses TRANSCURRIDOS, no por la duración total del ejercicio — beneficioBruto
+  // (useResultadoEjercicio) ya solo refleja lo facturado/gastado hasta hoy, así que restarle el
+  // coste de rémunération del ejercicio COMPLETO infla el "beneficio neto" a 0 € casi todo el año
+  // y lo dispara de golpe al final (bug real corregido 2026-08-11).
+  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
+  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
   const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
   const is = calcularIS(beneficioNeto, ejercicio.meses, config);
   const tipoEfectivo = beneficioNeto > 0 ? is.total / beneficioNeto : 0;
   const margenNeto = ingresosHT > 0 ? (beneficioNeto - is.total) / ingresosHT : 0;
   const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config);
-
-  const mesesTranscurridos = useMemo(() => {
-    const hoy = new Date();
-    const inicio = new Date(`${ejercicio.inicio}T00:00:00`);
-    const fin = new Date(`${ejercicio.fin}T00:00:00`);
-    const referencia = hoy < fin ? hoy : fin;
-    const meses = (referencia.getFullYear() - inicio.getFullYear()) * 12 + (referencia.getMonth() - inicio.getMonth()) + 1;
-    return Math.min(ejercicio.meses, Math.max(1, meses));
-  }, [ejercicio]);
 
   const proyeccion = useMemo(() => {
     const beneficioMedioMensual = beneficioNeto / mesesTranscurridos;

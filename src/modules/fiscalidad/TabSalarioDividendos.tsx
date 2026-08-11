@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, TrendingUp } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Landmark } from 'lucide-react';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { calcularDividendos, calcularIS, calcularTNS, limitesEjercicio } from './calculos';
 import type { ConfigFn } from './calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
 
@@ -14,13 +16,21 @@ function fmt(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-function escenario(remuneracion: number, pctDividendos: number, beneficioAntesDeGastosPersonal: number, capitalSocial: number, meses: number, config: ConfigFn) {
+function escenario(
+  remuneracion: number,
+  pctDividendos: number,
+  beneficioAntesDeGastosPersonal: number,
+  capitalSocial: number,
+  compteCourantMedio: number,
+  meses: number,
+  config: ConfigFn,
+) {
   const tns = calcularTNS(remuneracion, config);
   const beneficioTrasSalario = Math.max(0, beneficioAntesDeGastosPersonal - remuneracion - tns.total);
   const is = calcularIS(beneficioTrasSalario, meses, config);
   const beneficioDistribuible = Math.max(0, beneficioTrasSalario - is.total);
   const dividendos = beneficioDistribuible * (pctDividendos / 100);
-  const divCalc = calcularDividendos(dividendos, capitalSocial, 0, config);
+  const divCalc = calcularDividendos(dividendos, capitalSocial, compteCourantMedio, config);
   const totalPrelevements = tns.total + is.total + divCalc.total;
   const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
   return { tns, is, beneficioTrasSalario, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
@@ -30,31 +40,79 @@ export function TabSalarioDividendos() {
   const anio = new Date().getFullYear();
   const ejercicio = limitesEjercicio(anio);
   const { config, fuente } = useFiscalConfig();
-  const { gerantConfig } = useGerantConfig();
+  const { gerantConfig, guardar, guardando } = useGerantConfig();
   const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
   const capitalSocial = gerantConfig?.capital_social ?? 1000;
+  // Antes hardcodeado a 0 en todas las llamadas a escenario() de más abajo — el umbral libre de
+  // cotisations TNS sobre dividendos (capitalSocial + compteCourantMedio) × 10% nunca llegaba a
+  // contar el compte courant real, así que salía sistemáticamente más bajo de lo real (bug real
+  // corregido 2026-08-11).
+  const compteCourantMedio = gerantConfig?.compte_courant_medio ?? 0;
 
   const [remuneracion, setRemuneracion] = useState(30000);
   const [pctDividendos, setPctDividendos] = useState(50);
+  const [capitalInput, setCapitalInput] = useState('');
+  const [compteCourantInput, setCompteCourantInput] = useState('');
+
+  useEffect(() => {
+    if (gerantConfig) {
+      setCapitalInput(String(gerantConfig.capital_social ?? 1000));
+      setCompteCourantInput(String(gerantConfig.compte_courant_medio ?? 0));
+    }
+  }, [gerantConfig]);
 
   const resultado = useMemo(
-    () => escenario(remuneracion, pctDividendos, beneficioBruto, capitalSocial, ejercicio.meses, config),
-    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, ejercicio.meses, config],
+    () => escenario(remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config),
+    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config],
   );
 
   const escenarios = useMemo(() => {
-    const todoSalario = escenario(beneficioBruto, 0, beneficioBruto, capitalSocial, ejercicio.meses, config);
-    const salario30kDiv = escenario(30000, 100, beneficioBruto, capitalSocial, ejercicio.meses, config);
-    const salario30kReservas = escenario(30000, 0, beneficioBruto, capitalSocial, ejercicio.meses, config);
+    const todoSalario = escenario(beneficioBruto, 0, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
+    const salario30kDiv = escenario(30000, 100, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
+    const salario30kReservas = escenario(30000, 0, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
     return [
       { nombre: 'Todo salario', neto: todoSalario.netoDisponible, prelevements: todoSalario.totalPrelevements },
       { nombre: 'Salario 30k + dividendos', neto: salario30kDiv.netoDisponible, prelevements: salario30kDiv.totalPrelevements },
       { nombre: 'Salario 30k + reservas', neto: salario30kReservas.netoDisponible, prelevements: salario30kReservas.totalPrelevements },
     ];
-  }, [beneficioBruto, capitalSocial, ejercicio.meses, config]);
+  }, [beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config]);
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+          <Landmark size={14} className="text-brand" /> Capital social y compte courant
+        </p>
+        <p className="text-xs text-gray-500 leading-relaxed mb-3">
+          Determinan el umbral libre de cotisations TNS sobre dividendos (10% de capital + compte courant, ver aviso más
+          abajo si se supera). Sin formulario propio hasta ahora, solo editables entrando a mano en Supabase.
+        </p>
+        <div className="flex items-end gap-2 flex-wrap">
+          <Input
+            label="Capital social"
+            type="number"
+            min={0}
+            value={capitalInput}
+            onChange={(e) => setCapitalInput(e.target.value)}
+            className="w-48"
+          />
+          <Input
+            label="Compte courant d'associé medio"
+            type="number"
+            min={0}
+            value={compteCourantInput}
+            onChange={(e) => setCompteCourantInput(e.target.value)}
+            className="w-56"
+          />
+          <Button
+            onClick={() => guardar({ capital_social: Number(capitalInput) || 0, compte_courant_medio: Number(compteCourantInput) || 0 })}
+            disabled={guardando}
+          >
+            {guardando ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </div>
+      </div>
+
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
         <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
           <TrendingUp size={14} className="text-brand" /> Optimizador salario vs dividendos

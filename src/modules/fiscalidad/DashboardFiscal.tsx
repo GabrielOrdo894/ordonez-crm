@@ -24,7 +24,7 @@ import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio } from './calculos';
+import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
 import { Faq } from './Faq';
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -53,8 +53,11 @@ export function DashboardFiscal() {
   const { echeances } = useEcheances();
 
   const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  const remuneracionPeriodo = remuneracionAnual * (ejercicio.meses / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (ejercicio.meses / 12);
+  // Prorrateado por meses transcurridos, no por la duración total del ejercicio — ver comentario
+  // en TabIS.tsx (bug real corregido 2026-08-11).
+  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
+  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
+  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
   const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
   const is = calcularIS(beneficioNeto, ejercicio.meses, config);
   const progresoTramo = is.plafondReducido > 0 ? Math.min(100, (is.baseReducida / is.plafondReducido) * 100) : 0;
