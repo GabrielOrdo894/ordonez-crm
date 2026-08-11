@@ -464,9 +464,9 @@ export function PresupuestoForm({
   const [linkDocumenso, setLinkDocumenso] = useState<string | null>(presupuesto?.documenso_signing_url ?? null);
 
   const enviarDocumensoMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (regenerar: boolean = false) => {
       if (!presupuesto) throw new Error('Guarda el presupuesto antes de enviarlo a firmar');
-      return enviarPresupuestoAFirmar(presupuesto);
+      return enviarPresupuestoAFirmar(presupuesto, { regenerar });
     },
     onSuccess: async (resultado) => {
       setLinkDocumenso(resultado.signingUrl);
@@ -1029,7 +1029,7 @@ export function PresupuestoForm({
                   <Button
                     size="sm"
                     variant="secondary"
-                    onClick={() => enviarDocumensoMutation.mutate()}
+                    onClick={() => enviarDocumensoMutation.mutate(true)}
                     disabled={enviarDocumensoMutation.isPending}
                     className="self-start"
                   >
@@ -1040,7 +1040,7 @@ export function PresupuestoForm({
                 <div>
                   <Button
                     size="sm"
-                    onClick={() => enviarDocumensoMutation.mutate()}
+                    onClick={() => enviarDocumensoMutation.mutate(false)}
                     disabled={enviarDocumensoMutation.isPending || !form.cliente_email}
                   >
                     {enviarDocumensoMutation.isPending ? 'Generando…' : 'Obtener enlace de firma'}

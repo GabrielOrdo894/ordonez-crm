@@ -34,8 +34,13 @@ export type EnvioDocumensoResultado = {
   envelopeId: string;
 };
 
-/** Genera el PDF del presupuesto, lo sube a Documenso y devuelve el enlace de firma del cliente. */
-export async function enviarPresupuestoAFirmar(p: Presupuesto): Promise<EnvioDocumensoResultado> {
+/**
+ * Genera el PDF del presupuesto, lo sube a Documenso y devuelve el enlace de firma del cliente.
+ * Por defecto es idempotente: si ya existe un envelope guardado para este presupuesto, lo
+ * reutiliza en vez de crear uno nuevo (evita un segundo email de firma al cliente si se reintenta
+ * tras un fallo). `regenerar: true` (botón "Generar nuevo enlace") fuerza crear uno de verdad.
+ */
+export async function enviarPresupuestoAFirmar(p: Presupuesto, opts: { regenerar?: boolean } = {}): Promise<EnvioDocumensoResultado> {
   if (!p.cliente_email) {
     throw new Error('El presupuesto necesita un email de cliente para enviarlo a firmar con Documenso');
   }
@@ -60,6 +65,7 @@ export async function enviarPresupuestoAFirmar(p: Presupuesto): Promise<EnvioDoc
         width: (cajaFirma.width / ANCHO_PAGINA_MM) * 100,
         height: (cajaFirma.height / ALTO_PAGINA_MM) * 100,
       },
+      regenerar: opts.regenerar ?? false,
     },
   });
 

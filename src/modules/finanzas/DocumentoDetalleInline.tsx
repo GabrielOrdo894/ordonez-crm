@@ -237,9 +237,9 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   const [linkDocumensoModal, setLinkDocumensoModal] = useState<string | null>(null);
 
   const enviarDocumensoMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (regenerar: boolean = false) => {
       if (!presupuesto) throw new Error('Presupuesto no cargado');
-      return enviarPresupuestoAFirmar(presupuesto);
+      return enviarPresupuestoAFirmar(presupuesto, { regenerar });
     },
     onSuccess: async (resultado) => {
       setLinkDocumensoModal(resultado.signingUrl);
@@ -258,7 +258,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     if (presupuesto?.documenso_signing_url) {
       setLinkDocumensoModal(presupuesto.documenso_signing_url);
     } else {
-      enviarDocumensoMutation.mutate();
+      enviarDocumensoMutation.mutate(false);
     }
   };
 
@@ -472,7 +472,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => enviarDocumensoMutation.mutate()}
+            onClick={() => enviarDocumensoMutation.mutate(true)}
             disabled={enviarDocumensoMutation.isPending}
             className="self-start"
           >

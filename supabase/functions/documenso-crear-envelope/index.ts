@@ -69,12 +69,32 @@ Deno.serve(async (req: Request) => {
     const apiKey = Deno.env.get('DOCUMENSO_API_KEY');
     if (!apiKey) return jsonResponse({ error: 'Falta el secreto DOCUMENSO_API_KEY en la Edge Function' }, 500);
 
-    const { presupuestoId, numero, clienteNombre, clienteEmail, pdfBase64, campoFirma } = await req.json();
+    const { presupuestoId, numero, clienteNombre, clienteEmail, pdfBase64, campoFirma, regenerar } = await req.json();
     if (!presupuestoId || !clienteEmail || !pdfBase64) {
       return jsonResponse({ error: 'Faltan datos: presupuestoId, clienteEmail o pdfBase64' }, 400);
     }
     if (!campoFirma || typeof campoFirma.pagina !== 'number') {
       return jsonResponse({ error: 'Falta la posición del recuadro de firma (campoFirma) del PDF' }, 400);
+    }
+
+    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    // Idempotencia: si el guardado del envelope falló la vez anterior DESPUÉS de que Documenso ya
+    // lo creara y distribuyera, el frontend permitía reintentar y se creaba un SEGUNDO envelope —
+    // un segundo email de firma real al mismo cliente (bug real corregido 2026-08-11). Si ya hay
+    // un envelope guardado y no se pide explícitamente "regenerar" (botón "Generar nuevo enlace"),
+    // se reutiliza el existente en vez de crear otro.
+    if (!regenerar) {
+      const { data: existente, error: errorExistente } = await supabase
+        .from('presupuestos')
+        .select('documenso_envelope_id, documenso_signing_url, firmado')
+        .eq('id', presupuestoId)
+        .maybeSingle();
+      if (errorExistente) return jsonResponse({ error: errorExistente.message }, 500);
+      if (existente?.firmado) return jsonResponse({ error: 'Este presupuesto ya está firmado' }, 409);
+      if (existente?.documenso_envelope_id && existente?.documenso_signing_url) {
+        return jsonResponse({ signingUrl: existente.documenso_signing_url, envelopeId: existente.documenso_envelope_id });
+      }
     }
 
     const pdfBytes = base64ABytes(pdfBase64);
@@ -132,7 +152,6 @@ Deno.serve(async (req: Request) => {
 
     if (!signingUrl) throw new Error('No se pudo obtener el enlace de firma de Documenso');
 
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     const { error: updateError } = await supabase
       .from('presupuestos')
       .update({

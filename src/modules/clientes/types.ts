@@ -28,7 +28,12 @@ export function normalizarTelefono(tel: string) {
 export function agruparClientes(visitas: Visita[]): Cliente[] {
   const grupos = new Map<string, Visita[]>();
   for (const v of visitas) {
-    const clave = v.telefono ? normalizarTelefono(v.telefono) : (v.email ?? v.id);
+    // Un teléfono sin ningún dígito ("N/A", "-", "sin whatsapp"...) normaliza a cadena vacía —
+    // usarla tal cual como clave fundía en una sola ficha a todos los clientes distintos que
+    // hubieran escrito un teléfono así (bug real corregido 2026-08-11). Se cae a email y, en
+    // último caso, al id de la propia visita, para no agrupar por una clave vacía compartida.
+    const telNormalizado = v.telefono ? normalizarTelefono(v.telefono) : '';
+    const clave = telNormalizado || v.email || v.id;
     const grupo = grupos.get(clave);
     if (grupo) grupo.push(v);
     else grupos.set(clave, [v]);
