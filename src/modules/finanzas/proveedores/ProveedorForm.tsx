@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
+import { useConfirmar } from '../../../hooks/useConfirm';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
@@ -41,6 +42,7 @@ type ProveedorFormProps = {
 
 export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = 'modal' }: ProveedorFormProps) {
   const toast = useToast();
+  const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(vacio());
 
@@ -91,6 +93,30 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
     onError: (error) => toast.error(error.message),
   });
 
+  // Nada impedía crear el mismo proveedor dos veces sin darse cuenta (sin constraint en la tabla,
+  // sin comprobación en el formulario) — dos altas del mismo proveedor fragmentan sus gastos en
+  // dos proveedor_id distintos. Se avisa antes de guardar si ya existe uno con el mismo nombre,
+  // pero se deja crear igualmente si el usuario confirma (puede ser un proveedor homónimo real).
+  const handleGuardar = async () => {
+    if (!proveedor && form.razon_social.trim()) {
+      const { data: existentes, error } = await supabase
+        .from('proveedores')
+        .select('id')
+        .ilike('razon_social', form.razon_social.trim());
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      if (existentes && existentes.length > 0) {
+        const continuar = await confirmar(
+          `Ya existe un proveedor llamado "${form.razon_social.trim()}". ¿Crear uno nuevo de todas formas?`,
+        );
+        if (!continuar) return;
+      }
+    }
+    guardarMutation.mutate();
+  };
+
   const esFrancia = form.pais === 'Francia';
 
   const campos = (
@@ -139,7 +165,7 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={() => guardarMutation.mutate()} disabled={guardarMutation.isPending}>
+          <Button onClick={handleGuardar} disabled={guardarMutation.isPending}>
             {guardarMutation.isPending ? 'Guardando...' : 'Guardar proveedor'}
           </Button>
         </div>
@@ -157,7 +183,7 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={() => guardarMutation.mutate()} disabled={guardarMutation.isPending}>
+          <Button onClick={handleGuardar} disabled={guardarMutation.isPending}>
             {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </>

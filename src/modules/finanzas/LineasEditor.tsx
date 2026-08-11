@@ -27,6 +27,10 @@ type LineasEditorProps = {
   rango?: boolean;
   erroresVisibles?: boolean;
   idioma?: 'es' | 'fr';
+  // Las facturas rectificativas usan cantidad negativa a propósito (lineasRectificativa en
+  // facturas/types.ts) para restar el importe de la factura original — en cualquier otro
+  // documento una cantidad negativa es un error de tecleo, así que se bloquea por defecto.
+  permitirCantidadNegativa?: boolean;
 };
 
 // Combobox de designación: al enfocar el campo se abre un desplegable con las líneas del
@@ -108,7 +112,15 @@ function DesignacionCombobox({
   );
 }
 
-export function LineasEditor({ lineas, porcentajeIva, onChange, rango, erroresVisibles, idioma }: LineasEditorProps) {
+export function LineasEditor({
+  lineas,
+  porcentajeIva,
+  onChange,
+  rango,
+  erroresVisibles,
+  idioma,
+  permitirCantidadNegativa,
+}: LineasEditorProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
 
@@ -255,11 +267,12 @@ export function LineasEditor({ lineas, porcentajeIva, onChange, rango, erroresVi
                 <Input
                   label="Cantidad"
                   type="number"
-                  min={1}
+                  min={permitirCantidadNegativa ? undefined : 1}
                   max={rango ? 99 : undefined}
                   value={linea.cantidad}
                   onChange={(e) => {
-                    const cantidad = Number(e.target.value);
+                    const cantidadBruta = Number(e.target.value);
+                    const cantidad = permitirCantidadNegativa ? cantidadBruta : Math.max(1, cantidadBruta);
                     handleCambiarLinea(i, { cantidad: rango ? Math.min(99, cantidad) : cantidad });
                   }}
                 />

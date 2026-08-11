@@ -46,7 +46,17 @@ export default function PerfilPage() {
   const [archivoOriginal, setArchivoOriginal] = useState<File | null>(null);
   const [srcParaRecortar, setSrcParaRecortar] = useState<string | null>(null);
 
+  const TAMANO_MAX_AVATAR = 8 * 1024 * 1024; // 8 MB
+
   const handleArchivoSeleccionado = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se admiten imágenes');
+      return;
+    }
+    if (file.size > TAMANO_MAX_AVATAR) {
+      toast.error(`La imagen pesa demasiado (máximo ${TAMANO_MAX_AVATAR / 1024 / 1024} MB)`);
+      return;
+    }
     setArchivoOriginal(file);
     const lector = new FileReader();
     lector.onload = () => setSrcParaRecortar(lector.result as string);

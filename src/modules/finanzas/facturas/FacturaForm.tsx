@@ -636,6 +636,7 @@ export function FacturaForm({
               onChange={(lineas) => setForm((f) => ({ ...f, lineas }))}
               erroresVisibles={erroresVisibles}
               idioma={idiomaCorto}
+              permitirCantidadNegativa={form.tipo === 'rectificativa'}
             />
           </section>
         </div>

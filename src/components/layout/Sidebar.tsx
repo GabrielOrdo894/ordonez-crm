@@ -42,6 +42,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
+import { useToast } from '../../hooks/useToast';
 import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../../modules/solicitudes/types';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
@@ -198,6 +199,7 @@ type SidebarProps = {
 
 export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   const { user, rol, signOut } = useAuth();
+  const toast = useToast();
   const SECTIONS = seccionesPorRol(rol);
   const esMobil = useEsMobil();
   const [collapsed, setCollapsed] = useState(true);
@@ -214,7 +216,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   const perfilBtnRef = useRef<HTMLButtonElement>(null);
   const perfilPanelRef = useRef<HTMLDivElement>(null);
 
-  const { data: mensajesNoLeidos } = useQuery({
+  const { data: mensajesNoLeidos, error: errorMensajesNoLeidos } = useQuery({
     queryKey: ['mensajes_equipo', 'no-leidos', user?.id],
     queryFn: async () => {
       if (!user) return 0;
@@ -236,7 +238,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   // de Tanstack Query, así que el badge se actualiza solo (sin pedir nada extra al servidor) en
   // cuanto la revisión automática de Gmail de AppLayout u otra pantalla invalida ['solicitudes']
   // o ['presupuestos', 'respuestas-pendientes'].
-  const { data: solicitudesParaBadge } = useQuery({
+  const { data: solicitudesParaBadge, error: errorSolicitudesBadge } = useQuery({
     queryKey: ['solicitudes'],
     queryFn: async () => {
       const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
@@ -246,7 +248,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   });
   const solicitudesNuevasCount = (solicitudesParaBadge ?? []).filter((s) => s.estado === 'Nueva').length;
 
-  const { data: seguimientosParaBadge } = useQuery({
+  const { data: seguimientosParaBadge, error: errorSeguimientosBadge } = useQuery({
     queryKey: ['presupuestos', 'respuestas-pendientes'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -268,7 +270,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
     '/solicitudes/seguimiento': seguimientosNuevosCount,
   };
 
-  const { data: empresaConfig } = useQuery({
+  const { data: empresaConfig, error: errorEmpresaConfig } = useQuery({
     queryKey: ['empresa_config'],
     queryFn: async () => {
       const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
@@ -281,6 +283,16 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
     refetchInterval: 8000,
   });
   const logoUrl = (empresaConfig?.datos as { logo_url?: string } | null)?.logo_url;
+
+  // Estas 4 queries alimentan badges/logo del Sidebar — antes un error las dejaba en 0/stale sin
+  // avisar (el Sidebar está siempre montado, así que un fallo aquí podía pasar inadvertido mucho
+  // tiempo). toast se excluye de deps: ToastContext recrea su `value` en cada render, así que
+  // incluirlo reengancharía este efecto en cualquier toast de cualquier pantalla de la app.
+  useEffect(() => {
+    const error = errorMensajesNoLeidos ?? errorSolicitudesBadge ?? errorSeguimientosBadge ?? errorEmpresaConfig;
+    if (error) toast.error(error.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorMensajesNoLeidos, errorSolicitudesBadge, errorSeguimientosBadge, errorEmpresaConfig]);
 
   const nombre = (user?.user_metadata?.nombre as string) || user?.email || '';
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;

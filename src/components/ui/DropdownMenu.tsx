@@ -31,13 +31,25 @@ export function DropdownMenu({ acciones }: DropdownMenuProps) {
       if (panelRef.current?.contains(e.target as Node)) return;
       setAbierto(false);
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setAbierto(false);
+      botonRef.current?.focus();
+    };
 
     document.addEventListener('mousedown', handleClick);
     window.addEventListener('scroll', handleScroll, true);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('mousedown', handleClick);
       window.removeEventListener('scroll', handleScroll, true);
+      document.removeEventListener('keydown', handleKeyDown);
     };
+  }, [abierto]);
+
+  useEffect(() => {
+    if (!abierto) return;
+    panelRef.current?.querySelector<HTMLElement>('button')?.focus();
   }, [abierto]);
 
   const visibles = acciones.filter((a) => !a.oculto);

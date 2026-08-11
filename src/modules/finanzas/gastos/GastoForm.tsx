@@ -203,7 +203,20 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     }
   };
 
+  const TAMANO_MAX_ADJUNTO = 10 * 1024 * 1024; // 10 MB
+
   const handleSubirAdjunto = async (file: File) => {
+    // El accept="image/*,.pdf" del <input type="file"> solo restringe el selector nativo —
+    // arrastrar-y-soltar lo saltaba por completo, y no había límite de tamaño en ningún punto
+    // antes de subir a Storage (bug real corregido 2026-08-11).
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      toast.error('Solo se admiten imágenes o PDF como justificante');
+      return;
+    }
+    if (file.size > TAMANO_MAX_ADJUNTO) {
+      toast.error(`El archivo pesa demasiado (máximo ${TAMANO_MAX_ADJUNTO / 1024 / 1024} MB)`);
+      return;
+    }
     setSubiendo(true);
     const extension = file.name.split('.').pop() ?? 'jpg';
     const path = `gastos/${crypto.randomUUID()}.${extension}`;

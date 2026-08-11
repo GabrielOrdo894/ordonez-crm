@@ -101,7 +101,18 @@ export default function ProveedoresPage() {
   }, [proveedores]);
 
   const handleEliminar = async (p: Proveedor) => {
-    if (!(await confirmar(`¿Eliminar el proveedor "${p.razon_social ?? ''}"?`))) return;
+    const { count, error } = await supabase
+      .from('gastos')
+      .select('id', { count: 'exact', head: true })
+      .eq('proveedor_id', p.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const aviso = count
+      ? ` Tiene ${count} gasto(s) vinculado(s) — no se borrarán, pero dejarán de mostrar el nombre del proveedor.`
+      : '';
+    if (!(await confirmar(`¿Eliminar el proveedor "${p.razon_social ?? ''}"?${aviso}`))) return;
     eliminarMutation.mutate(p.id);
   };
 
