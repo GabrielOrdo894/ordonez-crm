@@ -19,6 +19,23 @@
 // Ver docs/bloque6-solicitudes-seguimiento.md y docs/directrices-respuesta-clientes.md.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
+// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
+// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
+// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
+// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
+function esLlamadaAutorizada(req: Request): boolean {
+  const auth = req.headers.get('Authorization') ?? '';
+  const token = auth.replace(/^Bearer\s+/i, '');
+  const partes = token.split('.');
+  if (partes.length !== 3) return false;
+  try {
+    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.role === 'authenticated' || payload.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 type GmailHeader = { name: string; value: string };
 type GmailMessagePart = {
   mimeType?: string;
@@ -619,6 +636,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   const log: string[] = [];
   try {

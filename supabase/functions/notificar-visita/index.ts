@@ -14,6 +14,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
+// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
+// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
+// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
+function esLlamadaAutorizada(req: Request): boolean {
+  const auth = req.headers.get('Authorization') ?? '';
+  const token = auth.replace(/^Bearer\s+/i, '');
+  const partes = token.split('.');
+  if (partes.length !== 3) return false;
+  try {
+    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.role === 'authenticated' || payload.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 
 // Oficinas de referencia ("la casa") para estimar distancia — coordenadas de
@@ -218,6 +235,7 @@ function construirHtml(opts: {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
     const { visitaId } = await req.json();

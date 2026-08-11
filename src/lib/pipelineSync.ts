@@ -42,18 +42,22 @@ export async function sincronizarPipelineCliente(telefono: string | null | undef
   const ultimaVisita = visitasCliente[0];
   if (!ultimaVisita) return;
 
+  // Señales acotadas a ESTA visita (visita_id), no a todo el histórico del teléfono — un cliente
+  // repetidor con un proyecto viejo ya cobrado no debe arrastrar su visita nueva a "Finalizado"
+  // solo porque comparte teléfono con esa obra anterior (bug real corregido 2026-08-11).
   const { data: presupuestos, error: errorPresupuestos } = await supabase
     .from('presupuestos')
-    .select('id, estado, cliente_tel')
+    .select('id, estado')
+    .eq('visita_id', ultimaVisita.id)
     .is('eliminado_en', null);
   if (errorPresupuestos) {
     console.warn('sincronizarPipelineCliente: no se pudieron leer presupuestos:', errorPresupuestos.message);
     return;
   }
-  const presupuestosCliente = (presupuestos ?? []).filter((p) => normalizarTelefono(p.cliente_tel ?? '') === tel);
+  const presupuestosVisita = presupuestos ?? [];
 
   let proyectoEstado: string | null = null;
-  const idsPresupuestos = presupuestosCliente.map((p) => p.id);
+  const idsPresupuestos = presupuestosVisita.map((p) => p.id);
   if (idsPresupuestos.length > 0) {
     const { data: proyectos, error: errorProyectos } = await supabase
       .from('proyectos')
@@ -70,20 +74,19 @@ export async function sincronizarPipelineCliente(telefono: string | null | undef
 
   const { data: facturas, error: errorFacturas } = await supabase
     .from('facturas')
-    .select('estado_cobro, cliente_tel')
+    .select('estado_cobro')
+    .eq('visita_id', ultimaVisita.id)
     .is('eliminado_en', null);
   if (errorFacturas) {
     console.warn('sincronizarPipelineCliente: no se pudieron leer facturas:', errorFacturas.message);
     return;
   }
-  const facturaCobrada = (facturas ?? []).some(
-    (f) => normalizarTelefono(f.cliente_tel ?? '') === tel && f.estado_cobro === 'Cobrada',
-  );
+  const facturaCobrada = (facturas ?? []).some((f) => f.estado_cobro === 'Cobrada');
 
   const nuevaEtapa = etapaAutomatica({
     visitaEstado: ultimaVisita.estado,
     visitaTieneFecha: !!ultimaVisita.fecha_visita,
-    presupuestos: presupuestosCliente,
+    presupuestos: presupuestosVisita,
     proyectoEstado,
     facturaCobrada,
   });

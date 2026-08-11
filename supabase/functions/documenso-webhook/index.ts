@@ -118,13 +118,19 @@ Deno.serve(async (req: Request) => {
     const ultimaVisita = visitasCliente[0];
 
     if (ultimaVisita) {
-      const { data: presupuestosCliente } = await supabase.from('presupuestos').select('id, estado, cliente_tel').is('eliminado_en', null);
-      const delCliente = (presupuestosCliente ?? []).filter(
-        (p: { cliente_tel?: string }) => normalizarTelefono(p.cliente_tel ?? '') === tel,
-      );
+      // Señales acotadas a ESTA visita (visita_id), no a todo el histórico del teléfono — un
+      // cliente repetidor con un proyecto viejo ya cobrado no debe arrastrar su visita nueva a
+      // "Finalizado" solo por compartir teléfono con esa obra anterior (bug real corregido
+      // 2026-08-11, mismo fix que src/lib/pipelineSync.ts).
+      const { data: presupuestosVisita } = await supabase
+        .from('presupuestos')
+        .select('id, estado')
+        .eq('visita_id', ultimaVisita.id)
+        .is('eliminado_en', null);
+      const delVisita = presupuestosVisita ?? [];
 
       let proyectoEstado: string | null = null;
-      const idsPresupuestos = delCliente.map((p: { id: string }) => p.id);
+      const idsPresupuestos = delVisita.map((p: { id: string }) => p.id);
       if (idsPresupuestos.length > 0) {
         const { data: proyectos } = await supabase.from('proyectos').select('estado, presupuesto_id').in('presupuesto_id', idsPresupuestos);
         const lista = proyectos ?? [];
@@ -132,15 +138,17 @@ Deno.serve(async (req: Request) => {
         proyectoEstado = relevante?.estado ?? null;
       }
 
-      const { data: facturas } = await supabase.from('facturas').select('estado_cobro, cliente_tel').is('eliminado_en', null);
-      const facturaCobrada = (facturas ?? []).some(
-        (f: { cliente_tel?: string; estado_cobro?: string }) => normalizarTelefono(f.cliente_tel ?? '') === tel && f.estado_cobro === 'Cobrada',
-      );
+      const { data: facturas } = await supabase
+        .from('facturas')
+        .select('estado_cobro')
+        .eq('visita_id', ultimaVisita.id)
+        .is('eliminado_en', null);
+      const facturaCobrada = (facturas ?? []).some((f: { estado_cobro?: string }) => f.estado_cobro === 'Cobrada');
 
       const nuevaEtapa = etapaAutomatica({
         visitaEstado: ultimaVisita.estado ?? null,
         visitaTieneFecha: !!ultimaVisita.fecha_visita,
-        presupuestos: delCliente,
+        presupuestos: delVisita,
         proyectoEstado,
         facturaCobrada,
       });
