@@ -1,0 +1,15 @@
+CREATE INDEX IF NOT EXISTS idx_facturas_presupuesto_id ON public.facturas (presupuesto_id);
+CREATE INDEX IF NOT EXISTS idx_facturas_visita_id ON public.facturas (visita_id);
+CREATE INDEX IF NOT EXISTS idx_galeria_proyecto_id ON public.galeria (proyecto_id);
+CREATE INDEX IF NOT EXISTS idx_galeria_visita_id ON public.galeria (visita_id);
+CREATE INDEX IF NOT EXISTS idx_gastos_visita_id ON public.gastos (visita_id);
+CREATE INDEX IF NOT EXISTS idx_gastos_proveedor_id ON public.gastos (proveedor_id);
+CREATE INDEX IF NOT EXISTS idx_movimientos_banco_gasto_id ON public.movimientos_banco (gasto_id);
+CREATE INDEX IF NOT EXISTS idx_movimientos_banco_factura_id ON public.movimientos_banco (factura_id);
+CREATE INDEX IF NOT EXISTS idx_notas_cliente_visita_id ON public.notas_cliente (visita_id);
+CREATE INDEX IF NOT EXISTS idx_presupuestos_presupuesto_origen_id ON public.presupuestos (presupuesto_origen_id);
+CREATE INDEX IF NOT EXISTS idx_presupuestos_visita_id ON public.presupuestos (visita_id);
+CREATE INDEX IF NOT EXISTS idx_proyectos_presupuesto_id ON public.proyectos (presupuesto_id);
+CREATE INDEX IF NOT EXISTS idx_proyectos_visita_id ON public.proyectos (visita_id);
+CREATE INDEX IF NOT EXISTS idx_solicitudes_visita_id ON public.solicitudes (visita_id);
+CREATE INDEX IF NOT EXISTS idx_solicitudes_presupuesto_vinculado_id ON public.solicitudes (presupuesto_vinculado_id);

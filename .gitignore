@@ -40,3 +40,6 @@ npm-debug.log*
 
 # Build info de TypeScript
 *.tsbuildinfo
+
+# Estado local de permisos de Claude Code (crece con cada comando aprobado, no es código)
+.claude/settings.local.json

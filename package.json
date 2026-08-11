@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
@@ -22,13 +25,20 @@
     "recharts": "^3.9.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4",
     "autoprefixer": "^10",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
     "postcss": "^8",
+    "prettier": "^3.9.6",
     "tailwindcss": "^3",
     "typescript": "^5",
+    "typescript-eslint": "^8.67.0",
     "vite": "^5",
     "vitest": "^4.1.10"
   }
