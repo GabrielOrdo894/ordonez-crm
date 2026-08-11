@@ -10,7 +10,7 @@
 // "modelo" es opcional — "claude-haiku-4-5" (por defecto, económico) o "claude-sonnet-5"
 // (más preciso, más caro). Cualquier otro valor cae al modelo por defecto.
 // Ver docs/bloque6-solicitudes-seguimiento.md y docs/directrices-respuesta-clientes.md.
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,6 +19,13 @@ const corsHeaders = {
 
 const MODELO_DEFECTO = 'claude-haiku-4-5';
 const MODELOS_PERMITIDOS = new Set(['claude-haiku-4-5', 'claude-sonnet-5']);
+
+type AnthropicContentBlock = { type: string; name?: string; input?: Record<string, unknown> };
+type AnthropicResponse = {
+  error?: { message?: string };
+  content?: AnthropicContentBlock[];
+  usage?: { input_tokens?: number; output_tokens?: number };
+};
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -98,7 +105,7 @@ function siguientesSlots(desde: Date, ocupadas: Set<string>, cantidad: number): 
 // el mismo refresh_token compartido de `google_config` que Gmail/Calendar, scope calendar.events
 // ya concedido — no requiere reconectar Google. Si falla (no conectado, etc.) se degrada sin
 // romper la generación del mensaje: el slot se calcula solo con `visitas`.
-async function obtenerAccessTokenCalendar(supabase: any): Promise<string> {
+async function obtenerAccessTokenCalendar(supabase: SupabaseClient): Promise<string> {
   const { data: config, error } = await supabase.from('google_config').select('refresh_token').eq('id', 1).maybeSingle();
   if (error || !config?.refresh_token) throw new Error('Google no está conectado');
 
@@ -133,7 +140,7 @@ function parisADate(fechaStr: string, horaStr: string): Date {
 
 // Devuelve las claves "YYYY-MM-DD|HH:MM" (mismo formato que `ocupadas`) de los slots 12:00/18:00
 // (hora de Paris) que se solapan con algún evento real del Calendar entre `desde` y `hasta`.
-async function slotsOcupadosPorCalendar(supabase: any, desde: Date, hasta: Date): Promise<Set<string>> {
+async function slotsOcupadosPorCalendar(supabase: SupabaseClient, desde: Date, hasta: Date): Promise<Set<string>> {
   const token = await obtenerAccessTokenCalendar(supabase);
   const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
     method: 'POST',
@@ -184,7 +191,7 @@ Deno.serve(async (req: Request) => {
       .select('datos, visitas_disponibles_desde')
       .eq('id', 1)
       .maybeSingle();
-    const empresa = (empresaRow?.datos ?? {}) as Record<string, any>;
+    const empresa = (empresaRow?.datos ?? {}) as Record<string, unknown>;
 
     let caso: Record<string, unknown> = {};
     let idiomaDoc = 'es';
@@ -211,7 +218,9 @@ Deno.serve(async (req: Request) => {
       .neq('estado', 'Cancelada')
       .not('fecha_visita', 'is', null)
       .gte('fecha_visita', fmt(desde));
-    const ocupadas = new Set((visitas ?? []).map((v: any) => `${v.fecha_visita}|${(v.hora_visita ?? '').slice(0, 5)}`));
+    const ocupadas = new Set(
+      (visitas ?? []).map((v: { fecha_visita: string; hora_visita: string | null }) => `${v.fecha_visita}|${(v.hora_visita ?? '').slice(0, 5)}`),
+    );
 
     // Además de `visitas`, se comprueba el Google Calendar real (mismo calendario donde ya se
     // crean los eventos de visita) para no ofrecer un hueco bloqueado a mano por Gabriel que no
@@ -228,7 +237,9 @@ Deno.serve(async (req: Request) => {
 
     const slots = siguientesSlots(desde, ocupadas, 3);
 
-    const contextoDirectrices = (directrices ?? []).map((d: any) => `## ${d.titulo}\n${d.contenido}`).join('\n\n---\n\n');
+    const contextoDirectrices = (directrices ?? [])
+      .map((d: { titulo: string; contenido: string }) => `## ${d.titulo}\n${d.contenido}`)
+      .join('\n\n---\n\n');
     const contacto = idiomaDoc === 'fr' ? empresa.fr ?? {} : empresa.es ?? {};
 
     const systemPrompt = `Eres el redactor de mensajes a clientes de Reformas Ordoñez, empresa de reformas en la frontera franco-española (más de 25 años de experiencia). Escribes SIEMPRE en ${idiomaDoc === 'fr' ? 'francés' : 'español'}, tono profesional, breve (máximo 8-10 líneas), sin emojis, sin sonar a IA genérica.
@@ -253,13 +264,13 @@ ${
 }
 
 ${
-  tipo === 'solicitud' && (caso as any).ultima_respuesta_cliente_resumen
+  tipo === 'solicitud' && caso.ultima_respuesta_cliente_resumen
     ? `El campo "ultima_respuesta_cliente_resumen" del caso es una respuesta NUEVA del cliente a un mensaje que ya le enviaste antes (mira "mensaje_generado" para ver qué le dijiste). Redacta la respuesta a ESA respuesta nueva, con el contexto de la conversación completa — no repitas el mensaje inicial de nuevo.`
     : ''
 }
 
 ${
-  tipo === 'seguimiento' && Array.isArray((caso as any).conversacion) && (caso as any).conversacion.length > 0
+  tipo === 'seguimiento' && Array.isArray(caso.conversacion) && caso.conversacion.length > 0
     ? `El campo "conversacion" del caso es el hilo de Gmail completo con este cliente (más antiguo primero, "de" es el remitente). Redacta la respuesta al ÚLTIMO mensaje del cliente en ese hilo, teniendo en cuenta todo el contexto previo — no repitas cosas ya dichas.`
     : ''
 }
@@ -310,12 +321,12 @@ Responde SIEMPRE llamando a la herramienta entregar_mensaje.`;
       }),
     });
 
-    const anthropicData = await anthropicRes.json();
+    const anthropicData = (await anthropicRes.json()) as AnthropicResponse;
     if (!anthropicRes.ok) {
       return jsonResponse({ error: `Error de la API de Anthropic: ${anthropicData.error?.message ?? anthropicRes.status}` }, 502);
     }
 
-    const toolUse = (anthropicData.content ?? []).find((b: any) => b.type === 'tool_use' && b.name === 'entregar_mensaje');
+    const toolUse = (anthropicData.content ?? []).find((b) => b.type === 'tool_use' && b.name === 'entregar_mensaje');
     if (!toolUse) return jsonResponse({ error: 'La IA no devolvió un mensaje estructurado' }, 502);
 
     const mensaje = toolUse.input;

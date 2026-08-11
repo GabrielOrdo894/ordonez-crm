@@ -18,6 +18,4 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run test
-      # No bloquea aún: hay 36 avisos de tipos preexistentes (no-explicit-any) por limpiar.
       - run: npm run lint
-        continue-on-error: true

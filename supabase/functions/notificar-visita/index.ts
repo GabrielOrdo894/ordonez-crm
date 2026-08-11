@@ -7,7 +7,7 @@
 // ver src/lib/googleCalendar.ts. Ver también docs/bloque6-solicitudes-seguimiento.md.
 //
 // Body esperado: { "visitaId": "<uuid>" }
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -86,7 +86,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function obtenerAccessToken(supabase: any): Promise<string> {
+async function obtenerAccessToken(supabase: SupabaseClient): Promise<string> {
   const { data: config, error } = await supabase
     .from('google_config')
     .select('refresh_token, refresh_token_gmail')

@@ -12,6 +12,39 @@ type RutaPreviewProps = {
 
 type Estado = 'cargando' | 'ok' | 'error';
 
+// Tipos mínimos de la Distance Matrix API que usamos aquí.
+type DistanceMatrixElement = {
+  status: string;
+  duration?: { text: string };
+  distance?: { text: string };
+};
+
+type DistanceMatrixResponse = {
+  rows?: Array<{ elements?: DistanceMatrixElement[] }>;
+};
+
+type DistanceMatrixService = {
+  getDistanceMatrix: (
+    peticion: {
+      origins: string[];
+      destinations: Array<string | { lat: number; lng: number }>;
+      travelMode: string;
+    },
+    callback: (respuesta: DistanceMatrixResponse | null, status: string) => void,
+  ) => void;
+};
+
+type GoogleRoutesWindow = {
+  google?: {
+    maps?: {
+      importLibrary: (
+        libreria: string,
+      ) => Promise<{ DistanceMatrixService: new () => DistanceMatrixService }>;
+      TravelMode: { DRIVING: string };
+    };
+  };
+};
+
 export function RutaPreview({ direccion, lat, lng }: RutaPreviewProps) {
   const [estado, setEstado] = useState<Estado>('cargando');
   const [duracion, setDuracion] = useState<string | null>(null);
@@ -27,7 +60,7 @@ export function RutaPreview({ direccion, lat, lng }: RutaPreviewProps) {
     setDistancia(null);
 
     async function calcular() {
-      const google = (window as any).google;
+      const google = (window as unknown as GoogleRoutesWindow).google;
       if (!google?.maps?.importLibrary) {
         console.error('RutaPreview: Google Maps JS no está cargado (revisa VITE_GMAPS_API_KEY).');
         if (!cancelado) setEstado('error');
@@ -45,7 +78,7 @@ export function RutaPreview({ direccion, lat, lng }: RutaPreviewProps) {
             destinations: [destino],
             travelMode: google.maps.TravelMode.DRIVING,
           },
-          (respuesta: any, status: string) => {
+          (respuesta, status) => {
             if (cancelado) return;
             const elemento = respuesta?.rows?.[0]?.elements?.[0];
             if (status !== 'OK' || !elemento || elemento.status !== 'OK') {

@@ -17,7 +17,22 @@
 //      en el CRM y se triage a mano.
 //
 // Ver docs/bloque6-solicitudes-seguimiento.md y docs/directrices-respuesta-clientes.md.
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+
+type GmailHeader = { name: string; value: string };
+type GmailMessagePart = {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: GmailMessagePart[];
+  headers?: GmailHeader[];
+};
+type GmailMessage = {
+  id: string;
+  threadId: string;
+  internalDate: string;
+  snippet?: string;
+  payload?: GmailMessagePart;
+};
 
 const LANDBOT_SENDER = '8c3d549c-46cd-4773-9027-31b23bc30704@landbot.email';
 const WORDPRESS_SENDER = 'noreply@ordonezrenov.com';
@@ -74,7 +89,7 @@ async function obtenerAccessToken(): Promise<string> {
   return data.access_token;
 }
 
-async function gmailFetch(path: string, token: string) {
+async function gmailFetch<T = unknown>(path: string, token: string): Promise<T> {
   const res = await fetch(`https://www.googleapis.com/gmail/v1/users/me/${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -92,13 +107,13 @@ function base64UrlDecode(data: string): string {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-function extraerCuerpo(payload: any): string {
+function extraerCuerpo(payload: GmailMessagePart | undefined): string {
   if (!payload) return '';
   if (payload.body?.data) return base64UrlDecode(payload.body.data);
   const partes = payload.parts ?? [];
-  const textoPlano = partes.find((p: any) => p.mimeType === 'text/plain');
+  const textoPlano = partes.find((p) => p.mimeType === 'text/plain');
   if (textoPlano?.body?.data) return base64UrlDecode(textoPlano.body.data);
-  const html = partes.find((p: any) => p.mimeType === 'text/html');
+  const html = partes.find((p) => p.mimeType === 'text/html');
   if (html?.body?.data) return base64UrlDecode(html.body.data);
   for (const p of partes) {
     const anidado = extraerCuerpo(p);
@@ -121,8 +136,8 @@ function htmlATexto(html: string): string {
     .trim();
 }
 
-function cabecera(headers: any[], nombre: string): string {
-  return headers?.find((h: any) => h.name.toLowerCase() === nombre.toLowerCase())?.value ?? '';
+function cabecera(headers: GmailHeader[], nombre: string): string {
+  return headers?.find((h) => h.name.toLowerCase() === nombre.toLowerCase())?.value ?? '';
 }
 
 function extraerEmail(campoDe: string): string {
@@ -199,15 +214,18 @@ function parseFormularioEmailJS(texto: string) {
   };
 }
 
-async function ingerirSolicitudesNuevas(token: string, supabase: any, log: string[]) {
+async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient, log: string[]) {
   const query = `(from:${LANDBOT_SENDER} OR from:${WORDPRESS_SENDER} OR (from:${NUESTRO_EMAIL} to:${NUESTRO_EMAIL} subject:"${EMAILJS_ASUNTO}")) newer_than:7d`;
-  const listado = await gmailFetch(`messages?q=${encodeURIComponent(query)}&maxResults=30`, token);
+  const listado = await gmailFetch<{ messages?: { id: string; threadId: string }[] }>(
+    `messages?q=${encodeURIComponent(query)}&maxResults=30`,
+    token,
+  );
   const mensajes = listado.messages ?? [];
   log.push(`Solicitudes: ${mensajes.length} mensajes candidatos (últimos 7 días).`);
 
   let insertadas = 0;
   for (const { id, threadId } of mensajes) {
-    const msg = await gmailFetch(`messages/${id}?format=full`, token);
+    const msg = await gmailFetch<GmailMessage>(`messages/${id}?format=full`, token);
     const headers = msg.payload?.headers ?? [];
     const de = extraerEmail(cabecera(headers, 'From'));
     const asunto = cabecera(headers, 'Subject');
@@ -310,9 +328,9 @@ function limpiarPlantillaPropia(texto: string): string {
 type MensajeConversacion = { de: string; fecha: string; texto: string };
 
 async function extraerConversacion(threadId: string, token: string): Promise<MensajeConversacion[]> {
-  const hilo = await gmailFetch(`threads/${threadId}?format=full`, token);
+  const hilo = await gmailFetch<{ messages?: GmailMessage[] }>(`threads/${threadId}?format=full`, token);
   const mensajes = hilo.messages ?? [];
-  return mensajes.map((msg: any) => {
+  return mensajes.map((msg) => {
     const headers = msg.payload?.headers ?? [];
     const de = extraerEmail(cabecera(headers, 'From'));
     let texto = quitarCitas(htmlATexto(extraerCuerpo(msg.payload)));
@@ -326,7 +344,7 @@ async function extraerConversacion(threadId: string, token: string): Promise<Men
   });
 }
 
-async function revisarRespuestasPresupuestos(token: string, supabase: any, log: string[]) {
+async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseClient, log: string[]) {
   // OJO: antes solo se comprobaban los presupuestos `Pendiente` — en cuanto Gabriel marcaba
   // uno como `Aceptado` dejaba de revisarse para siempre, así que una respuesta nueva del
   // cliente DESPUÉS de aceptar nunca se detectaba (bug real, 2026-07-29). `Aceptado` entra
@@ -354,7 +372,10 @@ async function revisarRespuestasPresupuestos(token: string, supabase: any, log: 
     // conversación completa (no solo el último mensaje).
     if (!threadId) {
       const query = `${p.cliente_email} newer_than:60d`;
-      const listado = await gmailFetch(`messages?q=${encodeURIComponent(query)}&maxResults=10`, token);
+      const listado = await gmailFetch<{ messages?: { id: string; threadId: string }[] }>(
+        `messages?q=${encodeURIComponent(query)}&maxResults=10`,
+        token,
+      );
       const mensajes = listado.messages ?? [];
       if (mensajes.length === 0) continue;
       threadId = mensajes[0].threadId;
@@ -421,7 +442,7 @@ async function revisarRespuestasPresupuestos(token: string, supabase: any, log: 
 // Solicitudes ya enviadas (Gabriel ya contestó) que aún no se han convertido en un
 // presupuesto real — comprueba si el cliente respondió dentro del mismo hilo de Gmail y, si
 // es así, guarda el resumen y la devuelve a "Nueva" para que vuelva a aparecer como pendiente.
-async function revisarRespuestasSolicitudes(token: string, supabase: any, log: string[]) {
+async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
     .select('id, gmail_thread_id, ultima_respuesta_cliente_fecha')
@@ -437,9 +458,9 @@ async function revisarRespuestasSolicitudes(token: string, supabase: any, log: s
 
   let actualizadas = 0;
   for (const s of solicitudes) {
-    let hilo;
+    let hilo: { messages?: GmailMessage[] } | undefined;
     try {
-      hilo = await gmailFetch(`threads/${s.gmail_thread_id}?format=full`, token);
+      hilo = await gmailFetch<{ messages?: GmailMessage[] }>(`threads/${s.gmail_thread_id}?format=full`, token);
     } catch (err) {
       log.push(`Error leyendo hilo de la solicitud ${s.id}: ${String(err)}`);
       continue;
@@ -498,11 +519,14 @@ function estaExcluido(email: string, listaNegra: string[]): boolean {
 // señal de que es un cliente real, así que se crea una solicitud nueva (fuente `email_directo`)
 // para que aparezca en el CRM y se triage a mano — cubre justo lo que las otras pasadas se
 // pierden porque dependen de que el hilo ya tenga un gmail_thread_id guardado de antemano.
-async function detectarConversacionesDirectas(token: string, supabase: any, log: string[], listaNegra: string[]) {
+async function detectarConversacionesDirectas(token: string, supabase: SupabaseClient, log: string[], listaNegra: string[]) {
   const query = `in:sent newer_than:60d`;
-  const listado = await gmailFetch(`messages?q=${encodeURIComponent(query)}&maxResults=100`, token);
+  const listado = await gmailFetch<{ messages?: { threadId: string }[] }>(
+    `messages?q=${encodeURIComponent(query)}&maxResults=100`,
+    token,
+  );
   const mensajes = listado.messages ?? [];
-  const threadIds = [...new Set(mensajes.map((m: any) => m.threadId as string))];
+  const threadIds = [...new Set(mensajes.map((m) => m.threadId))];
   log.push(`Conversaciones directas: ${threadIds.length} hilo(s) con mensajes nuestros (últimos 60 días).`);
 
   const [{ data: solicitudesTracked }, { data: presupuestosTracked }] = await Promise.all([
@@ -510,8 +534,8 @@ async function detectarConversacionesDirectas(token: string, supabase: any, log:
     supabase.from('presupuestos').select('gmail_thread_id').not('gmail_thread_id', 'is', null),
   ]);
   const hilosYaTracked = new Set<string>([
-    ...(solicitudesTracked ?? []).map((s: any) => s.gmail_thread_id),
-    ...(presupuestosTracked ?? []).map((p: any) => p.gmail_thread_id),
+    ...((solicitudesTracked ?? []) as { gmail_thread_id: string }[]).map((s) => s.gmail_thread_id),
+    ...((presupuestosTracked ?? []) as { gmail_thread_id: string }[]).map((p) => p.gmail_thread_id),
   ]);
 
   let creadas = 0;
@@ -519,9 +543,9 @@ async function detectarConversacionesDirectas(token: string, supabase: any, log:
   for (const threadId of threadIds) {
     if (hilosYaTracked.has(threadId)) continue;
 
-    let hilo;
+    let hilo: { messages?: GmailMessage[] } | undefined;
     try {
-      hilo = await gmailFetch(`threads/${threadId}?format=full`, token);
+      hilo = await gmailFetch<{ messages?: GmailMessage[] }>(`threads/${threadId}?format=full`, token);
     } catch (err) {
       log.push(`Error leyendo hilo directo ${threadId}: ${String(err)}`);
       continue;
@@ -530,7 +554,7 @@ async function detectarConversacionesDirectas(token: string, supabase: any, log:
     if (mensajesHilo.length < 2) continue; // hace falta al menos ida y vuelta
 
     const tieneMensajeNuestro = mensajesHilo.some(
-      (m: any) => extraerEmail(cabecera(m.payload?.headers ?? [], 'From')) === NUESTRO_EMAIL
+      (m) => extraerEmail(cabecera(m.payload?.headers ?? [], 'From')) === NUESTRO_EMAIL,
     );
     if (!tieneMensajeNuestro) continue;
 

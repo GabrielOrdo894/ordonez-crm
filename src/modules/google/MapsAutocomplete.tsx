@@ -17,6 +17,35 @@ type MapsAutocompleteProps = {
   error?: string;
 };
 
+// Tipos mínimos de la Places API (Extended Component Library) que usamos aquí —
+// @types/google.maps no cubre todavía PlaceAutocompleteElement de forma estable.
+type PlaceResult = {
+  fetchFields: (opciones: { fields: string[] }) => Promise<void>;
+  formattedAddress?: string;
+  addressComponents?: Array<{ types: string[]; shortText: string }>;
+  location?: { lat: () => number; lng: () => number };
+};
+
+type GmpSelectEvent = {
+  placePrediction: { toPlace: () => PlaceResult };
+};
+
+type PlaceAutocompleteElement = HTMLElement & {
+  value: string;
+  addEventListener(tipo: 'input', listener: () => void): void;
+  addEventListener(tipo: 'gmp-select', listener: (evento: GmpSelectEvent) => void): void;
+};
+
+type GoogleMapsWindow = {
+  google?: {
+    maps?: {
+      importLibrary: (
+        libreria: string,
+      ) => Promise<{ PlaceAutocompleteElement: new (opciones: { includedRegionCodes: string[] }) => PlaceAutocompleteElement }>;
+    };
+  };
+};
+
 export function MapsAutocomplete({ label, value, onChange, onSelect, error }: MapsAutocompleteProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [disponible, setDisponible] = useState<boolean | null>(null);
@@ -33,7 +62,7 @@ export function MapsAutocomplete({ label, value, onChange, onSelect, error }: Ma
     let cancelado = false;
 
     async function montar() {
-      const google = (window as any).google;
+      const google = (window as unknown as GoogleMapsWindow).google;
       if (!google?.maps?.importLibrary) {
         setDisponible(false);
         return;
@@ -54,10 +83,10 @@ export function MapsAutocomplete({ label, value, onChange, onSelect, error }: Ma
           onChange(elemento.value ?? '');
         });
 
-        elemento.addEventListener('gmp-select', async (evento: any) => {
+        elemento.addEventListener('gmp-select', async (evento: GmpSelectEvent) => {
           const place = evento.placePrediction.toPlace();
           await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
-          const country = place.addressComponents?.find((c: any) => c.types.includes('country'))?.shortText;
+          const country = place.addressComponents?.find((c) => c.types.includes('country'))?.shortText;
           // formattedAddress devuelve el nombre del país en el idioma del navegador (ej. "Francia"
           // en vez de "France") — el idioma de la sesión de Maps es el mismo para todos los países,
           // así que Google no puede darnos cada uno en su propio idioma. Se sustituye el último

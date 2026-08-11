@@ -13,7 +13,7 @@
 //   4. Solicitudes nuevas sin revisar (estado = 'Nueva')
 //
 // Reutiliza el patrón de envío Gmail de supabase/functions/notificar-visita/index.ts.
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -22,6 +22,10 @@ const corsHeaders = {
 
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 
+type FacturaVencida = { numero: string | null; cliente_nombre: string | null; fecha_vence: string | null };
+type PresupuestoPendiente = { numero: string | null; cliente_nombre: string | null; fecha_validez: string };
+type SolicitudNueva = { nombre: string | null; email: string | null; created_at: string | null };
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -29,7 +33,7 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function obtenerAccessToken(supabase: any): Promise<string> {
+async function obtenerAccessToken(supabase: SupabaseClient): Promise<string> {
   const { data: config, error } = await supabase
     .from('google_config')
     .select('refresh_token, refresh_token_gmail')
@@ -155,11 +159,11 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const facturasVencidas = facturasRes.data ?? [];
-    const presupuestosPendientes = presupuestosRes.data ?? [];
-    const presupuestosCaducados = presupuestosPendientes.filter((p: any) => p.fecha_validez < hoy);
-    const presupuestosPorCaducar = presupuestosPendientes.filter((p: any) => p.fecha_validez >= hoy && p.fecha_validez <= limite7d);
-    const solicitudesNuevas = solicitudesRes.data ?? [];
+    const facturasVencidas = (facturasRes.data ?? []) as FacturaVencida[];
+    const presupuestosPendientes = (presupuestosRes.data ?? []) as PresupuestoPendiente[];
+    const presupuestosCaducados = presupuestosPendientes.filter((p) => p.fecha_validez < hoy);
+    const presupuestosPorCaducar = presupuestosPendientes.filter((p) => p.fecha_validez >= hoy && p.fecha_validez <= limite7d);
+    const solicitudesNuevas = (solicitudesRes.data ?? []) as SolicitudNueva[];
 
     const totalUrgentes = facturasVencidas.length + presupuestosCaducados.length + presupuestosPorCaducar.length + solicitudesNuevas.length;
 
@@ -170,28 +174,28 @@ Deno.serve(async (req: Request) => {
     const secciones = [
       seccionHtml(
         'Facturas vencidas',
-        facturasVencidas.map((f: any) => ({
+        facturasVencidas.map((f) => ({
           titulo: f.numero ?? 'Sin número',
           detalle: `${f.cliente_nombre ?? '—'} · vencía ${f.fecha_vence ?? '—'}`,
         })),
       ),
       seccionHtml(
         'Presupuestos caducados sin respuesta',
-        presupuestosCaducados.map((p: any) => ({
+        presupuestosCaducados.map((p) => ({
           titulo: p.numero ?? 'Sin número',
           detalle: `${p.cliente_nombre ?? '—'} · válido hasta ${p.fecha_validez}`,
         })),
       ),
       seccionHtml(
         'Presupuestos a punto de caducar (7 días)',
-        presupuestosPorCaducar.map((p: any) => ({
+        presupuestosPorCaducar.map((p) => ({
           titulo: p.numero ?? 'Sin número',
           detalle: `${p.cliente_nombre ?? '—'} · válido hasta ${p.fecha_validez}`,
         })),
       ),
       seccionHtml(
         'Solicitudes nuevas sin revisar',
-        solicitudesNuevas.map((s: any) => ({
+        solicitudesNuevas.map((s) => ({
           titulo: s.nombre || s.email || 'Sin nombre',
           detalle: s.created_at ? new Date(s.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' }) : '—',
         })),
