@@ -377,14 +377,20 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
 - **Tests:** Vitest (`npm run test`) cubre la lógica financiera crítica (`lineas.ts`, `iva.ts`,
   `lineaDeduccionAcomptes`, `ofx.ts`). Añadir tests ahí al tocar cálculos de totales/IVA/acomptes.
 - **RGPD — pestaña "Privacidad" en la ficha de cliente** (`ClientePrivacidadTab.tsx`, 2026-08-06, corregido
-  2026-08-09): exporta a JSON o purga en cascada (borrado duro real, irreversible) todo lo vinculado a un
-  cliente en `visitas`, `notas_cliente`, `proyectos`, `presupuestos`, `gastos`, `galeria`, más
+  2026-08-09 y 2026-08-11): exporta a JSON o purga en cascada (borrado duro real, irreversible) todo lo
+  vinculado a un cliente en `visitas`, `notas_cliente`, `proyectos`, `presupuestos`, `gastos`, `galeria`, más
   `documento_eventos`/`movimientos_banco` indirectos. **Excepción — facturas**: nunca se borran, ni siquiera
   aquí, por la misma razón que en `/papelera` (numeración correlativa legal, ver nota de arriba); el derecho al
   olvido se cumple anonimizando `cliente_nombre`/`cliente_dir`/`cliente_email`/`cliente_tel` en la factura en
   vez de eliminar la fila. Cumple el derecho de acceso/eliminación que el T&C promete al cliente. Limitación
   conocida: los adjuntos en Storage (fotos de galería, justificantes de gastos) no se borran, quedan huérfanos
   — pendiente si algún día hace falta limpiarlos también.
+  **Corrección 2026-08-11**: `solicitudes` (Bloque 6 — llega antes de que exista una visita, así que no
+  cuelga de `visita_id` como el resto) se había quedado fuera tanto de la exportación como de la purga desde
+  que existe la tabla (28 julio) — un cliente que escribió por el formulario web mantenía su nombre/email/
+  teléfono/mensaje en `solicitudes` aunque se "purgaran" todos sus datos. Ahora se localiza por
+  teléfono/email normalizado del cliente (cruzando todas sus visitas, mismo criterio que
+  `pipelineSync.ts`/`documenso-webhook`) y se incluye en ambos flujos, junto con sus `funnel_eventos`.
 - **Buscador global** (`Ctrl/Cmd+K`, `BuscadorGlobal.tsx`, 2026-08-06): busca clientes/presupuestos/facturas
   desde cualquier pantalla.
 - **Aviso diario por email** (`supabase/functions/alerta-diaria`, cron `alerta-diaria-urgentes` a las 06:30 UTC,
