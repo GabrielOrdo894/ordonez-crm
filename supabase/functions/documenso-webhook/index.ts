@@ -107,6 +107,7 @@ Deno.serve(async (req: Request) => {
     documento_id: presupuesto.id,
     evento: 'Firmado electrónicamente (Documenso) — marcado como Aceptado',
   });
+  await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_firmado', presupuesto_id: presupuesto.id });
 
   // Sincroniza la etapa de pipeline del cliente, igual que hace la firma manual en el frontend
   // (sincronizarPipelineCliente) — aquí no hay usuario con sesión abierta que lo dispare.

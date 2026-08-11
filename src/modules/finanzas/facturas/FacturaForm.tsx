@@ -36,6 +36,8 @@ import {
   paisDesdeTipoIva,
   validarLineas,
   lineaDeduccionAcomptes,
+  lineasRectificativa,
+  tituloDocumentoFactura,
 } from './types';
 import type { Factura, NuevaFactura, Linea, TipoFactura } from './types';
 import type { Presupuesto } from '../presupuestos/types';
@@ -65,6 +67,7 @@ const OPCIONES_VENCIMIENTO = [
 type FormState = {
   titulo: string;
   tipo: TipoFactura;
+  factura_original_id: string | null;
   presupuesto_id: string | null;
   visita_id: string | null;
   pais: string;
@@ -86,6 +89,7 @@ function vacio(): FormState {
   return {
     titulo: '',
     tipo: 'normal',
+    factura_original_id: null,
     presupuesto_id: null,
     visita_id: null,
     pais: 'España',
@@ -110,6 +114,7 @@ type FacturaFormProps = {
   desdePresupuesto?: Presupuesto | null;
   lineaAcompte?: Linea | null;
   fechaAcompte?: string | null;
+  facturaOriginal?: Factura | null;
   clienteInicialId?: string;
   idiomaInicial?: string;
 };
@@ -120,6 +125,7 @@ export function FacturaForm({
   desdePresupuesto,
   lineaAcompte,
   fechaAcompte,
+  facturaOriginal,
   clienteInicialId,
   idiomaInicial,
 }: FacturaFormProps) {
@@ -133,7 +139,7 @@ export function FacturaForm({
   const [erroresVisibles, setErroresVisibles] = useState(false);
 
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
-  const esManual = !factura && !desdePresupuesto;
+  const esManual = !factura && !desdePresupuesto && !facturaOriginal;
 
   const { data: visitas } = useQuery({
     queryKey: ['visitas'],
@@ -189,6 +195,7 @@ export function FacturaForm({
       setForm({
         titulo: factura.titulo ?? '',
         tipo: factura.tipo ?? 'normal',
+        factura_original_id: factura.factura_original_id ?? null,
         presupuesto_id: factura.presupuesto_id,
         visita_id: factura.visita_id,
         pais: factura.pais ?? paisDesdeTipoIva(factura.tipo_iva) ?? 'España',
@@ -210,6 +217,7 @@ export function FacturaForm({
       setForm({
         titulo: desdePresupuesto.titulo ?? '',
         tipo: lineaAcompte ? 'acompte' : 'normal',
+        factura_original_id: null,
         presupuesto_id: desdePresupuesto.id,
         visita_id: desdePresupuesto.visita_id,
         pais: desdePresupuesto.pais ?? paisDesdeTipoIva(desdePresupuesto.tipo_iva) ?? 'España',
@@ -227,12 +235,38 @@ export function FacturaForm({
         estado_cobro: 'Pendiente',
       });
       setNotaActivada(false);
+    } else if (facturaOriginal) {
+      const notaRectificativa =
+        facturaOriginal.idioma === 'Français'
+          ? `Facture rectificative de la facture n° ${facturaOriginal.numero ?? '—'} du ${facturaOriginal.fecha_factura ?? '—'}.`
+          : `Rectificativa de la factura n.º ${facturaOriginal.numero ?? '—'} de fecha ${facturaOriginal.fecha_factura ?? '—'}.`;
+      setForm({
+        titulo: facturaOriginal.titulo ?? '',
+        tipo: 'rectificativa',
+        factura_original_id: facturaOriginal.id,
+        presupuesto_id: facturaOriginal.presupuesto_id,
+        visita_id: facturaOriginal.visita_id,
+        pais: facturaOriginal.pais ?? paisDesdeTipoIva(facturaOriginal.tipo_iva) ?? 'España',
+        cliente_nombre: facturaOriginal.cliente_nombre ?? '',
+        cliente_dir: facturaOriginal.cliente_dir ?? '',
+        cliente_email: facturaOriginal.cliente_email ?? '',
+        cliente_tel: facturaOriginal.cliente_tel ?? '',
+        idioma: facturaOriginal.idioma,
+        fecha_factura: fechaHoy(),
+        fecha_vence: sumarDias(fechaHoy(), 7),
+        tipo_iva: facturaOriginal.tipo_iva ?? 'IVA_21',
+        lineas: lineasRectificativa(facturaOriginal.lineas, facturaOriginal.tipo_iva),
+        metodo_pago: facturaOriginal.metodo_pago ?? 'Transferencia',
+        nota: notaRectificativa,
+        estado_cobro: 'Pendiente',
+      });
+      setNotaActivada(true);
     } else {
       setForm(vacio());
       setClienteSeleccionado('');
       setNotaActivada(false);
     }
-  }, [factura, desdePresupuesto, lineaAcompte, fechaAcompte]);
+  }, [factura, desdePresupuesto, lineaAcompte, fechaAcompte, facturaOriginal]);
 
   // "Facturar completo" desde un presupuesto con anticipos ya cobrados: sin esto, la factura final
   // vuelve a cobrar el importe íntegro del presupuesto en vez de solo lo que falta por pagar (los
@@ -312,6 +346,7 @@ export function FacturaForm({
         numero: factura?.numero ?? null,
         titulo: form.titulo || null,
         tipo: form.tipo,
+        factura_original_id: form.factura_original_id,
         presupuesto_id: form.presupuesto_id,
         visita_id: form.visita_id,
         pais: form.pais,
@@ -339,7 +374,9 @@ export function FacturaForm({
         return factura.id;
       }
 
-      const numero = await siguienteNumero(form.tipo === 'acompte' ? 'seq_factura_acompte' : 'seq_factura');
+      const secuencia =
+        form.tipo === 'acompte' ? 'seq_factura_acompte' : form.tipo === 'rectificativa' ? 'seq_factura_rectificativa' : 'seq_factura';
+      const numero = await siguienteNumero(secuencia);
       const { data, error } = await supabase
         .from('facturas')
         .insert({ ...nueva, numero })
@@ -351,8 +388,11 @@ export function FacturaForm({
         await notaSistema(form.visita_id, `Factura ${numero} creada por ${nombreUsuarioActual}`);
       }
       await registrarEvento('factura', data.id, 'Factura creada');
+      if (form.factura_original_id) {
+        await registrarEvento('factura', form.factura_original_id, `Rectificada por la factura ${numero}`);
+      }
       if (form.presupuesto_id) {
-        const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : 'completa/final';
+        const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : form.tipo === 'rectificativa' ? 'rectificativa' : 'completa/final';
         await registrarEvento('presupuesto', form.presupuesto_id, `Factura ${numero} generada (${tipoTexto})`);
       }
       return data.id;
@@ -614,15 +654,7 @@ export function FacturaForm({
             columnasExtra={configPlantilla.columnas}
             piePagina={configPlantilla.piePagina}
             idioma={idiomaCorto}
-            tituloDocumento={
-              form.tipo === 'acompte'
-                ? idiomaCorto === 'fr'
-                  ? "FACTURE D'ACOMPTE"
-                  : 'FACTURA DE ANTICIPO'
-                : idiomaCorto === 'fr'
-                  ? 'FACTURE'
-                  : 'FACTURA'
-            }
+            tituloDocumento={tituloDocumentoFactura(form.tipo, idiomaCorto)}
             titulo={form.titulo || undefined}
             numero={factura?.numero ?? null}
             entidad={entidadInfo?.entidad ?? {}}

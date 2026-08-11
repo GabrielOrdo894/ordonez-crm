@@ -4,6 +4,7 @@ const PREFIJOS = {
   seq_presupuesto: 'P',
   seq_factura: 'F',
   seq_factura_acompte: 'AC',
+  seq_factura_rectificativa: 'R',
 } as const;
 
 export async function siguienteNumero(campo: keyof typeof PREFIJOS): Promise<string> {

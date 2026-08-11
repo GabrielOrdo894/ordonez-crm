@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bar,
@@ -22,16 +22,21 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { calcularTotales } from '../finanzas/lineas';
 import { ETAPAS_PIPELINE } from '../clientes/types';
+import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, type EtapaFunnel } from '../../lib/funnelTracking';
+import { FUENTE_LABEL } from '../solicitudes/types';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
+
+type FunnelEvento = { etapa: EtapaFunnel; solicitud_id: string | null; presupuesto_id: string | null; fuente: string | null };
 
 type NotaAceptado = { visita_id: string; created_at: string };
 type ProyectoResumen = { presupuesto_id: string | null; estado: string };
 
 const COLORES_DONUT = ['#1a5c38', '#0f3d24', '#5b8f74', '#94b8a6', '#c8ddd0', '#6b7280', '#9ca3af'];
 const COLORES_FUNNEL = ['#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
+const COLORES_FUNNEL_SOLICITUDES = ['#0f3d24', '#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const ETAPAS_FUNNEL = ['Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'Finalizado'];
 
@@ -123,6 +128,19 @@ export default function DashboardPage() {
     },
   });
 
+  const { data: funnelEventos } = useQuery({
+    queryKey: ['funnel_eventos', desde, hasta],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('funnel_eventos')
+        .select('etapa, solicitud_id, presupuesto_id, fuente')
+        .gte('created_at', `${desde}T00:00:00`)
+        .lte('created_at', `${hasta}T23:59:59`);
+      if (error) throw error;
+      return data as FunnelEvento[];
+    },
+  });
+
   const zonasDisponibles = useMemo(() => {
     const set = new Set((visitas ?? []).map((v) => v.zona).filter((z): z is string => !!z));
     return ['Todas', 'España', 'Francia', ...Array.from(set).sort()];
@@ -134,12 +152,15 @@ export default function DashboardPage() {
     return map;
   }, [visitas]);
 
-  const coincideZonaRegistro = (pais: string | null, visitaId: string | null) => {
-    if (zona === 'Todas') return true;
-    if (zona === 'España' || zona === 'Francia') return pais === zona;
-    const zonaVisita = visitaId ? (visitaPorId.get(visitaId)?.zona ?? null) : null;
-    return zonaVisita === zona;
-  };
+  const coincideZonaRegistro = useCallback(
+    (pais: string | null, visitaId: string | null) => {
+      if (zona === 'Todas') return true;
+      if (zona === 'España' || zona === 'Francia') return pais === zona;
+      const zonaVisita = visitaId ? (visitaPorId.get(visitaId)?.zona ?? null) : null;
+      return zonaVisita === zona;
+    },
+    [zona, visitaPorId],
+  );
 
   const visitasFiltradas = useMemo(() => {
     return (visitas ?? []).filter((v) => {
@@ -155,21 +176,21 @@ export default function DashboardPage() {
       if (p.fecha_emision && (p.fecha_emision < desde || p.fecha_emision > hasta)) return false;
       return coincideZonaRegistro(p.pais, p.visita_id);
     });
-  }, [presupuestos, desde, hasta, zona, visitaPorId]);
+  }, [presupuestos, desde, hasta, coincideZonaRegistro]);
 
   const facturasFiltradas = useMemo(() => {
     return (facturas ?? []).filter((f) => {
       if (f.fecha_factura && (f.fecha_factura < desde || f.fecha_factura > hasta)) return false;
       return coincideZonaRegistro(f.pais, f.visita_id);
     });
-  }, [facturas, desde, hasta, zona, visitaPorId]);
+  }, [facturas, desde, hasta, coincideZonaRegistro]);
 
   const gastosFiltrados = useMemo(() => {
     return (gastos ?? []).filter((g) => {
       if (g.fecha && (g.fecha < desde || g.fecha > hasta)) return false;
       return coincideZonaRegistro(g.pais, g.visita_id);
     });
-  }, [gastos, desde, hasta, zona, visitaPorId]);
+  }, [gastos, desde, hasta, coincideZonaRegistro]);
 
   // 1. Origen de clientes
   const origenClientes = useMemo(() => {
@@ -192,6 +213,55 @@ export default function DashboardPage() {
     const total = base[0]?.count ?? 0;
     return base.map((f) => ({ ...f, pct: total > 0 ? Math.round((f.count / total) * 100) : 0 }));
   }, [visitasFiltradas]);
+
+  // 2b. Embudo de solicitudes entrantes → firma (independiente del funnel de visitas de arriba:
+  // este mide desde el primer contacto, antes incluso de agendar una visita)
+  const contarUnicosEnEtapa = (eventos: FunnelEvento[], etapa: EtapaFunnel) => {
+    const campo = etapa.startsWith('presupuesto_') ? 'presupuesto_id' : 'solicitud_id';
+    return new Set(eventos.filter((e) => e.etapa === etapa).map((e) => e[campo]).filter(Boolean)).size;
+  };
+
+  const funnelSolicitudes = useMemo(() => {
+    const eventos = funnelEventos ?? [];
+    const total = contarUnicosEnEtapa(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
+    return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
+      const count = contarUnicosEnEtapa(eventos, etapa);
+      return { etapa: ETIQUETA_ETAPA_FUNNEL[etapa], count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
+    });
+  }, [funnelEventos]);
+
+  // Conversión a firma desglosada por fuente — cruza la entrada de cada solicitud con si el
+  // presupuesto al que quedó vinculada acabó firmado, para ver qué canal convierte mejor.
+  const conversionPorFuente = useMemo(() => {
+    const eventos = funnelEventos ?? [];
+    const presupuestoDeSolicitud = new Map<string, string>();
+    for (const e of eventos) {
+      if (e.etapa === 'solicitud_vinculada_presupuesto' && e.solicitud_id && e.presupuesto_id) {
+        presupuestoDeSolicitud.set(e.solicitud_id, e.presupuesto_id);
+      }
+    }
+    const presupuestosFirmados = new Set(
+      eventos.filter((e) => e.etapa === 'presupuesto_firmado' && e.presupuesto_id).map((e) => e.presupuesto_id),
+    );
+
+    const porFuente = new Map<string, { entradas: number; firmadas: number }>();
+    for (const e of eventos) {
+      if (e.etapa !== 'solicitud_entrada' || !e.solicitud_id) continue;
+      const clave = e.fuente ?? 'desconocida';
+      const actual = porFuente.get(clave) ?? { entradas: 0, firmadas: 0 };
+      actual.entradas++;
+      const presupuestoId = presupuestoDeSolicitud.get(e.solicitud_id);
+      if (presupuestoId && presupuestosFirmados.has(presupuestoId)) actual.firmadas++;
+      porFuente.set(clave, actual);
+    }
+    return Array.from(porFuente.entries())
+      .map(([fuente, v]) => ({
+        fuente: FUENTE_LABEL[fuente] ?? fuente,
+        ...v,
+        pct: v.entradas > 0 ? Math.round((v.firmadas / v.entradas) * 100) : 0,
+      }))
+      .sort((a, b) => b.entradas - a.entradas);
+  }, [funnelEventos]);
 
   // 3. Facturación por zona
   const facturacionPorZona = useMemo(() => {
@@ -280,7 +350,7 @@ export default function DashboardPage() {
     const hayVencidas = facturasZona.some((f) => f.estado_cobro === 'Vencida');
 
     return { pendienteCobro, obrasEnCurso, total: pendienteCobro + obrasEnCurso, hayVencidas };
-  }, [facturas, presupuestos, proyectos, zona, visitaPorId]);
+  }, [facturas, presupuestos, proyectos, coincideZonaRegistro]);
 
   // 7. Comparativa anual
   const comparativaAnual = useMemo(() => {
@@ -301,7 +371,7 @@ export default function DashboardPage() {
       [String(anioActual)]: Math.round(esteAnio[i] * 100) / 100,
       [String(anioActual - 1)]: Math.round(anioAnterior[i] * 100) / 100,
     }));
-  }, [facturas, zona, visitaPorId]);
+  }, [facturas, coincideZonaRegistro]);
 
   // 8. Visitas conseguidas por semana
   const visitasPorSemana = useMemo(() => {
@@ -417,6 +487,66 @@ export default function DashboardPage() {
             </>
           )}
         </div>
+      </div>
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
+          Embudo de solicitudes entrantes → firma
+        </p>
+        <p className="text-xs text-gray-400 -mt-2 mb-3">
+          Desde que entra el primer mensaje del cliente (Solicitudes) hasta que firma — mide el mismo período
+          seleccionado arriba, independiente del embudo de visitas.
+        </p>
+        {funnelSolicitudes[0].count === 0 ? (
+          <p className="text-sm text-gray-400 py-10 text-center">Sin solicitudes registradas en este período</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <FunnelChart margin={{ left: 90, right: 40 }}>
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <Funnel dataKey="count" data={funnelSolicitudes} isAnimationActive nameKey="etapa">
+                  <LabelList position="left" dataKey="etapa" fill="#374151" stroke="none" fontSize={11} />
+                  <LabelList position="right" dataKey="count" fill="#374151" stroke="none" fontSize={11} fontWeight={600} />
+                  <LabelList
+                    position="center"
+                    dataKey="pct"
+                    fill="#fff"
+                    stroke="none"
+                    fontSize={12}
+                    fontWeight={600}
+                    formatter={(v) => `${v}%`}
+                  />
+                  {funnelSolicitudes.map((_, i) => (
+                    <Cell key={i} fill={COLORES_FUNNEL_SOLICITUDES[i % COLORES_FUNNEL_SOLICITUDES.length]} />
+                  ))}
+                </Funnel>
+              </FunnelChart>
+            </ResponsiveContainer>
+            <div>
+              <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Conversión a firma por fuente</p>
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400">
+                    <th className="text-left py-1 font-medium">Fuente</th>
+                    <th className="text-right py-1 font-medium">Entradas</th>
+                    <th className="text-right py-1 font-medium">Firmadas</th>
+                    <th className="text-right py-1 font-medium">%</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conversionPorFuente.map((f) => (
+                    <tr key={f.fuente} className="border-t border-gray-100">
+                      <td className="py-1.5 text-gray-900">{f.fuente}</td>
+                      <td className="py-1.5 text-right text-gray-600">{f.entradas}</td>
+                      <td className="py-1.5 text-right text-gray-600">{f.firmadas}</td>
+                      <td className="py-1.5 text-right font-medium text-brand">{f.pct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

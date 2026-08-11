@@ -46,6 +46,10 @@ export function GastoResumen({ gasto, onClose, onModificar }: GastoResumenProps)
     return () => {
       cancelado = true;
     };
+    // toast no es estable entre renders (ToastProvider crea un `value` nuevo en cada uno) — incluirlo
+    // volvería a pedir la signed URL cada vez que se dispare CUALQUIER toast en la app, no solo al
+    // cambiar de adjunto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gasto?.adjunto_url]);
 
   if (!gasto) return null;

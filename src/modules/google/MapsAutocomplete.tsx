@@ -117,6 +117,11 @@ export function MapsAutocomplete({ label, value, onChange, onSelect, error }: Ma
     return () => {
       cancelado = true;
     };
+    // Se monta una sola vez a propósito: el elemento nativo de Google Maps se crea aquí y los
+    // listeners capturan value/onChange/onSelect/modo de ese momento. Incluirlos en las deps
+    // recrearía el elemento (y perdería el foco) en cada tecleo, ya que onChange/onSelect suelen
+    // ser funciones inline inestables en el formulario padre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (disponible === false) {

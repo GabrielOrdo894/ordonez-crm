@@ -5,7 +5,7 @@ import { renderizarTC } from '../../../lib/terminos';
 import { notasLegales } from '../../../lib/generarPdfFactura';
 import { mencionIvaReducida } from '../iva';
 import { DocumentoPreview, configPlantillaDesde } from '../DocumentoPreview';
-import { calcularTotales, porcentajeIva } from './types';
+import { calcularTotales, porcentajeIva, tituloDocumentoFactura } from './types';
 import type { Factura } from './types';
 
 const CLASE_ESTADO_COBRO: Record<string, string> = {
@@ -103,15 +103,7 @@ export function FacturaPreview({ factura }: { factura: Factura }) {
       columnasExtra={configPlantilla.columnas}
       piePagina={configPlantilla.piePagina}
       idioma={idiomaCorto}
-      tituloDocumento={
-        factura.tipo === 'acompte'
-          ? idiomaCorto === 'fr'
-            ? "FACTURE D'ACOMPTE"
-            : 'FACTURA DE ANTICIPO'
-          : idiomaCorto === 'fr'
-            ? 'FACTURE'
-            : 'FACTURA'
-      }
+      tituloDocumento={tituloDocumentoFactura(factura.tipo, idiomaCorto)}
       titulo={factura.titulo ?? undefined}
       numero={factura.numero}
       entidad={entidadInfo?.entidad ?? {}}

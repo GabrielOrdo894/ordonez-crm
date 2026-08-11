@@ -377,7 +377,6 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
       setBloques(nuevo);
       ultimoValorEmitido.current = value;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   useEffect(() => {

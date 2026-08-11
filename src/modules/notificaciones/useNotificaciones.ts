@@ -368,7 +368,6 @@ export function useNotificaciones() {
       guardarHistorial(user.id, combinado);
       return combinado;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventosActuales, user]);
 
   const marcarLeida = (id: string, leida = true) => {

@@ -20,7 +20,7 @@ import type { TamanoTitulo, AlineacionEncabezado } from '../modules/finanzas/Doc
 import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { mencionIvaReducida } from '../modules/finanzas/iva';
 import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
-import { porcentajeIva, paisDesdeTipoIva } from '../modules/finanzas/facturas/types';
+import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura } from '../modules/finanzas/facturas/types';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
 import { formatearUnidadTexto } from '../modules/finanzas/lineas';
@@ -120,8 +120,7 @@ async function construirPdfFactura(f: Factura) {
   // La etiqueta del identificador fiscal depende del país del cliente, no del idioma del documento
   // (un devis en español para un cliente francés sigue mostrando SIRET, no CIF).
   const labelCif = pais === 'Francia' ? 'SIRET' : 'CIF';
-  const esAcompte = f.tipo === 'acompte';
-  const tituloDoc = esAcompte ? (idioma === 'fr' ? "FACTURE D'ACOMPTE" : 'FACTURA DE ANTICIPO') : t.titulo;
+  const tituloDoc = tituloDocumentoFactura(f.tipo, idioma);
   const { entidad, logoUrl } = await cargarEntidad(pais);
   const config = await cargarConfigCompleta();
   const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);

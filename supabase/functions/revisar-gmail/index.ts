@@ -247,7 +247,7 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       continue;
     }
 
-    const { error, count } = await supabase
+    const { data: filaInsertada, error, count } = await supabase
       .from('solicitudes')
       .upsert(
         {
@@ -270,7 +270,13 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       log.push(`Error insertando solicitud (asunto "${asunto}"): ${error.message}`);
       continue;
     }
-    if (count !== 0) insertadas++;
+    if (count !== 0) {
+      insertadas++;
+      const nuevaId = filaInsertada?.[0]?.id;
+      if (nuevaId) {
+        await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente });
+      }
+    }
   }
   log.push(`Solicitudes nuevas insertadas: ${insertadas}.`);
   return insertadas;
@@ -575,7 +581,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
     const resumen = (ultimoMsg.snippet || texto).slice(0, 500);
     const fechaUltimo = new Date(Number(ultimoMsg.internalDate)).toISOString();
 
-    const { error, count } = await supabase
+    const { data: filaInsertada, error, count } = await supabase
       .from('solicitudes')
       .upsert(
         {
@@ -601,6 +607,10 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
       creadas++;
       hilosYaTracked.add(threadId);
       log.push(`Conversación directa detectada y añadida: ${deUltimo} (hilo ${threadId}).`);
+      const nuevaId = filaInsertada?.[0]?.id;
+      if (nuevaId) {
+        await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente: 'email_directo' });
+      }
     }
   }
   log.push(`Conversaciones directas nuevas creadas: ${creadas}${excluidas ? ` (${excluidas} descartadas por lista negra)` : ''}.`);

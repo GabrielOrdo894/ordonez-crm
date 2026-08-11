@@ -286,7 +286,7 @@ ordonez-crm/
 | 3 | Clientes + Pipeline + Seguimiento (sin PDF, ver §9) | ✅ Hecho — Clientes y Pipeline; el "Plan de seguimiento de obra" (`seguimiento/SeguimientoPage.tsx`, `PlanForm.tsx`) descrito en la estructura de carpetas (§6) nunca se implementó, auditoría 2026-08-05 | 4–6   | supabase-schema.md    |
 | 4 | Finanzas + IVA + Firma        | ✅ Hecho    | 6–12  | finanzas.md           |
 | 5 | Fiscalidad & État (IS, TNS, calendario fiscal) | ✅ Hecho    | —     | guias/Bloque5_Fiscalidad_CRM_Reformas_Ordonez.html |
-| 6 | Solicitudes & Seguimiento asistido (revisar solicitudes/respuestas y generar mensajes de cliente desde el CRM) | 🟡 En curso | —     | docs/bloque6-solicitudes-seguimiento.md |
+| 6 | Solicitudes & Seguimiento: bandeja + generación de mensajes con IA + tracking del embudo solicitud→firma para el dashboard de Marketing | 🟡 En curso — rediseñado 2026-08-11, pendiente de verificación de Gabriel | —     | docs/bloque6-solicitudes-seguimiento.md |
 
 Actualizar: ⬜ Pendiente → 🟡 En curso → ✅ Hecho
 
@@ -407,3 +407,34 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   Edge Functions de `supabase/functions/` (antes tenían 36 usos de `any`) — ojo, esos ficheros no están
   cubiertos por `tsc -b` (fuera de `tsconfig.app.json`), así que un error de tipos ahí solo lo pilla el
   lint o Deno, no el build.
+- **Tracking del embudo de Solicitudes** (`funnel_eventos`, 2026-08-11): tabla nueva que registra,
+  con fecha, cada etapa por la que pasa una solicitud entrante hacia convertirse en negocio real:
+  `solicitud_entrada` · `solicitud_respondida` · `solicitud_descartada` ·
+  `solicitud_vinculada_presupuesto` · `presupuesto_enviado` · `presupuesto_aceptado` ·
+  `presupuesto_firmado` · `presupuesto_rechazado` (constantes en `src/lib/funnelTracking.ts`,
+  función `registrarEventoFunnel`). Se inserta desde los mismos sitios donde ya cambia el estado
+  real (`SolicitudDetalle.tsx`, `SolicitudesPage.tsx`, `PresupuestosPage.tsx`,
+  `DocumentoDetalleInline.tsx`, y las Edge Functions `revisar-gmail`/`documenso-webhook` para lo
+  que ocurre sin que haya nadie con el CRM abierto) — nunca por trigger de base de datos, para
+  mantener el mismo estilo del resto del proyecto (llamadas explícitas, como `notaSistema`/
+  `registrarEvento`). Se visualiza en `/solicitudes` (embudo de los últimos 90 días) y en
+  Dashboard → Marketing (mismo embudo + desglose de conversión a firma por `fuente`, filtrado por
+  el período ya seleccionado en ese dashboard). El generador de mensajes con IA sigue existiendo
+  tal cual (Gabriel ya paga los créditos de la API) pero vive solo en la ficha de detalle de cada
+  solicitud (`SolicitudDetalle.tsx`), no en la pantalla principal — esa quedó dedicada al tracking.
+- **Facturas rectificativas** (2026-08-11): `facturas.tipo` admite ahora `'rectificativa'` además de
+  `'normal'`/`'acompte'`, con su propia secuencia de numeración (`seq_factura_rectificativa`,
+  prefijo `R-`) y columna `factura_original_id` apuntando a la factura que corrige — mismo patrón
+  que las facturas `acompte`. Acción "Crear factura rectificativa" en el menú de cada fila de
+  `/finanzas/facturas`: abre `FacturaForm` con las líneas de la original en negativo
+  (`lineasRectificativa` en `facturas/types.ts`) y nota de referencia automática. El PDF y las
+  vistas previas la titulan "FACTURA RECTIFICATIVA"/"FACTURE RECTIFICATIVE"
+  (`tituloDocumentoFactura` en `facturas/types.ts`). Igual que el resto de facturas, nunca se
+  borra de verdad (numeración correlativa legal, ver nota de arriba).
+- **2 avisos de seguridad de Supabase pendientes, aceptados a propósito** (revisión 2026-08-11):
+  *Leaked Password Protection* desactivada — no se puede activar con las herramientas MCP
+  disponibles (es un toggle de Auth en el dashboard de Supabase, no una migración SQL), pendiente
+  de que Gabriel lo active en Authentication → Policies. Extensión `pg_net` instalada en el
+  schema `public` — Postgres no permite `ALTER EXTENSION ... SET SCHEMA` para `pg_net`
+  (`ERROR 0A000`); moverla exigiría recrearla y arriesgaría los cron jobs que dependen de ella
+  (`alerta-diaria`, `revisar-gmail-diario`), así que se deja como está.

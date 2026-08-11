@@ -202,3 +202,55 @@ bloque de solicitudes en la Home) y `revisar-gmail` ganó dos capacidades nuevas
   fuentes él mismo a mano, sin gastar tokens en una tarea que considera simple. Se quitó el
   código, la tabla y la llamada del handler — `revisar-gmail` solo hace los 3 puntos de
   arriba. Ver `reference_fuentes_solicitudes_web` para el detalle de las 4 fuentes.
+
+  **Corrección posterior (2026-08-11):** la detección de la fuente 4 (`email_directo`,
+  conversaciones directas donde Gabriel escribió y el cliente respondió) sí se volvió a
+  implementar más adelante — `detectarConversacionesDirectas()` en `revisar-gmail/index.ts`
+  vive hoy en producción y se llama desde el handler principal. Es heurística por patrón (ida
+  y vuelta en el mismo hilo + no está en la lista negra de
+  `empresa_config.datos.solicitudes_emails_excluidos`), no usa IA — coherente con la decisión
+  de arriba de no gastar tokens en clasificación. Lo único revertido fue la clasificación por
+  IA, no la detección de esta fuente en sí.
+
+## Rediseño 2026-08-11 — de "bandeja + generador" a "tracking del embudo"
+
+Gabriel pidió un cambio de objetivo para este bloque: seguir teniendo el generador de mensajes
+con IA (ya paga los créditos de la API, no se retira), pero que la pantalla principal de
+Solicitudes sirva sobre todo para **rastrear el embudo completo** — solicitud entra → se
+responde → se vincula a un presupuesto real → el presupuesto se envía → el cliente firma — de
+cara a analizar en Dashboard → Marketing qué % de las solicitudes entrantes acaba firmando y en
+qué paso se pierden más, para poder buscar mejoras por canal de entrada.
+
+**Qué cambió:**
+- **Tabla `funnel_eventos` nueva** (migración `20260811151042_funnel_eventos.sql`): un evento
+  por cambio de etapa, con fecha, `solicitud_id`/`presupuesto_id` y `fuente`. Etapas:
+  `solicitud_entrada` · `solicitud_respondida` · `solicitud_descartada` ·
+  `solicitud_vinculada_presupuesto` · `presupuesto_enviado` · `presupuesto_aceptado` ·
+  `presupuesto_firmado` · `presupuesto_rechazado` (constantes en `src/lib/funnelTracking.ts`).
+- **Se registra desde código explícito, no triggers de base de datos** — mismo estilo que
+  `notaSistema`/`registrarEvento` ya usados en el proyecto: `EntradaManualPanel.tsx`,
+  `SolicitudDetalle.tsx`, `SolicitudesPage.tsx`, `PresupuestosPage.tsx`,
+  `DocumentoDetalleInline.tsx`, y en las Edge Functions `revisar-gmail` (ingesta automática) y
+  `documenso-webhook` (firma electrónica) para lo que pasa sin que nadie tenga el CRM abierto.
+- **`SolicitudesPage.tsx` reestructurada**: el widget "Uso de IA este mes" (gauge + editor de
+  presupuesto mensual) se quitó de la pantalla principal y se movió, en versión compacta y de
+  solo lectura, dentro de `SolicitudDetalle.tsx` junto al botón "Generar mensaje de respuesta"
+  — sigue siendo útil verlo justo donde se gasta, pero ya no es lo primero que se ve al entrar
+  en el bloque. En su lugar, la cabecera muestra ahora el embudo de conversión de los últimos
+  90 días (Entradas → Respondidas → Vinculadas → Presupuesto enviado → Firmado, con % sobre el
+  total).
+- **Nueva tarjeta en Dashboard → Marketing** (`DashboardPage.tsx`): el mismo embudo pero
+  filtrado por el período que ya se elige en ese dashboard, más una tabla de conversión a firma
+  desglosada por `fuente` (Landbot / formulario web / WhatsApp / email directo / manual) — para
+  ver qué canal convierte mejor. Es un embudo complementario al ya existente basado en
+  `visitas.estado_pipeline`: aquel mide desde la visita, este mide desde el primer mensaje,
+  antes incluso de que haya visita agendada.
+- **El generador de IA no se tocó funcionalmente** — sigue en `SolicitudDetalle.tsx`
+  (`generar-mensaje-ia`, selector Haiku/Sonnet, "volver a generar"), solo cambió qué pantalla
+  lo muestra.
+
+**Pendiente de Gabriel:** verificar en real que los eventos se registran correctamente en los
+flujos del día a día (crear una solicitud, marcarla enviada, vincularla a un presupuesto,
+cambiar el presupuesto a Pendiente/Aceptado, firmar con Documenso) y que el embudo en
+`/solicitudes` y en Dashboard → Marketing refleja esos números — solo entonces pasar el Bloque 6
+a ✅ Hecho en `CLAUDE.md`.

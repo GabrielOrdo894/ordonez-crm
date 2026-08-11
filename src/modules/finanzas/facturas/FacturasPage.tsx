@@ -38,6 +38,7 @@ const TIPOS_FILTRO = [
   { value: 'Todos', label: 'Todos' },
   { value: 'normal', label: 'Normal' },
   { value: 'acompte', label: 'Anticipo (acompte)' },
+  { value: 'rectificativa', label: 'Rectificativa' },
 ];
 const PAISES_FILTRO = [
   { value: 'Todos', label: 'Todos' },
@@ -72,6 +73,7 @@ export default function FacturasPage() {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [facturaSeleccionada, setFacturaSeleccionada] = useState<Factura | null>(null);
+  const [rectificandoDesde, setRectificandoDesde] = useState<Factura | null>(null);
   const [creandoNueva, setCreandoNueva] = useState(false);
   const [inicioFactura, setInicioFactura] = useState<InicioFactura | null>(null);
   const [registrandoPago, setRegistrandoPago] = useState<Factura | null>(null);
@@ -324,6 +326,9 @@ export default function FacturasPage() {
   if (facturaSeleccionada) {
     return <FacturaForm onClose={() => setFacturaSeleccionada(null)} factura={facturaSeleccionada} />;
   }
+  if (rectificandoDesde) {
+    return <FacturaForm onClose={() => setRectificandoDesde(null)} factura={null} facturaOriginal={rectificandoDesde} />;
+  }
   if (viendoId) {
     return <DocumentoDetalleInline tipo="factura" id={viendoId} onClose={() => setViendoId(null)} onAbrirOtro={onAbrirOtro} />;
   }
@@ -460,6 +465,11 @@ export default function FacturasPage() {
                       label: 'Quitar registro de pago',
                       onClick: () => quitarPagoMutation.mutate(f),
                       oculto: f.estado_cobro !== 'Cobrada' && f.estado_cobro !== 'Cobrada parcialmente',
+                    },
+                    {
+                      label: 'Crear factura rectificativa',
+                      onClick: () => setRectificandoDesde(f),
+                      oculto: f.tipo === 'rectificativa',
                     },
                     { label: 'Eliminar', onClick: () => handleEliminar(f), destructivo: true },
                   ]}

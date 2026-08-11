@@ -12,6 +12,7 @@ import { mensajeError } from '../../../lib/mensajeError';
 import { fechaCorta } from '../../../lib/fechas';
 import { numeroOrdenable } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
+import { registrarEventoFunnel, ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO } from '../../../lib/funnelTracking';
 import { DocumentoDetalleInline, type TipoDocumento } from '../DocumentoDetalleInline';
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../hooks/useToast';
@@ -156,6 +157,8 @@ export default function PresupuestosPage() {
         await notaSistema(p.visita_id, `Presupuesto ${p.numero} marcado como ${estado} por ${nombreUsuarioActual}`);
       }
       await registrarEvento('presupuesto', p.id, `Marcado como ${estado}`);
+      const etapaFunnel = ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO[estado];
+      if (etapaFunnel) await registrarEventoFunnel(etapaFunnel, { presupuestoId: p.id });
       await sincronizarPipelineCliente(p.cliente_tel);
     },
     onSuccess: () => {
@@ -185,6 +188,10 @@ export default function PresupuestosPage() {
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
+      const etapaFunnel = ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO[estado];
+      if (etapaFunnel) {
+        await Promise.all((ids as string[]).map((presupuestoId) => registrarEventoFunnel(etapaFunnel, { presupuestoId })));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });

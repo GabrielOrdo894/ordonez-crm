@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Gauge } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { registrarEventoFunnel, ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, type EtapaFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { useSeleccionMultiple } from '../../hooks/useSeleccionMultiple';
@@ -58,8 +59,6 @@ export default function SolicitudesPage() {
   const [viendo, setViendo] = useState<{ tipo: 'solicitud' | 'seguimiento'; id: string } | null>(null);
   const [filtroSolicitudes, setFiltroSolicitudes] = useState('Todas');
   const [filtroSeguimiento, setFiltroSeguimiento] = useState('Todas');
-  const [editandoPresupuesto, setEditandoPresupuesto] = useState(false);
-  const [presupuestoInput, setPresupuestoInput] = useState('');
   const {
     seleccion: seleccionSolicitudes,
     toggleFila: toggleFilaSolicitud,
@@ -98,42 +97,37 @@ export default function SolicitudesPage() {
     },
   });
 
-  const { data: empresaConfig } = useQuery({
-    queryKey: ['empresa_config'],
+  const desdeEmbudo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    return d.toISOString();
+  }, []);
+
+  const { data: funnelEventos } = useQuery({
+    queryKey: ['funnel_eventos', 'ultimos-90-dias'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
+      const { data, error } = await supabase
+        .from('funnel_eventos')
+        .select('etapa, solicitud_id, presupuesto_id')
+        .gte('created_at', desdeEmbudo);
       if (error) throw error;
-      return data;
+      return data as { etapa: EtapaFunnel; solicitud_id: string | null; presupuesto_id: string | null }[];
     },
   });
 
-  const { data: usoIaMes } = useQuery({
-    queryKey: ['uso-ia'],
-    queryFn: async () => {
-      const primerDiaMes = new Date();
-      primerDiaMes.setDate(1);
-      primerDiaMes.setHours(0, 0, 0, 0);
-      const { data, error } = await supabase.from('llamadas_ia').select('costo_usd').gte('created_at', primerDiaMes.toISOString());
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.costo_usd), 0);
-    },
-  });
-
-  const presupuestoMensual = (empresaConfig?.ia_presupuesto_mensual_usd as number | undefined) ?? 10;
-  const porcentajeUso = presupuestoMensual > 0 ? Math.round(((usoIaMes ?? 0) / presupuestoMensual) * 100) : 0;
-
-  const guardarPresupuestoMutation = useMutation({
-    mutationFn: async (valor: number) => {
-      const { error } = await supabase.from('empresa_config').update({ ia_presupuesto_mensual_usd: valor }).eq('id', 1);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
-      toast.success('Presupuesto de IA actualizado');
-      setEditandoPresupuesto(false);
-    },
-    onError: (error) => toast.error(error.message),
-  });
+  const embudo = useMemo(() => {
+    const eventos = funnelEventos ?? [];
+    const contarUnicos = (etapa: EtapaFunnel) => {
+      const campo = etapa.startsWith('presupuesto_') ? 'presupuesto_id' : 'solicitud_id';
+      return new Set(eventos.filter((e) => e.etapa === etapa).map((e) => e[campo]).filter(Boolean)).size;
+    };
+    const base = ETAPAS_FUNNEL_SOLICITUD[0];
+    const total = contarUnicos(base);
+    return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
+      const count = contarUnicos(etapa);
+      return { etapa, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
+    });
+  }, [funnelEventos]);
 
   const comprobarGmail = useMutation({
     mutationFn: async () => {
@@ -174,6 +168,10 @@ export default function SolicitudesPage() {
       }
       const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
       if (error) throw error;
+      if (estado === 'Enviada' || estado === 'Descartada') {
+        const etapa = estado === 'Enviada' ? 'solicitud_respondida' : 'solicitud_descartada';
+        await Promise.all((ids as string[]).map((solicitudId) => registrarEventoFunnel(etapa, { solicitudId })));
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
@@ -301,50 +299,26 @@ export default function SolicitudesPage() {
         ]}
       />
 
-      <div className="bg-surface border border-gray-200 rounded-sm p-3 mb-6 flex items-center gap-3 flex-wrap">
-        <Gauge size={16} className={porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-brand'} />
-        <span className="text-sm text-gray-700">
-          Uso de IA este mes: <span className="font-semibold">${(usoIaMes ?? 0).toFixed(2)}</span> de $
-          {presupuestoMensual.toFixed(2)}{' '}
-          <span
-            className={`font-semibold ${porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-brand'}`}
-          >
-            ({porcentajeUso}%)
-          </span>
-        </span>
-        <div className="flex-1 max-w-xs h-1.5 bg-gray-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full ${porcentajeUso >= 90 ? 'bg-red-600' : porcentajeUso >= 60 ? 'bg-amber-500' : 'bg-brand'}`}
-            style={{ width: `${Math.min(porcentajeUso, 100)}%` }}
-          />
-        </div>
-        {editandoPresupuesto ? (
-          <span className="flex items-center gap-1.5 ml-auto">
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={presupuestoInput}
-              onChange={(e) => setPresupuestoInput(e.target.value)}
-              className="w-20 border border-gray-200 rounded-sm px-2 py-1 text-sm focus:border-brand focus:outline-none"
-            />
-            <Button size="sm" onClick={() => guardarPresupuestoMutation.mutate(Number(presupuestoInput) || 0)}>
-              Guardar
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setEditandoPresupuesto(false)}>
-              Cancelar
-            </Button>
-          </span>
+      <div className="bg-surface border border-gray-200 rounded-sm p-3 mb-6">
+        <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
+          Embudo de conversión · últimos 90 días
+        </p>
+        {embudo[0].count === 0 ? (
+          <p className="text-sm text-gray-400 py-2">Sin solicitudes registradas en este período</p>
         ) : (
-          <button
-            className="text-xs text-gray-400 hover:text-brand ml-auto underline"
-            onClick={() => {
-              setPresupuestoInput(String(presupuestoMensual));
-              setEditandoPresupuesto(true);
-            }}
-          >
-            Cambiar presupuesto mensual
-          </button>
+          <div className="flex items-stretch gap-2 flex-wrap">
+            {embudo.map((e, i) => (
+              <div key={e.etapa} className="flex items-center gap-2">
+                <div className="min-w-[110px]">
+                  <p className="text-xs text-gray-400">{ETIQUETA_ETAPA_FUNNEL[e.etapa]}</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {e.count} <span className="text-xs font-normal text-gray-400">({e.pct}%)</span>
+                  </p>
+                </div>
+                {i < embudo.length - 1 && <span className="text-gray-300">→</span>}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

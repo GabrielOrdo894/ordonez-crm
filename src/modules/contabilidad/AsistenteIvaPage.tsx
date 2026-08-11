@@ -92,7 +92,7 @@ function TablaSeccion({ columnaBase, columnaTaxe, filas }: { columnaBase?: strin
 export default function AsistenteIvaPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const hoy = new Date();
+  const hoy = useMemo(() => new Date(), []);
   const mesActualISO = mesISODe(hoy.getFullYear(), hoy.getMonth() + 1);
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mes, setMes] = useState(hoy.getMonth() + 1);
@@ -139,9 +139,8 @@ export default function AsistenteIvaPage() {
       const declaracion = declaraciones?.find((d) => d.mes === m.mesISO);
       const estado: EstadoMes = m.mesISO === mesActualISO ? 'en_curso' : declaracion?.declarado ? 'declarado' : 'disponible';
       return { ...m, estado, limite: fechaLimiteDeclaracion(m.anio, m.mes) };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     });
-  }, [declaraciones, mesActualISO]);
+  }, [declaraciones, mesActualISO, hoy]);
 
   const { data: facturas, isLoading: cargandoFacturas } = useQuery({
     queryKey: ['facturas', 'iva-fr', mesISO],

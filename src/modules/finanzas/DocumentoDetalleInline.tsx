@@ -12,6 +12,7 @@ import { Input } from '../../components/ui/Input';
 import { DropdownMenu, type AccionMenu } from '../../components/ui/DropdownMenu';
 import { fechaCorta } from '../../lib/fechas';
 import { cargarEventos, registrarEvento } from '../../lib/eventos';
+import { registrarEventoFunnel, ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO } from '../../lib/funnelTracking';
 import { notaSistema } from '../../lib/notaSistema';
 import { generarPdfPresupuesto } from '../../lib/generarPdfPresupuesto';
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
@@ -114,7 +115,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             items.push({
               tipo: 'factura',
               id: f.id,
-              label: `${f.tipo === 'acompte' ? 'Anticipo' : 'Factura'} ${f.numero ?? ''}`,
+              label: `${f.tipo === 'acompte' ? 'Anticipo' : f.tipo === 'rectificativa' ? 'Rectificativa' : 'Factura'} ${f.numero ?? ''}`,
               sublabel: f.estado_cobro,
             });
           }
@@ -203,6 +204,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', id);
       if (error) throw error;
       await registrarEvento('presupuesto', id, `Marcado como ${estado}`);
+      const etapaFunnel = ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO[estado];
+      if (etapaFunnel) await registrarEventoFunnel(etapaFunnel, { presupuestoId: id });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });

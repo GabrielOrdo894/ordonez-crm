@@ -53,7 +53,6 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
       ? `Cet acompte correspond à ${porcentajeEfectivo}% du devis ${numero}.`
       : `Este anticipo corresponde al ${porcentajeEfectivo}% del presupuesto ${numero}.`;
     setDescripcion(texto);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presupuesto, modo, plazoIdx, importeFijo, porcentajeEfectivo, descripcionManual]);
 
   if (!presupuesto) return null;

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Sparkles, Copy, Check, X, Link2 } from 'lucide-react';
+import { ArrowLeft, Sparkles, Copy, Check, X, Link2, Gauge } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
@@ -70,6 +71,30 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     enabled: tipo === 'seguimiento',
   });
 
+  const { data: empresaConfig } = useQuery({
+    queryKey: ['empresa_config'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('empresa_config').select('ia_presupuesto_mensual_usd').eq('id', 1).single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: usoIaMes } = useQuery({
+    queryKey: ['uso-ia'],
+    queryFn: async () => {
+      const primerDiaMes = new Date();
+      primerDiaMes.setDate(1);
+      primerDiaMes.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase.from('llamadas_ia').select('costo_usd').gte('created_at', primerDiaMes.toISOString());
+      if (error) throw error;
+      return (data ?? []).reduce((s, r) => s + Number(r.costo_usd), 0);
+    },
+  });
+
+  const presupuestoMensual = (empresaConfig?.ia_presupuesto_mensual_usd as number | undefined) ?? 10;
+  const porcentajeUso = presupuestoMensual > 0 ? Math.round(((usoIaMes ?? 0) / presupuestoMensual) * 100) : 0;
+
   const { data: presupuestosDisponibles } = useQuery({
     queryKey: ['presupuestos', 'resumen-para-vincular'],
     queryFn: async () => {
@@ -111,6 +136,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
           .update({ estado: 'Enviada', mensaje_enviado_en: new Date().toISOString() })
           .eq('id', id);
         if (error) throw error;
+        await registrarEventoFunnel('solicitud_respondida', { solicitudId: id, fuente: solicitud?.fuente });
       } else {
         const { error } = await supabase
           .from('presupuestos')
@@ -130,6 +156,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     mutationFn: async () => {
       const { error } = await supabase.from('solicitudes').update({ estado: 'Descartada' }).eq('id', id);
       if (error) throw error;
+      await registrarEventoFunnel('solicitud_descartada', { solicitudId: id, fuente: solicitud?.fuente });
     },
     onSuccess: () => {
       invalidarListas();
@@ -143,6 +170,13 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     mutationFn: async (presupuestoId: string | null) => {
       const { error } = await supabase.from('solicitudes').update({ presupuesto_vinculado_id: presupuestoId }).eq('id', id);
       if (error) throw error;
+      if (presupuestoId && !solicitud?.presupuesto_vinculado_id) {
+        await registrarEventoFunnel('solicitud_vinculada_presupuesto', {
+          solicitudId: id,
+          presupuestoId,
+          fuente: solicitud?.fuente,
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes', id] });
@@ -279,16 +313,22 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       ) : (
         <>
           {!mensaje && (
-            <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
-              <div className="w-56">
-                <Select label="Modelo de IA" options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+            <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="w-56">
+                  <Select label="Modelo de IA" options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+                </div>
+                <Button onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending} className="mt-4">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={14} />
+                    {generarMutation.isPending ? 'Generando…' : 'Generar mensaje de respuesta'}
+                  </span>
+                </Button>
               </div>
-              <Button onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending} className="mt-4">
-                <span className="flex items-center gap-1.5">
-                  <Sparkles size={14} />
-                  {generarMutation.isPending ? 'Generando…' : 'Generar mensaje de respuesta'}
-                </span>
-              </Button>
+              <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                <Gauge size={12} className={porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-gray-400'} />
+                Uso de IA este mes: ${(usoIaMes ?? 0).toFixed(2)} de ${presupuestoMensual.toFixed(2)} ({porcentajeUso}%)
+              </p>
             </div>
           )}
 

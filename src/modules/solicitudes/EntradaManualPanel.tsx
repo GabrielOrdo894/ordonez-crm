@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PenLine, Lightbulb, Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -31,16 +32,21 @@ export function EntradaManualPanel({ onCreada }: EntradaManualPanelProps) {
 
   const crearMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('solicitudes').insert({
-        fuente: form.fuente,
-        idioma: form.idioma,
-        nombre: form.nombre.trim() || null,
-        email: form.email.trim() || null,
-        telefono: form.telefono.trim() || null,
-        comentario_cliente: form.texto.trim(),
-        estado: 'Nueva',
-      });
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .insert({
+          fuente: form.fuente,
+          idioma: form.idioma,
+          nombre: form.nombre.trim() || null,
+          email: form.email.trim() || null,
+          telefono: form.telefono.trim() || null,
+          comentario_cliente: form.texto.trim(),
+          estado: 'Nueva',
+        })
+        .select('id')
+        .single();
       if (error) throw error;
+      await registrarEventoFunnel('solicitud_entrada', { solicitudId: data.id, fuente: form.fuente });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
