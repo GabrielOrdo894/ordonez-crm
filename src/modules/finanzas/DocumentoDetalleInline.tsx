@@ -131,7 +131,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           items.push({
             tipo: 'factura',
             id: f.id,
-            label: `${f.tipo === 'acompte' ? 'Anticipo' : 'Factura'} ${f.numero ?? ''}`,
+            label: `${f.tipo === 'acompte' ? 'Anticipo' : f.tipo === 'rectificativa' ? 'Rectificativa' : 'Factura'} ${f.numero ?? ''}`,
             sublabel: f.estado_cobro,
           });
         }

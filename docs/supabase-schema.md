@@ -198,9 +198,19 @@ y `20260714000001_mensajeria_privada_fix.sql` para los ajustes posteriores. Tipo
 `null` = mensaje público a todo el equipo, con IDs = privado a esos destinatarios + el autor.
 
 ## Storage
-Bucket: `justificantes` · Carpeta: `gastos/` · Acceso: público
+Bucket: `justificantes` · Carpeta: `gastos/` · Acceso: **privado** desde 2026-08-05 (antes público —
+ver migraciones `privatizar_bucket_justificantes*`). El código nunca usa `getPublicUrl` para este
+bucket, siempre `createSignedUrl` (ver `GastoResumen.tsx`).
 Bucket: `avatares` · Acceso: público (fotos de perfil de los usuarios)
 Bucket: `mensajes_adjuntos` · Acceso: público (adjuntos de la mensajería interna)
+Bucket: `empresa` · Acceso: público (logo, foto de portada de presupuestos — `ConstructorPortadaPage.tsx`,
+`ConfiguracionPage.tsx`, `PresupuestoForm.tsx`)
+Bucket: `galeria` · Acceso: público (fotos de proyectos terminados — `GaleriaForm.tsx`)
+
+Nota (revisión 2026-08-11): existe un bucket duplicado `Justificantes` (con mayúscula), privado,
+con 0 objetos y sin ninguna referencia en el código — residuo de cuando se creó el bucket real
+`justificantes`. Candidato a borrar desde el dashboard de Supabase cuando se confirme que no hace
+falta.
 
 Políticas necesarias en `storage.objects` (RLS de Storage viene activado por defecto
 en todo proyecto Supabase, aunque el resto de la BD la tenga desactivada — sin estas
