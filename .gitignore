@@ -1,0 +1,42 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno — NUNCA subir a Git
+.env
+.env.local
+.env.production
+
+# Build
+dist/
+dist-ssr/
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Datos de negocio (no son código, quedan solo en disco local)
+/avatares/
+/catalogos/
+/equipo-marketing/
+/equipo-presupuestos/
+/guias/
+/modificaciones/
+/nueva solicitud de presupuesto/
+/plantilla de presupuesto/
+/plantillas-email/
+/solicitudes-presupuesto/
+
+# Build info de TypeScript
+*.tsbuildinfo

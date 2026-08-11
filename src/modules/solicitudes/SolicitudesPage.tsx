@@ -1,0 +1,539 @@
+import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw, Gauge } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
+import { useSeleccionMultiple } from '../../hooks/useSeleccionMultiple';
+import { Table } from '../../components/ui/Table';
+import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Select';
+import { KpiRow } from '../../components/ui/Kpi';
+import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
+import { SolicitudDetalle } from './SolicitudDetalle';
+import { EntradaManualPanel } from './EntradaManualPanel';
+import {
+  ESTADOS_SOLICITUD,
+  FUENTE_LABEL,
+  estadoSeguimiento,
+  type EstadoSeguimiento,
+  type PresupuestoConRespuesta,
+  type Solicitud,
+} from './types';
+
+type Pestana = 'entrantes' | 'seguimiento' | 'manual';
+
+const PESTANAS: { value: Pestana; label: string }[] = [
+  { value: 'entrantes', label: 'Solicitudes entrantes' },
+  { value: 'seguimiento', label: 'Respuestas a presupuestos' },
+  { value: 'manual', label: 'Entrada manual' },
+];
+
+function fecha(f: string | null) {
+  if (!f) return '—';
+  return new Date(f).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'default';
+
+const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
+  Nueva: 'pendiente',
+  Borrador: 'confirmada',
+  Enviada: 'realizada',
+  Descartada: 'cancelada',
+};
+
+const FILTRO_SOLICITUDES = ['Todas', ...ESTADOS_SOLICITUD];
+const FILTRO_SEGUIMIENTO = ['Todas', 'Nueva', 'Borrador', 'Enviada'];
+
+export default function SolicitudesPage() {
+  const toast = useToast();
+  const confirmar = useConfirmar();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { tab } = useParams<{ tab: string }>();
+  const pestana: Pestana = PESTANAS.some((p) => p.value === tab) ? (tab as Pestana) : 'entrantes';
+  const [viendo, setViendo] = useState<{ tipo: 'solicitud' | 'seguimiento'; id: string } | null>(null);
+  const [filtroSolicitudes, setFiltroSolicitudes] = useState('Todas');
+  const [filtroSeguimiento, setFiltroSeguimiento] = useState('Todas');
+  const [editandoPresupuesto, setEditandoPresupuesto] = useState(false);
+  const [presupuestoInput, setPresupuestoInput] = useState('');
+  const {
+    seleccion: seleccionSolicitudes,
+    toggleFila: toggleFilaSolicitud,
+    toggleTodas: toggleTodasSolicitudes,
+    limpiar: limpiarSeleccionSolicitudes,
+  } = useSeleccionMultiple();
+  const {
+    seleccion: seleccionSeguimiento,
+    toggleFila: toggleFilaSeguimiento,
+    toggleTodas: toggleTodasSeguimiento,
+    limpiar: limpiarSeleccionSeguimiento,
+  } = useSeleccionMultiple();
+
+  const { data: solicitudes, isLoading: cargandoSolicitudes } = useQuery({
+    queryKey: ['solicitudes'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as Solicitud[];
+    },
+  });
+
+  const { data: seguimientos, isLoading: cargandoSeguimiento } = useQuery({
+    queryKey: ['presupuestos', 'respuestas-pendientes'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select(
+          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en',
+        )
+        .is('eliminado_en', null)
+        .not('ultima_respuesta_cliente_fecha', 'is', null)
+        .order('ultima_respuesta_cliente_fecha', { ascending: false });
+      if (error) throw error;
+      return data as PresupuestoConRespuesta[];
+    },
+  });
+
+  const { data: empresaConfig } = useQuery({
+    queryKey: ['empresa_config'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: usoIaMes } = useQuery({
+    queryKey: ['uso-ia'],
+    queryFn: async () => {
+      const primerDiaMes = new Date();
+      primerDiaMes.setDate(1);
+      primerDiaMes.setHours(0, 0, 0, 0);
+      const { data, error } = await supabase.from('llamadas_ia').select('costo_usd').gte('created_at', primerDiaMes.toISOString());
+      if (error) throw error;
+      return (data ?? []).reduce((s, r) => s + Number(r.costo_usd), 0);
+    },
+  });
+
+  const presupuestoMensual = (empresaConfig?.ia_presupuesto_mensual_usd as number | undefined) ?? 10;
+  const porcentajeUso = presupuestoMensual > 0 ? Math.round(((usoIaMes ?? 0) / presupuestoMensual) * 100) : 0;
+
+  const guardarPresupuestoMutation = useMutation({
+    mutationFn: async (valor: number) => {
+      const { error } = await supabase.from('empresa_config').update({ ia_presupuesto_mensual_usd: valor }).eq('id', 1);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
+      toast.success('Presupuesto de IA actualizado');
+      setEditandoPresupuesto(false);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const comprobarGmail = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('revisar-gmail');
+      if (error) throw error;
+      if (data?.ok === false) throw new Error(data.error);
+      return data as { solicitudesNuevas: number; respuestasDetectadas: number };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
+      toast.success(`Gmail revisado: ${data.solicitudesNuevas} solicitud(es) nueva(s), ${data.respuestasDetectadas} respuesta(s) detectada(s)`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const eliminarSolicitudesMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase.from('solicitudes').delete().in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      toast.success(`${ids.length} solicitud(es) eliminada(s)`);
+      limpiarSeleccionSolicitudes();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const cambiarEstadoSolicitudesMutation = useMutation({
+    mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
+      const patch: Record<string, unknown> = { estado };
+      if (estado === 'Enviada') patch.mensaje_enviado_en = new Date().toISOString();
+      if (estado === 'Nueva') {
+        patch.mensaje_generado = null;
+        patch.mensaje_generado_en = null;
+        patch.mensaje_enviado_en = null;
+      }
+      const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      toast.success('Estado actualizado');
+      limpiarSeleccionSolicitudes();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const invalidarSeguimiento = () => {
+    queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
+    queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
+  };
+
+  const eliminarSeguimientoMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({
+          ultima_respuesta_cliente_resumen: null,
+          ultima_respuesta_cliente_fecha: null,
+          ultima_respuesta_revisada: false,
+          mensaje_seguimiento_generado: null,
+          mensaje_seguimiento_enviado: false,
+          mensaje_seguimiento_enviado_en: null,
+        })
+        .in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: (_data, ids) => {
+      invalidarSeguimiento();
+      toast.success(`${ids.length} respuesta(s) quitada(s) de la bandeja`);
+      limpiarSeleccionSeguimiento();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const marcarEnviadoSeguimientoMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({
+          mensaje_seguimiento_enviado: true,
+          mensaje_seguimiento_enviado_en: new Date().toISOString(),
+          ultima_respuesta_revisada: true,
+        })
+        .in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidarSeguimiento();
+      toast.success('Marcado como enviado');
+      limpiarSeleccionSeguimiento();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const volverNuevaSeguimientoMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({
+          mensaje_seguimiento_generado: null,
+          mensaje_seguimiento_enviado: false,
+          mensaje_seguimiento_enviado_en: null,
+          ultima_respuesta_revisada: false,
+        })
+        .in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidarSeguimiento();
+      toast.success('Vuelto a "Nueva" / no leído');
+      limpiarSeleccionSeguimiento();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const cambiarEstadoPresupuestoMutation = useMutation({
+    mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
+      const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidarSeguimiento();
+      toast.success('Estado del presupuesto actualizado');
+      limpiarSeleccionSeguimiento();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  if (viendo) {
+    return <SolicitudDetalle tipo={viendo.tipo} id={viendo.id} onClose={() => setViendo(null)} />;
+  }
+
+  const solicitudesFiltradas = (solicitudes ?? []).filter((s) => filtroSolicitudes === 'Todas' || s.estado === filtroSolicitudes);
+  const seguimientosFiltrados = (seguimientos ?? []).filter(
+    (p) => filtroSeguimiento === 'Todas' || estadoSeguimiento(p) === filtroSeguimiento,
+  );
+
+  const nuevasSolicitudes = (solicitudes ?? []).filter((s) => s.estado === 'Nueva').length;
+  const borradoresSolicitudes = (solicitudes ?? []).filter((s) => s.estado === 'Borrador').length;
+  const nuevosSeguimientos = (seguimientos ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-gray-900">Solicitudes & Seguimiento</h1>
+          <p className="text-sm text-gray-500">Solicitudes entrantes, respuestas de clientes a presupuestos y entrada manual — todo en un sitio.</p>
+        </div>
+        <Button variant="secondary" onClick={() => comprobarGmail.mutate()} disabled={comprobarGmail.isPending}>
+          <span className="flex items-center gap-1.5">
+            <RefreshCw size={14} className={comprobarGmail.isPending ? 'animate-spin' : ''} />
+            Comprobar Gmail ahora
+          </span>
+        </Button>
+      </div>
+
+      <KpiRow
+        items={[
+          { label: 'Solicitudes nuevas', valor: nuevasSolicitudes, acento: nuevasSolicitudes > 0 },
+          { label: 'Borradores sin enviar', valor: borradoresSolicitudes },
+          { label: 'Respuestas nuevas a revisar', valor: nuevosSeguimientos, acento: nuevosSeguimientos > 0 },
+        ]}
+      />
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-3 mb-6 flex items-center gap-3 flex-wrap">
+        <Gauge size={16} className={porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-brand'} />
+        <span className="text-sm text-gray-700">
+          Uso de IA este mes: <span className="font-semibold">${(usoIaMes ?? 0).toFixed(2)}</span> de $
+          {presupuestoMensual.toFixed(2)}{' '}
+          <span
+            className={`font-semibold ${porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-brand'}`}
+          >
+            ({porcentajeUso}%)
+          </span>
+        </span>
+        <div className="flex-1 max-w-xs h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full ${porcentajeUso >= 90 ? 'bg-red-600' : porcentajeUso >= 60 ? 'bg-amber-500' : 'bg-brand'}`}
+            style={{ width: `${Math.min(porcentajeUso, 100)}%` }}
+          />
+        </div>
+        {editandoPresupuesto ? (
+          <span className="flex items-center gap-1.5 ml-auto">
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={presupuestoInput}
+              onChange={(e) => setPresupuestoInput(e.target.value)}
+              className="w-20 border border-gray-200 rounded-sm px-2 py-1 text-sm focus:border-brand focus:outline-none"
+            />
+            <Button size="sm" onClick={() => guardarPresupuestoMutation.mutate(Number(presupuestoInput) || 0)}>
+              Guardar
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setEditandoPresupuesto(false)}>
+              Cancelar
+            </Button>
+          </span>
+        ) : (
+          <button
+            className="text-xs text-gray-400 hover:text-brand ml-auto underline"
+            onClick={() => {
+              setPresupuestoInput(String(presupuestoMensual));
+              setEditandoPresupuesto(true);
+            }}
+          >
+            Cambiar presupuesto mensual
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {PESTANAS.map((t) => {
+          const contador = t.value === 'entrantes' ? nuevasSolicitudes : t.value === 'seguimiento' ? nuevosSeguimientos : 0;
+          return (
+            <button
+              key={t.value}
+              onClick={() => navigate(`/solicitudes/${t.value}`)}
+              className={`px-3 py-1.5 rounded-sm text-xs font-semibold uppercase tracking-wide border transition-colors flex items-center gap-1.5 ${
+                pestana === t.value
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-surface border-gray-200 text-gray-600 hover:border-brand'
+              }`}
+            >
+              {t.label}
+              {contador > 0 && (
+                <span
+                  className={`text-[10px] font-bold rounded-full px-1.5 leading-4 ${
+                    pestana === t.value ? 'bg-white/20 text-white' : 'bg-red-600 text-white'
+                  }`}
+                >
+                  {contador}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {pestana === 'entrantes' && (
+        <>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Solicitudes entrantes</h2>
+            <div className="w-48">
+              <Select
+                options={FILTRO_SOLICITUDES.map((e) => ({ value: e, label: e }))}
+                value={filtroSolicitudes}
+                onChange={(e) => setFiltroSolicitudes(e.target.value)}
+              />
+            </div>
+          </div>
+          <BulkActionsBar
+            count={seleccionSolicitudes.size}
+            onCancelar={limpiarSeleccionSolicitudes}
+            acciones={[
+              {
+                label: 'Marcar como Nueva',
+                onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Nueva' }),
+                disabled: cambiarEstadoSolicitudesMutation.isPending,
+              },
+              {
+                label: 'Marcar como Borrador',
+                onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Borrador' }),
+                disabled: cambiarEstadoSolicitudesMutation.isPending,
+              },
+              {
+                label: 'Marcar como Enviada',
+                onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Enviada' }),
+                disabled: cambiarEstadoSolicitudesMutation.isPending,
+              },
+              {
+                label: 'Marcar como Descartada',
+                onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Descartada' }),
+                disabled: cambiarEstadoSolicitudesMutation.isPending,
+              },
+              {
+                label: 'Eliminar',
+                variant: 'danger',
+                onClick: async () => {
+                  if (!(await confirmar(`¿Eliminar ${seleccionSolicitudes.size} solicitud(es)? Esta acción no se puede deshacer.`))) return;
+                  eliminarSolicitudesMutation.mutate(Array.from(seleccionSolicitudes));
+                },
+                disabled: eliminarSolicitudesMutation.isPending,
+              },
+            ]}
+          />
+          <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
+            <Table
+              loading={cargandoSolicitudes}
+              data={solicitudesFiltradas}
+              emptyMessage="No hay solicitudes"
+              onRowClick={(s) => setViendo({ tipo: 'solicitud', id: s.id })}
+              rowClassName={(s) => (s.estado === 'Nueva' ? 'font-semibold text-gray-900' : '')}
+              seleccion={seleccionSolicitudes}
+              onToggleFila={toggleFilaSolicitud}
+              onToggleTodas={toggleTodasSolicitudes}
+              columns={[
+                { key: 'created_at', label: 'Fecha', render: (s) => fecha(s.created_at) },
+                { key: 'fuente', label: 'Fuente', render: (s) => FUENTE_LABEL[s.fuente] ?? s.fuente },
+                { key: 'nombre', label: 'Cliente', render: (s) => s.nombre || s.email || '—' },
+                { key: 'tipo_reforma', label: 'Tipo de reforma', render: (s) => s.tipo_reforma || '—' },
+                {
+                  key: 'estado',
+                  label: 'Estado',
+                  render: (s) => <Badge variant={VARIANTE_ESTADO[s.estado] ?? 'default'}>{s.estado}</Badge>,
+                },
+              ]}
+            />
+          </div>
+        </>
+      )}
+
+      {pestana === 'seguimiento' && (
+        <>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Respuestas a presupuestos enviados</h2>
+            <div className="w-48">
+              <Select
+                options={FILTRO_SEGUIMIENTO.map((e) => ({ value: e, label: e }))}
+                value={filtroSeguimiento}
+                onChange={(e) => setFiltroSeguimiento(e.target.value)}
+              />
+            </div>
+          </div>
+          <BulkActionsBar
+            count={seleccionSeguimiento.size}
+            onCancelar={limpiarSeleccionSeguimiento}
+            acciones={[
+              {
+                label: 'Marcar como Aceptado',
+                onClick: () => cambiarEstadoPresupuestoMutation.mutate({ ids: Array.from(seleccionSeguimiento), estado: 'Aceptado' }),
+                disabled: cambiarEstadoPresupuestoMutation.isPending,
+              },
+              {
+                label: 'Marcar como Rechazado',
+                onClick: () => cambiarEstadoPresupuestoMutation.mutate({ ids: Array.from(seleccionSeguimiento), estado: 'Rechazado' }),
+                disabled: cambiarEstadoPresupuestoMutation.isPending,
+              },
+              {
+                label: 'Marcar como enviada',
+                onClick: () => marcarEnviadoSeguimientoMutation.mutate(Array.from(seleccionSeguimiento)),
+                disabled: marcarEnviadoSeguimientoMutation.isPending,
+              },
+              {
+                label: 'Volver a Nueva / no leído',
+                onClick: () => volverNuevaSeguimientoMutation.mutate(Array.from(seleccionSeguimiento)),
+                disabled: volverNuevaSeguimientoMutation.isPending,
+              },
+              {
+                label: 'Eliminar (quitar respuesta)',
+                variant: 'danger',
+                onClick: async () => {
+                  if (!(await confirmar(`¿Quitar ${seleccionSeguimiento.size} respuesta(s) de esta bandeja? El presupuesto no se elimina.`))) return;
+                  eliminarSeguimientoMutation.mutate(Array.from(seleccionSeguimiento));
+                },
+                disabled: eliminarSeguimientoMutation.isPending,
+              },
+            ]}
+          />
+          <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
+            <Table
+              loading={cargandoSeguimiento}
+              data={seguimientosFiltrados}
+              emptyMessage="No hay respuestas registradas"
+              onRowClick={(p) => setViendo({ tipo: 'seguimiento', id: p.id })}
+              rowClassName={(p) => (estadoSeguimiento(p) === 'Nueva' ? 'font-semibold text-gray-900' : '')}
+              seleccion={seleccionSeguimiento}
+              onToggleFila={toggleFilaSeguimiento}
+              onToggleTodas={toggleTodasSeguimiento}
+              columns={[
+                { key: 'numero', label: 'Presupuesto' },
+                { key: 'cliente_nombre', label: 'Cliente', render: (p) => p.cliente_nombre || '—' },
+                { key: 'ultima_respuesta_cliente_fecha', label: 'Fecha respuesta', render: (p) => fecha(p.ultima_respuesta_cliente_fecha) },
+                {
+                  key: 'ultima_respuesta_cliente_resumen',
+                  label: 'Resumen',
+                  sortable: false,
+                  render: (p) => (
+                    <span className="line-clamp-2 max-w-md block font-normal">{p.ultima_respuesta_cliente_resumen || '—'}</span>
+                  ),
+                },
+                {
+                  key: 'estado',
+                  label: 'Estado',
+                  sortValue: (p) => estadoSeguimiento(p),
+                  render: (p) => {
+                    const e: EstadoSeguimiento = estadoSeguimiento(p);
+                    return <Badge variant={VARIANTE_ESTADO[e] ?? 'default'}>{e}</Badge>;
+                  },
+                },
+              ]}
+            />
+          </div>
+        </>
+      )}
+
+      {pestana === 'manual' && <EntradaManualPanel onCreada={() => navigate('/solicitudes/entrantes')} />}
+    </div>
+  );
+}

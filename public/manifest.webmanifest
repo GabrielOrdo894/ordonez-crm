@@ -1,0 +1,16 @@
+{
+  "name": "Reformas Ordoñez · CRM",
+  "short_name": "Ordoñez CRM",
+  "description": "CRM interno de Reformas Ordoñez",
+  "start_url": "/crm/",
+  "scope": "/crm/",
+  "display": "standalone",
+  "background_color": "#f4f4f2",
+  "theme_color": "#1a5c38",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/crm/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/crm/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/crm/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

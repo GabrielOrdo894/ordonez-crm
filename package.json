@@ -1,0 +1,35 @@
+{
+  "name": "ordonez-crm",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2",
+    "@tanstack/react-query": "^5",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.383.0",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-router-dom": "^6",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "typescript": "^5",
+    "vite": "^5",
+    "vitest": "^4.1.10"
+  }
+}

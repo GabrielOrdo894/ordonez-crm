@@ -1,0 +1,217 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   Tema del CRM — color de marca (data-tema) + modo claro/oscuro (data-modo).
+   Ambos atributos los gestiona src/hooks/useTema.tsx sobre <html>. Los valores
+   son tripletes "R G B" (sin comas) para que Tailwind pueda aplicar modificadores
+   de opacidad (ej. bg-brand-light/60) vía rgb(var(--x) / <alpha-value>).
+   ========================================================================== */
+
+:root {
+  /* Marca — verde (tema por defecto) */
+  --color-brand: 26 92 56;
+  --color-brand-dark: 15 61 36;
+  --color-brand-light: 234 242 237;
+  --color-brand-hover: 205 221 213;
+  /* Acento vivo para el indicador de sección activa en la barra lateral (siempre sobre
+     bg-brand-dark, un fondo oscuro) — necesita más brillo que --color-brand para destacar. */
+  --color-brand-accent: 74 222 128;
+
+  /* Gris — idéntico a la escala gray por defecto de Tailwind (modo claro) */
+  --color-gray-50: 249 250 251;
+  --color-gray-100: 243 244 246;
+  --color-gray-200: 229 231 235;
+  --color-gray-300: 209 213 219;
+  --color-gray-400: 156 163 175;
+  --color-gray-500: 107 114 128;
+  --color-gray-600: 75 85 99;
+  --color-gray-700: 55 65 81;
+  --color-gray-800: 31 41 55;
+  --color-gray-900: 17 24 39;
+
+  /* Superficies */
+  --color-surface: 255 255 255;
+  --color-app: 244 244 242;
+
+  /* Etiquetas de estado (Badge.tsx) — independientes del tema de color, pero sí del modo
+     claro/oscuro: en oscuro una píldora "clara" (bg-50/text-800) queda como un parche desentonado
+     sobre fondo oscuro, así que se invierte a un tono oscuro con texto claro del mismo color. */
+  --badge-pendiente-bg: 255 251 235;
+  --badge-pendiente-text: 146 64 14;
+  --badge-confirmada-bg: 239 246 255;
+  --badge-confirmada-text: 30 64 175;
+  --badge-vencida-bg: 254 242 242;
+  --badge-vencida-text: 185 28 28;
+
+  color-scheme: light;
+}
+
+[data-tema='azul'] {
+  --color-brand: 30 77 120;
+  --color-brand-dark: 18 50 79;
+  --color-brand-light: 232 238 245;
+  --color-brand-hover: 205 219 233;
+  --color-brand-accent: 96 165 250;
+}
+
+[data-tema='granate'] {
+  --color-brand: 122 35 49;
+  --color-brand-dark: 79 19 28;
+  --color-brand-light: 245 233 234;
+  --color-brand-hover: 227 199 203;
+  --color-brand-accent: 251 113 133;
+}
+
+[data-tema='grafito'] {
+  --color-brand: 58 65 72;
+  --color-brand-dark: 35 40 45;
+  --color-brand-light: 237 238 240;
+  --color-brand-hover: 214 217 220;
+  --color-brand-accent: 203 213 225;
+}
+
+[data-modo='oscuro'] {
+  --color-gray-50: 26 26 28;
+  --color-gray-100: 33 33 36;
+  --color-gray-200: 44 44 48;
+  --color-gray-300: 58 58 63;
+  --color-gray-400: 110 110 118;
+  --color-gray-500: 138 138 146;
+  --color-gray-600: 168 168 176;
+  --color-gray-700: 196 196 203;
+  --color-gray-800: 220 220 224;
+  --color-gray-900: 240 240 242;
+
+  --color-surface: 28 28 30;
+  --color-app: 19 19 20;
+
+  --badge-pendiente-bg: 55 41 12;
+  --badge-pendiente-text: 251 191 36;
+  --badge-confirmada-bg: 23 37 65;
+  --badge-confirmada-text: 96 165 250;
+  --badge-vencida-bg: 59 24 24;
+  --badge-vencida-text: 248 113 113;
+
+  color-scheme: dark;
+}
+
+/* Marca por tema en modo oscuro — variantes más claras/legibles sobre fondo oscuro
+   (brand-dark se deja igual: ya es un verde/tono muy oscuro, funciona en ambos modos
+   porque es el fondo fijo de la barra lateral). */
+[data-modo='oscuro'][data-tema='verde'] {
+  --color-brand: 47 145 96;
+  --color-brand-light: 22 38 30;
+  --color-brand-hover: 31 58 44;
+}
+
+[data-modo='oscuro'][data-tema='azul'] {
+  --color-brand: 63 122 184;
+  --color-brand-light: 22 35 47;
+  --color-brand-hover: 30 53 73;
+}
+
+[data-modo='oscuro'][data-tema='granate'] {
+  --color-brand: 184 70 90;
+  --color-brand-light: 44 26 29;
+  --color-brand-hover: 69 38 42;
+}
+
+[data-modo='oscuro'][data-tema='grafito'] {
+  --color-brand: 107 116 124;
+  --color-brand-light: 35 37 39;
+  --color-brand-hover: 53 56 59;
+}
+
+body {
+  background-color: rgb(var(--color-app));
+  font-family: 'Poppins', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Vistas previas de documentos (presupuesto, factura, planning, portada) — simulan una página de
+   papel/PDF real, que siempre es blanca independientemente del modo claro/oscuro del CRM. */
+.documento-papel {
+  --color-gray-50: 249 250 251;
+  --color-gray-100: 243 244 246;
+  --color-gray-200: 229 231 235;
+  --color-gray-300: 209 213 219;
+  --color-gray-400: 156 163 175;
+  --color-gray-500: 107 114 128;
+  --color-gray-600: 75 85 99;
+  --color-gray-700: 55 65 81;
+  --color-gray-800: 31 41 55;
+  --color-gray-900: 17 24 39;
+  --color-surface: 255 255 255;
+  --color-app: 244 244 242;
+  color-scheme: light;
+}
+
+/* Checkboxes y radios nativos con el color de marca en vez del azul del sistema — así se ven
+   "diseñados" en constructores, modificadores y tablas sin tener que sustituir cada <input> por
+   un componente a medida. */
+@layer base {
+  input[type='checkbox'],
+  input[type='radio'] {
+    @apply accent-brand w-3.5 h-3.5 cursor-pointer align-middle;
+  }
+}
+
+/* El icono del selector de fecha es lo único que se puede tocar con CSS — el calendario
+   emergente lo dibuja el propio sistema operativo/navegador y no admite estilos. */
+input[type='date']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 150ms;
+}
+input[type='date']:hover::-webkit-calendar-picker-indicator,
+input[type='date']:focus::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+/* Sin puntero con hover real (táctil): las acciones de fila no dependen de :hover, se muestran siempre. */
+@media (hover: none) {
+  .acciones-fila-idle { display: none !important; }
+  .acciones-fila-pill { display: flex !important; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-right {
+  from { opacity: 0; transform: translateY(-50%) translateX(-8px); }
+  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+@keyframes slide-right-flat {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes kpi-slide-in {
+  from { opacity: 0; transform: translateX(var(--kpi-dist, 0px)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-fade-left {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes drawer-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
