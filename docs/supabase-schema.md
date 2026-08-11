@@ -263,6 +263,40 @@ create policy "mensajes_adjuntos_update" on storage.objects
 
 create policy "mensajes_adjuntos_delete" on storage.objects
   for delete using (bucket_id = 'mensajes_adjuntos');
+
+-- galeria y empresa: trackeadas desde 20260811163218_trackear_politicas_storage_galeria_empresa.sql
+-- (existían ya en producción, creadas fuera de las migraciones — se recrearon ahí de forma
+-- idéntica para que un `supabase db reset` desde cero también funcione).
+insert into storage.buckets (id, name, public)
+values ('galeria', 'galeria', true)
+on conflict (id) do update set public = true;
+
+create policy "galeria_select" on storage.objects
+  for select using (bucket_id = 'galeria');
+
+create policy "galeria_insert" on storage.objects
+  for insert with check (bucket_id = 'galeria');
+
+create policy "galeria_delete" on storage.objects
+  for delete using (bucket_id = 'galeria');
+-- OJO: galeria no tiene política de update — coherente con el uso real (GaleriaDetalleModal.tsx
+-- borra + inserta para sustituir fotos, nunca hace un update en sitio).
+
+insert into storage.buckets (id, name, public)
+values ('empresa', 'empresa', true)
+on conflict (id) do update set public = true;
+
+create policy "empresa_select" on storage.objects
+  for select using (bucket_id = 'empresa');
+
+create policy "empresa_insert" on storage.objects
+  for insert with check (bucket_id = 'empresa');
+
+create policy "empresa_update" on storage.objects
+  for update using (bucket_id = 'empresa');
+
+create policy "empresa_delete" on storage.objects
+  for delete using (bucket_id = 'empresa');
 ```
 
 ## Estados válidos
