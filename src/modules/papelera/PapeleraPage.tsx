@@ -129,6 +129,8 @@ function TablaPresupuestos() {
   const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Presupuesto>('presupuestos', async (id) => {
     const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'presupuesto').eq('documento_id', id);
     if (error) throw error;
+    const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().eq('presupuesto_id', id);
+    if (errorFunnel) throw errorFunnel;
   });
 
   return (
