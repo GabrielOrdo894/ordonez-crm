@@ -110,6 +110,7 @@ const GRUPOS_NAV: GrupoNav[] = [
     icon: Sparkles,
     items: [
       { id: 'bloque-directrices', label: 'Directrices para la IA', icon: Sparkles },
+      { id: 'bloque-uso-ia', label: 'Presupuesto mensual de IA', icon: Sparkles },
       { id: 'bloque-disponibilidad', label: 'Disponibilidad de visitas', icon: CalendarCheck },
       { id: 'bloque-lista-negra', label: 'Lista negra de emails', icon: Ban },
     ],
@@ -261,6 +262,7 @@ export default function ConfiguracionPage() {
   const [resenaDiasEspera, setResenaDiasEspera] = useState(3);
   const [resenaEnlace, setResenaEnlace] = useState('');
   const [visitasDesde, setVisitasDesde] = useState('');
+  const [iaPresupuestoMensual, setIaPresupuestoMensual] = useState(10);
   const [bancoSyncProveedor, setBancoSyncProveedor] = useState('');
   const [bancoSyncIban, setBancoSyncIban] = useState('');
   const [bancoSyncNotas, setBancoSyncNotas] = useState('');
@@ -389,6 +391,7 @@ export default function ConfiguracionPage() {
     setEmailsNotificacion(datos.notificaciones_visita_emails_extra ?? []);
     setEmailsExcluidos(datos.solicitudes_emails_excluidos ?? []);
     setVisitasDesde(config.visitas_disponibles_desde ?? '');
+    setIaPresupuestoMensual((config.ia_presupuesto_mensual_usd as number | null) ?? 10);
     setBancoSyncProveedor(datos.sincronizacionBanco?.proveedor ?? '');
     setBancoSyncIban(datos.sincronizacionBanco?.iban ?? '');
     setBancoSyncNotas(datos.sincronizacionBanco?.notas ?? '');
@@ -490,6 +493,17 @@ export default function ConfiguracionPage() {
       if (error) throw error;
     },
     ...alGuardar('Disponibilidad de visitas guardada', 'actualizó la fecha desde la que se ofrecen visitas en Configuración.'),
+  });
+
+  const guardarIaPresupuestoMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from('empresa_config')
+        .update({ ia_presupuesto_mensual_usd: iaPresupuestoMensual })
+        .eq('id', 1);
+      if (error) throw error;
+    },
+    ...alGuardar('Presupuesto de IA guardado', 'actualizó el presupuesto mensual de IA en Configuración.'),
   });
 
   const guardarNotificacionesMutation = useMutation({
@@ -1186,6 +1200,33 @@ export default function ConfiguracionPage() {
       <div id="bloque-directrices" style={{ display: bloqueActivo === 'bloque-directrices' ? undefined : 'none' }}>
         <DirectricesSection />
       </div>
+
+      <section
+        id="bloque-uso-ia"
+        className="bg-surface border border-gray-200 rounded-sm p-4"
+        style={{ display: bloqueActivo === 'bloque-uso-ia' ? undefined : 'none' }}
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Presupuesto mensual de IA</p>
+          <Button size="sm" onClick={() => guardarIaPresupuestoMutation.mutate()} disabled={guardarIaPresupuestoMutation.isPending}>
+            {guardarIaPresupuestoMutation.isPending ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </div>
+        <p className="text-xs text-gray-400 mb-3">
+          Tope de gasto mensual en llamadas a la IA (generación de mensajes de respuesta a
+          solicitudes/seguimiento). Se usa solo para el indicador de "% usado este mes" en la ficha
+          de cada solicitud — no bloquea la generación si se supera.
+        </p>
+        <Input
+          label="Presupuesto mensual (USD)"
+          type="number"
+          min={0}
+          step={0.5}
+          value={iaPresupuestoMensual}
+          onChange={(e) => setIaPresupuestoMensual(Number(e.target.value))}
+          className="w-40"
+        />
+      </section>
 
       <section
         id="bloque-disponibilidad"

@@ -18,6 +18,7 @@ import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { porcentajeIva, paisDesdeTipoIva } from '../modules/finanzas/presupuestos/types';
 import type { Presupuesto } from '../modules/finanzas/presupuestos/types';
 import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
+import { formatearPrecio } from '../modules/finanzas/lineas';
 import { formatearUnidadTexto } from '../modules/finanzas/lineas';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 
@@ -130,8 +131,8 @@ export async function generarPdfDossierObra(datos: DossierObraData) {
     body: p.lineas.map((l) => [
       formatearUnidadTexto(l.designacion),
       String(l.cantidad),
-      `${l.precio_unit.toFixed(2)} €`,
-      l.es_incluido ? 'Incluido' : `${l.total_con_iva.toFixed(2)} €`,
+      formatearPrecio(l.precio_unit),
+      l.es_incluido ? 'Incluido' : formatearPrecio(l.total_con_iva),
     ]),
     styles: { font: FUENTE_PDF, lineWidth: 0.1, lineColor: GRIS_BORDE, fontSize: 8.5 },
     headStyles: { fillColor: colorRgb, textColor: 255, fontStyle: 'bold' },
@@ -147,7 +148,7 @@ export async function generarPdfDossierObra(datos: DossierObraData) {
   doc.setFont(FUENTE_PDF, 'bold');
   doc.setFontSize(12);
   doc.setTextColor(...colorRgb);
-  doc.text(`${t.total}: ${totalConIva.toFixed(2)} € (IVA ${pct}% incl.)`, 210 - margen, y, { align: 'right' });
+  doc.text(`${t.total}: ${formatearPrecio(totalConIva)} (IVA ${pct}% incl.)`, 210 - margen, y, { align: 'right' });
 
   // ---- Página planning de obra ----
   doc.addPage();

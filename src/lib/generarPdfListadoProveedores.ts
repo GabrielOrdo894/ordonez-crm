@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cargarConfigCompleta, urlABase64, dimensionesImagen, ajustarCaja, GRIS_BORDE, GRIS_TEXTO, hexARgb, totalPaginasPdf } from './pdfEmpresa';
+import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 import type { Proveedor } from '../modules/finanzas/proveedores/types';
 
@@ -15,7 +16,11 @@ export async function generarPdfListadoProveedores(proveedores: Proveedor[], fil
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   await registrarFuentePoppins(doc);
   const margen = 15;
-  const colorRgb = hexARgb('#1a5c38');
+  // Antes llevaba el verde de marca hardcodeado — si Gabriel cambia el color corporativo en
+  // Configuración → Plantillas, este era el único documento que no lo reflejaba (hallazgo real,
+  // revisión 2026-08-12).
+  const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);
+  const colorRgb = hexARgb(configPlantilla.colorPrimario);
 
   let xTexto = margen;
   if (logo) {

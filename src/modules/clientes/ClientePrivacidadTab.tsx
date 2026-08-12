@@ -141,16 +141,39 @@ async function pasoBorrado(nombre: string, ejecutar: () => PromiseLike<{ error: 
 // borra aquí. El resto del orden está pensado para no dejar huérfanos si algún paso falla a medias:
 // primero lo que depende de presupuesto_id/gasto_id, luego lo que depende de visita_id, y las filas
 // de visitas al final (todo lo demás las referencia; facturas.visita_id queda a NULL automáticamente).
+const BUCKET_GALERIA = 'galeria';
+
+function pathGaleriaDesdeUrl(url: string): string | null {
+  const marca = `/storage/v1/object/public/${BUCKET_GALERIA}/`;
+  const idx = url.indexOf(marca);
+  return idx === -1 ? null : url.slice(idx + marca.length);
+}
+
 async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
-  const [presus, facs, gas, solicitudesCliente] = await Promise.all([
+  const [presus, facs, gas, gal, solicitudesCliente] = await Promise.all([
     supabase.from('presupuestos').select('id').in('visita_id', visitaIds),
     supabase.from('facturas').select('id').in('visita_id', visitaIds),
     supabase.from('gastos').select('id').in('visita_id', visitaIds),
+    supabase.from('galeria').select('fotos').in('visita_id', visitaIds),
     buscarSolicitudesCliente(cliente),
   ]);
   if (presus.error) throw new Error(`presupuestos: ${presus.error.message}`);
   if (facs.error) throw new Error(`facturas: ${facs.error.message}`);
   if (gas.error) throw new Error(`gastos: ${gas.error.message}`);
+  if (gal.error) throw new Error(`galeria: ${gal.error.message}`);
+
+  // Las filas de `galeria` se borran más abajo, pero los ficheros de Storage no se borraban solos
+  // (a diferencia de GaleriaDetalleModal.tsx, que sí limpia Storage al borrar un proyecto normal) —
+  // se quedaban huérfanos incluso en una purga "de verdad" (hallazgo real, revisión 2026-08-12).
+  // Best-effort: un fallo al borrar Storage no debe abortar la purga del resto de datos personales.
+  const rutasFotos = (gal.data ?? [])
+    .flatMap((g) => (g.fotos as { url: string }[] | null) ?? [])
+    .map((f) => pathGaleriaDesdeUrl(f.url))
+    .filter((p): p is string => !!p);
+  if (rutasFotos.length > 0) {
+    const { error: errorStorage } = await supabase.storage.from(BUCKET_GALERIA).remove(rutasFotos);
+    if (errorStorage) console.warn('No se pudieron borrar todas las fotos de galería en Storage:', errorStorage.message);
+  }
 
   const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
   const facturaIds = (facs.data ?? []).map((f) => f.id as string);

@@ -316,6 +316,10 @@ export default function SolicitudesPage() {
         <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
           Embudo de conversión · últimos 90 días
         </p>
+        {/* El tracking fino (funnel_eventos) arrancó el 11/08/2026 — las solicitudes anteriores a
+            esa fecha no tienen eventos aunque ya estén gestionadas, así que el embudo puede
+            parecer bajo/vacío al principio sin que sea un fallo del tracking. */}
+        <p className="text-xs text-gray-400 mb-2">Datos desde el 11/08/2026, fecha en la que se activó este seguimiento.</p>
         {embudo[0].count === 0 ? (
           <p className="text-sm text-gray-400 py-2">Sin solicitudes registradas en este período</p>
         ) : (

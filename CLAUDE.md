@@ -382,9 +382,10 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `documento_eventos`/`movimientos_banco` indirectos. **Excepción — facturas**: nunca se borran, ni siquiera
   aquí, por la misma razón que en `/papelera` (numeración correlativa legal, ver nota de arriba); el derecho al
   olvido se cumple anonimizando `cliente_nombre`/`cliente_dir`/`cliente_email`/`cliente_tel` en la factura en
-  vez de eliminar la fila. Cumple el derecho de acceso/eliminación que el T&C promete al cliente. Limitación
-  conocida: los adjuntos en Storage (fotos de galería, justificantes de gastos) no se borran, quedan huérfanos
-  — pendiente si algún día hace falta limpiarlos también.
+  vez de eliminar la fila. Cumple el derecho de acceso/eliminación que el T&C promete al cliente. Las fotos de
+  galería en Storage se borran también (corrección 2026-08-12, best-effort — un fallo no aborta la purga del
+  resto). Limitación conocida: los justificantes de gastos en Storage no se borran, quedan huérfanos —
+  pendiente si algún día hace falta limpiarlos también.
   **Corrección 2026-08-11**: `solicitudes` (Bloque 6 — llega antes de que exista una visita, así que no
   cuelga de `visita_id` como el resto) se había quedado fuera tanto de la exportación como de la purga desde
   que existe la tabla (28 julio) — un cliente que escribió por el formulario web mantenía su nombre/email/

@@ -147,7 +147,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     },
     onSuccess: () => {
       invalidarListas();
-      toast.success('Marcado como aceptado y enviado');
+      toast.success(tipo === 'solicitud' ? 'Marcado como aceptado y enviado' : 'Respuesta marcada como revisada');
     },
     onError: (error) => toast.error(error.message),
   });
@@ -299,6 +299,11 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                 label: `${p.numero ?? '(sin número)'} — ${p.cliente_nombre ?? ''}`,
               }))]}
               value={solicitud.presupuesto_vinculado_id ?? ''}
+              // Deshabilitado mientras está pendiente — si no, cambiar de presupuesto vinculado dos
+              // veces seguidas antes de que la primera mutación complete lee presupuesto_vinculado_id
+              // desactualizado (aún null) en ambas y puede registrar el evento de funnel dos veces,
+              // apuntando al presupuesto ya sobrescrito (hallazgo real, revisión 2026-08-12).
+              disabled={vincularMutation.isPending}
               onChange={(e) => vincularMutation.mutate(e.target.value || null)}
             />
           </div>
@@ -379,7 +384,11 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
               <Button onClick={() => marcarEnviadoMutation.mutate()} disabled={marcarEnviadoMutation.isPending}>
                 <span className="flex items-center gap-1.5">
                   <Check size={14} />
-                  Aceptado y enviado
+                  {/* Para seguimiento este botón solo marca la respuesta como revisada — no cambia
+                      presupuestos.estado a Aceptado (eso solo pasa desde las acciones masivas de
+                      SolicitudesPage). Etiqueta distinta para no dar a entender que ya se aceptó
+                      el presupuesto (hallazgo real, revisión 2026-08-12). */}
+                  {tipo === 'solicitud' ? 'Aceptado y enviado' : 'Marcar respuesta como revisada'}
                 </span>
               </Button>
               {tipo === 'solicitud' && (

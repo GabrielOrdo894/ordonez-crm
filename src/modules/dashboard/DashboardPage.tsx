@@ -495,7 +495,8 @@ export default function DashboardPage() {
         </p>
         <p className="text-xs text-gray-400 -mt-2 mb-3">
           Desde que entra el primer mensaje del cliente (Solicitudes) hasta que firma — mide el mismo período
-          seleccionado arriba, independiente del embudo de visitas.
+          seleccionado arriba, independiente del embudo de visitas. Este tracking fino arrancó el
+          11/08/2026 — un período que empiece antes de esa fecha no tendrá eventos previos.
         </p>
         {funnelSolicitudes[0].count === 0 ? (
           <p className="text-sm text-gray-400 py-10 text-center">Sin solicitudes registradas en este período</p>
