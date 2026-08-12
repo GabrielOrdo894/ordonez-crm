@@ -50,8 +50,10 @@ function piePagina(doc: jsPDF, margen: number, disclaimer: string) {
 /** "Décision de l'associé unique" fijando la rémunération anual del gérant — el documento
  * societario real que respalda las cifras del simulador de Cotisations URSSAF. No es un bulletin
  * de paie (el gérant majoritaire TNS no está sujeto a esa obligación), es el acta que formaliza la
- * decisión — modelo a usar como borrador, no como texto legal definitivo (auditoría 2026-08-12). */
-export async function generarPdfDecisionRemuneracion(anio: number, remuneracionAnual: number): Promise<void> {
+ * decisión. Incluye la referencia real al registre obligatoire (art. R223-26 Code de commerce,
+ * verificado 2026-08-12) — el documento queda "oficial" cuando el associé unique lo fecha, lo firma
+ * y lo consigna en ese registro, no por generarlo aquí. */
+export async function generarPdfDecisionRemuneracion(anio: number, remuneracionAnual: number, capitalSocial: number): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   await registrarFuentePoppins(doc);
   const { entidad, margen } = await cabeceraDocumento(doc, 'DÉCISION DE L’ASSOCIÉ UNIQUE');
@@ -74,30 +76,39 @@ export async function generarPdfDecisionRemuneracion(anio: number, remuneracionA
 
   parrafo(
     `L'associé unique de la société ${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité ` +
-      `limitée (EURL), dont le siège social est situé ${entidad.direccion || ''}, immatriculée au Registre du Commerce et des ` +
-      `Sociétés de Bayonne sous le numéro ${entidad.identificador || ''},`,
+      `limitée (EURL) au capital social de ${fmtEur(capitalSocial)}, dont le siège social est situé ${entidad.direccion || ''}, ` +
+      `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.identificador || ''},`,
   );
-  parrafo(`Après avoir rappelé que la gérance de la société est assurée par ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'},`);
-  parrafo('DÉCIDE :', { negrita: true, espacioAntes: 4, espacioDespues: 8 });
+  parrafo(
+    `Représentant l'intégralité du capital social et exerçant les pouvoirs dévolus à l'assemblée par les statuts de la ` +
+      `société, après avoir rappelé que la gérance est assurée par ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'},`,
+  );
+  parrafo('PREND LA DÉCISION SUIVANTE :', { negrita: true, espacioAntes: 4, espacioDespues: 8 });
   parrafo('Article unique — Rémunération du gérant', { negrita: true, espacioDespues: 4 });
   parrafo(
     `La rémunération annuelle brute allouée à ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'}, au titre de son mandat ` +
-      `de gérant, pour l'exercice ${anio}, est fixée à ${fmtEur(remuneracionAnual)}.`,
+      `de gérant, pour l'exercice ${anio}, est fixée à ${fmtEur(remuneracionAnual)}, soit ${fmtEur(remuneracionAnual / 12)} ` +
+      'par mois.',
   );
   parrafo(
     'Cette rémunération est soumise aux cotisations sociales des travailleurs non-salariés (TNS) dues auprès de la ' +
       'Sécurité Sociale des Indépendants (SSI), conformément à la réglementation en vigueur.',
+  );
+  parrafo(
+    "La présente décision est consignée et numérotée dans le registre des décisions de l'associé unique tenu au siège " +
+      'social, conformément aux articles L223-31 et R223-26 du Code de commerce.',
     { espacioDespues: 20 },
   );
-  parrafo(`Fait à Hendaye, le ${fecha}.`, { espacioDespues: 20 });
+  parrafo(`Fait à Hendaye, le ${fecha}, en un exemplaire original conservé au siège social.`, { espacioDespues: 20 });
   parrafo("L'associé unique,", { espacioDespues: 20 });
   parrafo(entidad.nombre_titular || 'Mario Ordoñez Quevedo', { negrita: true });
 
   piePagina(
     doc,
     margen,
-    "Modèle à usage interne, généré automatiquement à partir des chiffres saisis dans l'onglet Cotisations URSSAF — " +
-      "à faire valider par l'expert-comptable avant signature. Ne remplace pas un procès-verbal rédigé par un professionnel.",
+    "Document généré à partir des chiffres saisis dans l'onglet Cotisations URSSAF — il devient la décision officielle une " +
+      "fois daté, signé par l'associé unique et consigné dans le registre des décisions, après vérification de sa cohérence " +
+      'avec les statuts de la société.',
   );
 
   doc.save(`decision-remuneration-gerant-${anio}.pdf`);

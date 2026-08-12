@@ -52,7 +52,7 @@ export function TabCotisations() {
   const handleDecision = async () => {
     setGenerandoDecision(true);
     try {
-      await conAvisoDescarga(() => generarPdfDecisionRemuneracion(anio, remuneracion), toast);
+      await conAvisoDescarga(() => generarPdfDecisionRemuneracion(anio, remuneracion, gerantConfig?.capital_social ?? 1000), toast);
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));
     } finally {
