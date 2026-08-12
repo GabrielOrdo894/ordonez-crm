@@ -944,10 +944,15 @@ async function construirPdfPresupuesto(p: Presupuesto) {
       tableWidth: anchoCol,
       head: [[t.planPago, ...t.columnasPago.slice(1)]],
       body: p.plan_pago.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
-      styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE },
+      // valign 'middle' — por defecto autoTable alinea arriba, y con un concepto largo que ocupa
+      // varias líneas el % y el importe (una sola línea) quedaban pegados al borde superior de la
+      // fila en vez de centrados (reportado 2026-08-11). cellWidth fijo en % e importe para que el
+      // importe formateado ("15 707,59€") nunca tenga que partirse en dos líneas — el concepto es
+      // el único que se ajusta al ancho restante.
+      styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
       headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
       bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      columnStyles: { 1: { halign: 'right', cellWidth: 10 }, 2: { halign: 'right', cellWidth: 24 } },
     });
     yPlanForma = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
   }

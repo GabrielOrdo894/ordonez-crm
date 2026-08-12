@@ -1,5 +1,5 @@
 import { hexARgb, DECENNALE_BULLETS_FR, type EntidadPais } from '../../lib/pdfEmpresa';
-import { totalLineaMax, formatearUnidadTexto } from './lineas';
+import { totalLineaMax, formatearUnidadTexto, formatearPrecio, formatearRangoPrecio } from './lineas';
 import type { Linea } from './lineas';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import { direccionEnDosLineas } from '../../lib/direcciones';
@@ -719,22 +719,22 @@ export function DocumentoPreview({
                   <td className="px-1.5 py-1 text-right text-gray-600 align-top">{l.cantidad}</td>
                   <td className="px-1.5 py-1 text-right text-gray-600 align-top">
                     {rango
-                      ? `${l.precio_unit.toFixed(2)} – ${(l.precio_unit_max ?? l.precio_unit).toFixed(2)} €`
-                      : `${l.precio_unit.toFixed(2)} €`}
+                      ? formatearRangoPrecio(l.precio_unit, l.precio_unit_max ?? l.precio_unit)
+                      : formatearPrecio(l.precio_unit)}
                   </td>
                   <td className="px-1.5 py-1 text-right text-gray-600 align-top">
                     {l.es_incluido
                       ? 'Incluido'
                       : rango
-                        ? `${l.total_sin_iva.toFixed(2)} – ${max.sinIva.toFixed(2)} €`
-                        : `${l.total_sin_iva.toFixed(2)} €`}
+                        ? formatearRangoPrecio(l.total_sin_iva, max.sinIva)
+                        : formatearPrecio(l.total_sin_iva)}
                   </td>
                   <td className="px-1.5 py-1 text-right text-gray-800 align-top">
                     {l.es_incluido
                       ? 'Incluido'
                       : rango
-                        ? `${l.total_con_iva.toFixed(2)} – ${max.conIva.toFixed(2)} €`
-                        : `${l.total_con_iva.toFixed(2)} €`}
+                        ? formatearRangoPrecio(l.total_con_iva, max.conIva)
+                        : formatearPrecio(l.total_con_iva)}
                   </td>
                 </tr>
               );
@@ -764,80 +764,76 @@ export function DocumentoPreview({
                   <>
                     <div className="flex justify-between text-gray-500 text-[10px]">
                       <span>{labelBase}</span>
-                      <span>{totalOriginalHt.toFixed(2)} €</span>
+                      <span>{formatearPrecio(totalOriginalHt)}</span>
                     </div>
                     <div className="flex justify-between font-semibold text-gray-700 text-[10px] mt-0.5">
                       <span>TOTAL</span>
-                      <span>{totalOriginalTtc.toFixed(2)} €</span>
+                      <span>{formatearPrecio(totalOriginalTtc)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500 text-[10px] mt-1.5">
                       <span>{labelsExtra.acomptesVersados}</span>
-                      <span>{acomptesTotalTtc.toFixed(2)} €</span>
+                      <span>{formatearPrecio(acomptesTotalTtc)}</span>
                     </div>
                     {acomptes!.itemizado.map((a) => (
                       <div key={a.numero} className="flex justify-between text-gray-400 text-[9px] pl-2">
                         <span>{a.numero}</span>
-                        <span>{a.total.toFixed(2)} €</span>
+                        <span>{formatearPrecio(a.total)}</span>
                       </div>
                     ))}
                     <div className="flex justify-between text-gray-500 text-[10px] mt-1.5">
                       <span>{labelsExtra.restePagarHt}</span>
-                      <span>{resteHt.toFixed(2)} €</span>
+                      <span>{formatearPrecio(resteHt)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500 text-[10px]">
                       <span>{labelIva}</span>
-                      <span>{resteTva.toFixed(2)} €</span>
+                      <span>{formatearPrecio(resteTva)}</span>
                     </div>
                     <div className="flex justify-between text-gray-400 text-[9px] pl-2">
                       <span>
                         {labelsExtra.dont} {porcentajeIva}%
                       </span>
-                      <span>{resteTva.toFixed(2)} €</span>
+                      <span>{formatearPrecio(resteTva)}</span>
                     </div>
                     <div
                       className="flex justify-between font-semibold border-t mt-1 pt-1"
                       style={{ color: colorPrimario, borderColor: '#e5e7eb' }}
                     >
                       <span>{labelsExtra.restePagarTtc}</span>
-                      <span>{resteTtc.toFixed(2)} €</span>
+                      <span>{formatearPrecio(resteTtc)}</span>
                     </div>
                   </>
                 ) : totalSinIvaMax != null && totalConIvaMax != null ? (
                   <>
                     <div className="flex justify-between text-gray-500 text-[10px]">
                       <span>{labelBase}</span>
-                      <span>
-                        {totalSinIva.toFixed(2)} – {totalSinIvaMax.toFixed(2)} €
-                      </span>
+                      <span>{formatearRangoPrecio(totalSinIva, totalSinIvaMax)}</span>
                     </div>
                     <div
                       className="flex justify-between font-semibold border-t mt-1 pt-1"
                       style={{ color: colorPrimario, borderColor: '#e5e7eb' }}
                     >
                       <span>TOTAL</span>
-                      <span>
-                        {totalSinIva.toFixed(2)} – {totalSinIvaMax.toFixed(2)} €
-                      </span>
+                      <span>{formatearRangoPrecio(totalSinIva, totalSinIvaMax)}</span>
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="flex justify-between text-gray-500 text-[10px]">
                       <span>{labelBase}</span>
-                      <span>{totalSinIva.toFixed(2)} €</span>
+                      <span>{formatearPrecio(totalSinIva)}</span>
                     </div>
                     <div className="flex justify-between text-gray-500 text-[10px]">
                       <span>
                         {labelIva} ({porcentajeIva}%)
                       </span>
-                      <span>{(totalConIva - totalSinIva).toFixed(2)} €</span>
+                      <span>{formatearPrecio(totalConIva - totalSinIva)}</span>
                     </div>
                     <div
                       className="flex justify-between font-semibold border-t mt-1 pt-1"
                       style={{ color: colorPrimario, borderColor: '#e5e7eb' }}
                     >
                       <span>TOTAL</span>
-                      <span>{totalConIva.toFixed(2)} €</span>
+                      <span>{formatearPrecio(totalConIva)}</span>
                     </div>
                   </>
                 )}
@@ -885,9 +881,9 @@ export function DocumentoPreview({
                           className={tabla.lineas ? 'border-b border-gray-100' : ''}
                           style={tabla.filasIntercaladas && i % 2 === 1 ? { backgroundColor: colorClaro } : undefined}
                         >
-                          <td className="px-1.5 py-1 text-gray-800">{p.concepto}</td>
-                          <td className="px-1.5 py-1 text-right text-gray-600">{p.porcentaje}%</td>
-                          <td className="px-1.5 py-1 text-right text-gray-800">{p.importe.toFixed(2)} €</td>
+                          <td className="px-1.5 py-1 text-gray-800 align-middle">{p.concepto}</td>
+                          <td className="px-1.5 py-1 text-right text-gray-600 align-middle whitespace-nowrap">{p.porcentaje}%</td>
+                          <td className="px-1.5 py-1 text-right text-gray-800 align-middle whitespace-nowrap">{formatearPrecio(p.importe)}</td>
                         </tr>
                       ))}
                     </tbody>

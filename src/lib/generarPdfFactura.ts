@@ -23,7 +23,7 @@ import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
 import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura } from '../modules/finanzas/facturas/types';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
-import { formatearUnidadTexto } from '../modules/finanzas/lineas';
+import { formatearUnidadTexto, formatearPrecio } from '../modules/finanzas/lineas';
 import { direccionEnDosLineas } from './direcciones';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 
@@ -55,6 +55,8 @@ const TEXTOS = {
     iva: 'IVA',
     total: 'TOTAL',
     incluido: 'Incluido',
+    planPago: 'Plan de pago',
+    columnasPago: ['Concepto', '%', 'Importe'],
     formaPago: 'Forma de pago',
     seguro: 'Seguro y garantía',
     nota: 'Nota',
@@ -81,6 +83,8 @@ const TEXTOS = {
     iva: 'TVA',
     total: 'TOTAL',
     incluido: 'Inclus',
+    planPago: 'Plan de paiement',
+    columnasPago: ['Concept', '%', 'Montant'],
     formaPago: 'Modalités de paiement',
     seguro: 'Assurance et garantie',
     nota: 'Note',
@@ -129,15 +133,17 @@ async function construirPdfFactura(f: Factura) {
   // (para el resumen de pago de la factura final).
   let devisNumero: string | null = null;
   let condPagoPresupuesto: Record<string, string> | null = null;
+  let planPagoPresupuesto: { concepto: string; porcentaje: number; importe: number }[] = [];
   let acomptesPrevios: { numero: string | null; total: number }[] = [];
   if (f.presupuesto_id) {
     const { data: presupuestoOrigen } = await supabase
       .from('presupuestos')
-      .select('numero, condiciones_pago')
+      .select('numero, condiciones_pago, plan_pago')
       .eq('id', f.presupuesto_id)
       .single();
     devisNumero = presupuestoOrigen?.numero ?? null;
     condPagoPresupuesto = presupuestoOrigen?.condiciones_pago ?? null;
+    planPagoPresupuesto = presupuestoOrigen?.plan_pago ?? [];
     if (f.tipo === 'normal') {
       const { data: acomptesData } = await supabase
         .from('facturas')
@@ -590,9 +596,9 @@ async function construirPdfFactura(f: Factura) {
       if (colTabla.unidad) fila.push(formatearUnidadTexto(l.unidad));
       fila.push(
         String(l.cantidad),
-        `${l.precio_unit.toFixed(2)} €`,
-        l.es_incluido ? t.incluido : `${l.total_sin_iva.toFixed(2)} €`,
-        l.es_incluido ? t.incluido : `${l.total_con_iva.toFixed(2)} €`,
+        formatearPrecio(l.precio_unit),
+        l.es_incluido ? t.incluido : formatearPrecio(l.total_sin_iva),
+        l.es_incluido ? t.incluido : formatearPrecio(l.total_con_iva),
       );
       return fila;
     }),
@@ -733,17 +739,17 @@ async function construirPdfFactura(f: Factura) {
       doc.text(valor, xColIzq + anchoCol - 4, yy, { align: 'right' });
       yy += 5;
     };
-    fila(idioma === 'fr' ? 'Total HT' : 'Total base', `${(pctIva > 0 ? totalOriginalTtc / (1 + pctIva / 100) : totalOriginalTtc).toFixed(2)} €`);
-    fila(idioma === 'fr' ? 'Total TTC' : 'Total con IVA', `${totalOriginalTtc.toFixed(2)} €`);
-    fila(idioma === 'fr' ? 'Acomptes versés' : 'Anticipos cobrados', `${acomptesTotalTtc.toFixed(2)} €`);
+    fila(idioma === 'fr' ? 'Total HT' : 'Total base', formatearPrecio(pctIva > 0 ? totalOriginalTtc / (1 + pctIva / 100) : totalOriginalTtc));
+    fila(idioma === 'fr' ? 'Total TTC' : 'Total con IVA', formatearPrecio(totalOriginalTtc));
+    fila(idioma === 'fr' ? 'Acomptes versés' : 'Anticipos cobrados', formatearPrecio(acomptesTotalTtc));
     for (const a of acomptesPrevios) {
-      fila(a.numero ?? '—', `${a.total.toFixed(2)} €`, { small: true, indent: true });
+      fila(a.numero ?? '—', formatearPrecio(a.total), { small: true, indent: true });
     }
-    fila(idioma === 'fr' ? 'Reste à payer HT' : 'Resto a pagar (base)', `${resteHt.toFixed(2)} €`);
-    fila(t.iva, `${resteTva.toFixed(2)} €`);
-    fila(`${idioma === 'fr' ? 'Dont' : 'De los cuales'} ${pctIva}%`, `${resteTva.toFixed(2)} €`, { small: true, indent: true });
+    fila(idioma === 'fr' ? 'Reste à payer HT' : 'Resto a pagar (base)', formatearPrecio(resteHt));
+    fila(t.iva, formatearPrecio(resteTva));
+    fila(`${idioma === 'fr' ? 'Dont' : 'De los cuales'} ${pctIva}%`, formatearPrecio(resteTva), { small: true, indent: true });
     doc.line(xColIzq + 4, yy - 2, xColIzq + anchoCol - 4, yy - 2);
-    fila(idioma === 'fr' ? 'Reste à payer TTC' : 'Resto a pagar', `${resteTtc.toFixed(2)} €`, { bold: true, color: colorRgb });
+    fila(idioma === 'fr' ? 'Reste à payer TTC' : 'Resto a pagar', formatearPrecio(resteTtc), { bold: true, color: colorRgb });
     yIzq = y + altoResumen + 5;
   } else {
     doc.setFillColor(...colorClaroRgb);
@@ -752,16 +758,16 @@ async function construirPdfFactura(f: Factura) {
     doc.setFontSize(9);
     doc.setTextColor(...GRIS_TEXTO);
     doc.text(t.totalSinIva, xColIzq + 4, y + 7);
-    doc.text(`${totalSinIva.toFixed(2)} €`, xColIzq + anchoCol - 4, y + 7, { align: 'right' });
+    doc.text(formatearPrecio(totalSinIva), xColIzq + anchoCol - 4, y + 7, { align: 'right' });
     doc.text(`${t.iva} (${porcentajeIva(f.tipo_iva)}%)`, xColIzq + 4, y + 13);
-    doc.text(`${(totalConIva - totalSinIva).toFixed(2)} €`, xColIzq + anchoCol - 4, y + 13, { align: 'right' });
+    doc.text(formatearPrecio(totalConIva - totalSinIva), xColIzq + anchoCol - 4, y + 13, { align: 'right' });
     doc.setDrawColor(...GRIS_BORDE);
     doc.line(xColIzq + 4, y + 16, xColIzq + anchoCol - 4, y + 16);
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(12);
     doc.setTextColor(...colorRgb);
     doc.text(t.total, xColIzq + 4, y + 23);
-    doc.text(`${totalConIva.toFixed(2)} €`, xColIzq + anchoCol - 4, y + 23, { align: 'right' });
+    doc.text(formatearPrecio(totalConIva), xColIzq + anchoCol - 4, y + 23, { align: 'right' });
     yIzq = y + 26 + 5;
   }
 
@@ -774,8 +780,28 @@ async function construirPdfFactura(f: Factura) {
     yIzq += 6;
   }
 
-  // Derecha: condiciones de pago (encima) + forma de pago (titular / IBAN / BIC / banco)
+  // Derecha: plan de pago (encima) + condiciones de pago + forma de pago (titular / IBAN / BIC / banco)
   let yDer = yInicioColumnas;
+
+  // Mismo diseño y misma tabla que el "Plan de pago" del devis (generarPdfPresupuesto.ts) — para
+  // que la factura (anticipo o final) no se vea como un documento distinto del devis que la origina
+  // (pedido explícito 2026-08-11). Se muestra en cualquier factura ligada a un devis con échéancier,
+  // no solo en el anticipo, para que el cliente vea siempre el calendario completo de pago.
+  if (planPagoPresupuesto.length > 0) {
+    autoTable(doc, {
+      startY: yDer,
+      margin: { left: xColDer, right: 210 - xColDer - anchoCol },
+      tableWidth: anchoCol,
+      head: [[t.planPago, ...t.columnasPago.slice(1)]],
+      body: planPagoPresupuesto.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
+      styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
+      headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
+      bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
+      columnStyles: { 1: { halign: 'right', cellWidth: 10 }, 2: { halign: 'right', cellWidth: 24 } },
+    });
+    yDer = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+  }
+
   if (condicionesPago && (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)) {
     const campos: [string, string][] = [];
     if (condicionesPago.delai) campos.push([idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago', condicionesPago.delai]);

@@ -42,11 +42,15 @@ export function FacturaPreview({ factura }: { factura: Factura }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select('numero, condiciones_pago')
+        .select('numero, condiciones_pago, plan_pago')
         .eq('id', factura.presupuesto_id!)
         .single();
       if (error) throw error;
-      return data as { numero: string | null; condiciones_pago: Record<string, string> | null };
+      return data as {
+        numero: string | null;
+        condiciones_pago: Record<string, string> | null;
+        plan_pago: { concepto: string; porcentaje: number; importe: number }[] | null;
+      };
     },
     enabled: !!factura.presupuesto_id,
   });
@@ -137,6 +141,8 @@ export function FacturaPreview({ factura }: { factura: Factura }) {
       labelBase={idiomaCorto === 'fr' ? 'Base HT' : 'Base imponible'}
       labelIva={idiomaCorto === 'fr' ? 'TVA' : 'IVA'}
       mencionIva={mencionIvaReducida(factura.tipo_iva)}
+      planPago={presupuestoOrigen?.plan_pago ?? undefined}
+      labelPlanPago={idiomaCorto === 'fr' ? 'Plan de paiement' : 'Plan de pago'}
       condicionesPago={condicionesPago}
       acomptes={acomptes}
       notasLegales={notasLegales(idiomaCorto, factura.tipo_iva)}

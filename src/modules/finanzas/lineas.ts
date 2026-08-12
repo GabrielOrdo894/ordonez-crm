@@ -54,17 +54,18 @@ function agruparMiles(entero: string): string {
   return entero.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }
 
-// "1234.5" -> "1 234.50 €" — separador de miles con espacio, como en los documentos franceses.
+// "1234.5" -> "1 234,50€" — separador de miles con espacio y decimales con coma, como en los
+// documentos franceses/españoles.
 export function formatearPrecio(valor: number): string {
   const [entero, decimales] = valor.toFixed(2).split('.');
-  return `${agruparMiles(entero)}.${decimales} €`;
+  return `${agruparMiles(entero)},${decimales}€`;
 }
 
-// "1234.5, 1600" -> "1 234.50 – 1 600.00 €" — para presupuestos orientativos (precio en rango).
+// "1234.5, 1600" -> "1 234,50 – 1 600,00€" — para presupuestos orientativos (precio en rango).
 export function formatearRangoPrecio(min: number, max: number): string {
   const [minEntero, minDec] = min.toFixed(2).split('.');
   const [maxEntero, maxDec] = max.toFixed(2).split('.');
-  return `${agruparMiles(minEntero)}.${minDec} – ${agruparMiles(maxEntero)}.${maxDec} €`;
+  return `${agruparMiles(minEntero)},${minDec} – ${agruparMiles(maxEntero)},${maxDec}€`;
 }
 
 export function lineaVacia(): Linea {
