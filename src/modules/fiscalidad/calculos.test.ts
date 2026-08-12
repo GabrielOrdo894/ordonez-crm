@@ -153,7 +153,11 @@ describe('generarEcheances', () => {
     expect(echeances.filter((e) => e.tipo === 'SOLDE_IS')).toHaveLength(1);
     expect(echeances.filter((e) => e.tipo === 'LIASSE')).toHaveLength(1);
     expect(echeances.filter((e) => e.tipo === 'DEPOT_COMPTES')).toHaveLength(1);
-    expect(echeances).toHaveLength(17);
+    // Asamblea, régularisation TNS y declaración de renta del gérant aplican desde el primer ejercicio.
+    expect(echeances.filter((e) => e.tipo === 'ASAMBLEA')).toHaveLength(1);
+    expect(echeances.filter((e) => e.tipo === 'COTISATIONS_TNS')).toHaveLength(1);
+    expect(echeances.filter((e) => e.tipo === 'DECLARACION_IR_GERANT')).toHaveLength(1);
+    expect(echeances).toHaveLength(20);
   });
 
   it('un ejercicio completo tiene 4 ACOMPTE_IS y CFE normal, sin las excepciones de primer año', () => {
@@ -161,7 +165,10 @@ describe('generarEcheances', () => {
     expect(echeances.filter((e) => e.tipo === 'ACOMPTE_IS')).toHaveLength(4);
     expect(echeances.filter((e) => e.tipo === 'CFE')).toHaveLength(1);
     expect(echeances.filter((e) => e.tipo === 'OTRO')).toHaveLength(0);
-    expect(echeances).toHaveLength(20);
+    expect(echeances.filter((e) => e.tipo === 'ASAMBLEA')).toHaveLength(1);
+    expect(echeances.filter((e) => e.tipo === 'COTISATIONS_TNS')).toHaveLength(1);
+    expect(echeances.filter((e) => e.tipo === 'DECLARACION_IR_GERANT')).toHaveLength(1);
+    expect(echeances).toHaveLength(23);
   });
 
   it('el CA3 de diciembre vence en enero del año siguiente', () => {

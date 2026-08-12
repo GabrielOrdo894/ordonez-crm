@@ -136,22 +136,24 @@ async function construirPdfFactura(f: Factura) {
   let planPagoPresupuesto: { concepto: string; porcentaje: number; importe: number }[] = [];
   let acomptesPrevios: { numero: string | null; total: number }[] = [];
   if (f.presupuesto_id) {
-    const { data: presupuestoOrigen } = await supabase
+    const { data: presupuestoOrigen, error: errorPresupuestoOrigen } = await supabase
       .from('presupuestos')
       .select('numero, condiciones_pago, plan_pago')
       .eq('id', f.presupuesto_id)
       .single();
+    if (errorPresupuestoOrigen) throw errorPresupuestoOrigen;
     devisNumero = presupuestoOrigen?.numero ?? null;
     condPagoPresupuesto = presupuestoOrigen?.condiciones_pago ?? null;
     planPagoPresupuesto = presupuestoOrigen?.plan_pago ?? [];
     if (f.tipo === 'normal') {
-      const { data: acomptesData } = await supabase
+      const { data: acomptesData, error: errorAcomptes } = await supabase
         .from('facturas')
         .select('numero, lineas')
         .eq('presupuesto_id', f.presupuesto_id)
         .eq('tipo', 'acompte')
         .neq('id', f.id)
         .is('eliminado_en', null);
+      if (errorAcomptes) throw errorAcomptes;
       acomptesPrevios = (acomptesData ?? []).map((a) => ({
         numero: a.numero,
         total: ((a.lineas ?? []) as Factura['lineas']).reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0),

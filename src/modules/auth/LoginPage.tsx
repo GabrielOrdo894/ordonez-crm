@@ -6,6 +6,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [modo, setModo] = useState<'login' | 'recuperar'>('login');
+  const [recuperado, setRecuperado] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,6 +21,19 @@ export default function LoginPage() {
     }
   };
 
+  const handleRecuperar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    setLoading(false);
+    if (error) {
+      setError(error.message);
+      return;
+    }
+    setRecuperado(true);
+  };
+
   return (
     <div className="min-h-screen flex bg-[#f4f4f2]">
       <div className="w-full md:w-[40%] flex items-center justify-center p-6">
@@ -26,45 +41,111 @@ export default function LoginPage() {
           <div className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-brand mb-2">CRM Oficial</p>
             <h1 className="text-2xl font-bold text-gray-900">Reformas Ordoñez</h1>
-            <p className="text-sm text-gray-500 mt-1">Accede a la gestión interna de la empresa</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {modo === 'login' ? 'Accede a la gestión interna de la empresa' : 'Recupera el acceso a tu cuenta'}
+            </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-2 text-sm focus:border-brand focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Contraseña
-              </label>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-2 text-sm focus:border-brand focus:outline-none"
-              />
-            </div>
+          {modo === 'login' ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full border border-gray-200 rounded-sm px-2.5 py-2 text-sm focus:border-brand focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Contraseña
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border border-gray-200 rounded-sm px-2.5 py-2 text-sm focus:border-brand focus:outline-none"
+                />
+              </div>
 
-            {error && <p className="text-xs text-red-600">{error}</p>}
+              {error && <p className="text-xs text-red-600">{error}</p>}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-brand text-white px-3 py-2 rounded-sm text-sm hover:bg-brand-dark disabled:opacity-60"
-            >
-              {loading ? 'Entrando...' : 'Entrar'}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-brand text-white px-3 py-2 rounded-sm text-sm hover:bg-brand-dark disabled:opacity-60"
+              >
+                {loading ? 'Entrando...' : 'Entrar'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setModo('recuperar');
+                  setError(null);
+                  setRecuperado(false);
+                }}
+                className="w-full text-xs text-gray-500 hover:text-brand text-center"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
+            </form>
+          ) : recuperado ? (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-700">
+                Si <strong>{email}</strong> tiene una cuenta en este CRM, te hemos enviado un enlace para elegir una contraseña
+                nueva. Revisa tu correo (y la carpeta de spam).
+              </p>
+              <button
+                type="button"
+                onClick={() => setModo('login')}
+                className="w-full bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-sm text-sm hover:border-brand"
+              >
+                Volver al inicio de sesión
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleRecuperar} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full border border-gray-200 rounded-sm px-2.5 py-2 text-sm focus:border-brand focus:outline-none"
+                />
+              </div>
+
+              {error && <p className="text-xs text-red-600">{error}</p>}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-brand text-white px-3 py-2 rounded-sm text-sm hover:bg-brand-dark disabled:opacity-60"
+              >
+                {loading ? 'Enviando...' : 'Enviar enlace de recuperación'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setModo('login');
+                  setError(null);
+                }}
+                className="w-full text-xs text-gray-500 hover:text-brand text-center"
+              >
+                Volver al inicio de sesión
+              </button>
+            </form>
+          )}
         </div>
       </div>
 

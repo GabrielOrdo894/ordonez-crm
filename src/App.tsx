@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './modules/auth/LoginPage';
+import NuevaContrasenaPage from './modules/auth/NuevaContrasenaPage';
 import { AppLayout } from './components/layout/AppLayout';
 
 const InicioPage = lazy(() => import('./modules/visitas/InicioPage'));
@@ -33,9 +34,11 @@ const AvatarGaleriaPage = lazy(() => import('./modules/perfil/AvatarGaleriaPage'
 const MensajeriaPage = lazy(() => import('./modules/mensajeria/MensajeriaPage'));
 
 export default function App() {
-  const { session, loading } = useAuth();
+  const { session, loading, recuperandoContrasena, contrasenaActualizada } = useAuth();
 
   if (loading) return null;
+
+  if (recuperandoContrasena) return <NuevaContrasenaPage onListo={contrasenaActualizada} />;
 
   if (!session) return <LoginPage />;
 

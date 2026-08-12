@@ -10,7 +10,17 @@ export type FiscalConfig = {
 
 export type EcheanceFiscal = {
   id: string;
-  tipo: 'CA3' | 'ACOMPTE_IS' | 'SOLDE_IS' | 'CFE' | 'LIASSE' | 'DEPOT_COMPTES' | 'OTRO';
+  tipo:
+    | 'CA3'
+    | 'ACOMPTE_IS'
+    | 'SOLDE_IS'
+    | 'CFE'
+    | 'LIASSE'
+    | 'DEPOT_COMPTES'
+    | 'ASAMBLEA'
+    | 'COTISATIONS_TNS'
+    | 'DECLARACION_IR_GERANT'
+    | 'OTRO';
   titulo: string;
   fecha_limite: string;
   organismo: string | null;

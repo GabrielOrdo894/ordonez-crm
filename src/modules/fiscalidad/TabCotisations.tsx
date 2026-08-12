@@ -1,12 +1,22 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, PiggyBank } from 'lucide-react';
+import { AlertTriangle, FileText, PiggyBank } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Select';
+import { useToast } from '../../hooks/useToast';
+import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
+import { mensajeError } from '../../lib/mensajeError';
+import { generarPdfDecisionRemuneracion, generarPdfResumenTNS } from '../../lib/generarPdfRemuneracion';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { calcularTNS } from './calculos';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
+
+const MESES_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
 
 function fmt(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
@@ -26,6 +36,10 @@ export function TabCotisations() {
   const { config, fuente } = useFiscalConfig();
   const { gerantConfig, guardar, guardando } = useGerantConfig();
   const [remuneracion, setRemuneracion] = useState(0);
+  const [mesResumen, setMesResumen] = useState(new Date().getMonth() + 1);
+  const [generandoDecision, setGenerandoDecision] = useState(false);
+  const [generandoResumen, setGenerandoResumen] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     if (gerantConfig) setRemuneracion(gerantConfig.remuneracion_anual);
@@ -34,6 +48,28 @@ export function TabCotisations() {
   const tns = calcularTNS(remuneracion, config);
   const pass = config('pass_2026', 47100);
   const anio = new Date().getFullYear();
+
+  const handleDecision = async () => {
+    setGenerandoDecision(true);
+    try {
+      await conAvisoDescarga(() => generarPdfDecisionRemuneracion(anio, remuneracion), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoDecision(false);
+    }
+  };
+
+  const handleResumenMensual = async () => {
+    setGenerandoResumen(true);
+    try {
+      await conAvisoDescarga(() => generarPdfResumenTNS(anio, mesResumen, remuneracion, config), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoResumen(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -100,6 +136,38 @@ export function TabCotisations() {
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+          <FileText size={14} className="text-brand" /> Documentos del gérant
+        </p>
+        <p className="text-xs text-gray-500 leading-relaxed mb-3">
+          Como gérant majoritaire TNS, Mario no genera un bulletin de paie legal (no está sujeto al Code du travail) — estos dos
+          documentos son el registro real que sí hace falta: el acta que fija la rémunération y un justificante interno mensual.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 flex items-end gap-2 flex-wrap">
+            <Button onClick={handleDecision} disabled={generandoDecision || remuneracion === 0}>
+              {generandoDecision ? 'Generando...' : `Décision de rémunération ${anio} (PDF)`}
+            </Button>
+          </div>
+          <div className="flex-1 flex items-end gap-2 flex-wrap">
+            <Select
+              label="Mes"
+              options={MESES_ES.map((m, i) => ({ value: String(i + 1), label: m }))}
+              value={String(mesResumen)}
+              onChange={(e) => setMesResumen(Number(e.target.value))}
+              className="w-36"
+            />
+            <Button onClick={handleResumenMensual} disabled={generandoResumen || remuneracion === 0}>
+              {generandoResumen ? 'Generando...' : 'Resumen mensual (PDF)'}
+            </Button>
+          </div>
+        </div>
+        {remuneracion === 0 && (
+          <p className="text-xs text-gray-400 mt-2">Configura una rémunération mayor que 0 € arriba para poder generarlos.</p>
+        )}
+      </div>
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
           Desglose por cotisation (tasas de referencia, orientativas)
         </p>
@@ -130,6 +198,10 @@ export function TabCotisations() {
           {
             q: '¿Qué es un "gérant TNS"?',
             a: 'TNS son las siglas de Travailleur Non Salarié (trabajador no asalariado). Mario, como gérant majoritaire (socio único con más del 50% del capital) de una EURL, no tiene un contrato laboral como un empleado — se paga a sí mismo una rémunération, y por ello cotiza al régimen de la Sécurité Sociale des Indépendants (SSI) en vez de al régimen general de asalariados. Las reglas de cálculo de sus cotizaciones son distintas de las de un empleado normal, y es justo lo que simula esta pestaña.',
+          },
+          {
+            q: '¿Por qué no hay un "bulletin de paie" para el gérant, y qué son los 2 documentos de arriba?',
+            a: 'Un bulletin de paie es un documento del Code du travail francés, obligatorio para quien tiene un contrat de travail — y un gérant majoritaire TNS no lo tiene, cotiza vía la SSI como se explica arriba, no como asalariado. No hay obligación legal de emitirlo. Lo que sí existe: la "Décision de rémunération" es el acta real que fija formalmente cuánto se paga el gérant cada ejercicio (respaldo societario de las cifras de este simulador), y el "Resumen mensual" es un justificante interno de archivo, útil para llevar la cuenta, pero que no sustituye ni pretende ser un bulletin de paie legal. Si en algún momento Reformas Ordoñez contrata personal asalariado real, ahí sí haría falta nómina legal con DSN mensual — un trámite regulado que no cubre este generador.',
           },
           {
             q: '¿Por qué la assiette es menor que la rémunération? Ejemplo con números',

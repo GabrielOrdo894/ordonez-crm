@@ -147,7 +147,7 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
   echeances.push({
     tipo: 'LIASSE',
     titulo: `Liasse fiscale (2065) — ejercicio ${anio}`,
-    fecha_limite: iso(anio + 1, 5, 31),
+    fecha_limite: iso(anio + 1, config('liasse_mes', 5), config('liasse_dia', 31)),
     organismo: 'DGFiP',
     url_oficial: 'https://www.impots.gouv.fr',
     importe_estimado: null,
@@ -161,6 +161,36 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
     url_oficial: null,
     importe_estimado: null,
     notas: null,
+  });
+  echeances.push({
+    tipo: 'ASAMBLEA',
+    titulo: `Décision de l'associé unique — aprobación de cuentas del ejercicio ${anio}`,
+    fecha_limite: iso(anio + 1, config('asamblea_mes', 6), config('asamblea_dia', 30)),
+    organismo: 'Interno',
+    url_oficial: null,
+    importe_estimado: null,
+    notas: 'Paso previo obligatorio al dépôt des comptes — dentro de los 6 meses tras el cierre del ejercicio.',
+  });
+  // Fecha estimada — la periodicidad real de pago (mensual o trimestral) depende del régimen
+  // elegido en la URSSAF al darse de alta, no está confirmada. Se usa un recordatorio anual
+  // agrupado en vez de inventar varias fechas trimestrales con falsa precisión (auditoría 2026-08-12).
+  echeances.push({
+    tipo: 'COTISATIONS_TNS',
+    titulo: `Régularisation cotisations TNS del gérant — ejercicio ${anio}`,
+    fecha_limite: iso(anio + 1, config('tns_regularisation_mes', 9), config('tns_regularisation_dia', 30)),
+    organismo: 'URSSAF (SSI)',
+    url_oficial: 'https://www.urssaf.fr',
+    importe_estimado: null,
+    notas: 'Fecha estimada — confirmar con la URSSAF la periodicidad real de pago (mensual o trimestral) de las cotisations provisionales, además de esta régularisation anual.',
+  });
+  echeances.push({
+    tipo: 'DECLARACION_IR_GERANT',
+    titulo: `Déclaration de revenus de Mario (2042-C-PRO) — ingresos ${anio}`,
+    fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 5), config('declaracion_ir_dia', 25)),
+    organismo: 'DGFiP (IR personal)',
+    url_oficial: 'https://www.impots.gouv.fr',
+    importe_estimado: null,
+    notas: 'Es la declaración personal de Mario, no de la société — pero incluye la rémunération TNS y los dividendos del ejercicio. La DGFiP fija la fecha exacta cada año por decreto, confirmar antes de mayo.',
   });
 
   return echeances.sort((a, b) => a.fecha_limite.localeCompare(b.fecha_limite));
