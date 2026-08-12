@@ -378,7 +378,8 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
       'id, numero, cliente_email, fecha_emision, ultima_respuesta_cliente_fecha, gmail_thread_id, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en'
     )
     .in('estado', ['Pendiente', 'Aceptado'])
-    .not('cliente_email', 'is', null);
+    .not('cliente_email', 'is', null)
+    .is('eliminado_en', null);
 
   if (error) {
     log.push(`Error leyendo presupuestos Pendiente: ${error.message}`);
@@ -554,7 +555,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
 
   const [{ data: solicitudesTracked }, { data: presupuestosTracked }] = await Promise.all([
     supabase.from('solicitudes').select('gmail_thread_id').not('gmail_thread_id', 'is', null),
-    supabase.from('presupuestos').select('gmail_thread_id').not('gmail_thread_id', 'is', null),
+    supabase.from('presupuestos').select('gmail_thread_id').not('gmail_thread_id', 'is', null).is('eliminado_en', null),
   ]);
   const hilosYaTracked = new Set<string>([
     ...((solicitudesTracked ?? []) as { gmail_thread_id: string }[]).map((s) => s.gmail_thread_id),

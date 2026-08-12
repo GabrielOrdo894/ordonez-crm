@@ -238,12 +238,25 @@ export default function MensajeriaPage() {
     if (user && noLeido(m, user.id)) marcarLeido(m, true);
   };
 
+  const TAMANO_MAX_ADJUNTO = 10 * 1024 * 1024; // 10 MB
+
   const handleSubirAdjuntos = async (files: FileList) => {
     setSubiendo(true);
     const subidos: { url: string; nombre: string }[] = [];
     for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+        toast.error(`"${file.name}": solo se admiten imágenes o PDF`);
+        continue;
+      }
+      if (file.size > TAMANO_MAX_ADJUNTO) {
+        toast.error(`"${file.name}" pesa demasiado (máximo ${TAMANO_MAX_ADJUNTO / 1024 / 1024} MB)`);
+        continue;
+      }
       const extension = file.name.split('.').pop() ?? 'jpg';
-      const path = `${Date.now()}_${Math.round(Math.random() * 1e6)}.${extension}`;
+      // crypto.randomUUID() en vez de Date.now()+Math.random() (~20 bits de entropía) — este bucket
+      // es público, así que un nombre adivinable exponía adjuntos de mensajes privados a quien
+      // conociera aproximadamente la hora de envío (hallazgo real, revisión 2026-08-12).
+      const path = `${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage.from('mensajes_adjuntos').upload(path, file, { contentType: file.type });
       if (error) {
         toast.error(error.message);

@@ -839,10 +839,15 @@ async function construirPdfPresupuesto(p: Presupuesto) {
   const totalConIva = p.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
   const rangoTotales = esOrientativo ? calcularTotalesRango(p.lineas, pct) : null;
 
-  const gapCol = 10;
+  // gapCol=6 para que anchoCol coincida exactamente con el de generarPdfFactura.ts (misma tabla
+  // de plan de pago, mismo ancho en ambos documentos — antes divergían en 2mm).
+  const gapCol = 6;
   const anchoCol = (anchoContenido - gapCol) / 2;
-  const xPlanForma = margen;
-  const xResumenFirma = margen + anchoCol + gapCol;
+  // El preview (DocumentoPreview.tsx vía PresupuestoPreview.tsx) ya respeta este ajuste de
+  // Configuración → Plantillas; el PDF descargado lo ignoraba y siempre ponía plan de pago a la
+  // izquierda, así que preview y PDF final podían no coincidir (bug real corregido 2026-08-12).
+  const xPlanForma = configPlantilla.planPagoIzquierda ? margen : margen + anchoCol + gapCol;
+  const xResumenFirma = configPlantilla.planPagoIzquierda ? margen + anchoCol + gapCol : margen;
   const yInicioColumnas = y;
 
   // Derecha: resumen de pago

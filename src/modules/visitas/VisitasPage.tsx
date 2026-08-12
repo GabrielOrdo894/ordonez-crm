@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { Search, Check, Ban, Clock3 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -111,12 +112,13 @@ export default function VisitasPage() {
   }, [visitas, busqueda, filtroEstado, filtroPais, desde, hasta]);
 
   const handleEliminar = async (v: Visita) => {
+    const aviso = await avisoDocumentosActivosDeVisita(v.id);
     const confirmado = await confirmar({
       titulo: `¿Eliminar la visita de ${v.nombre} ${v.apellidos}?`,
       mensaje:
         'Se moverá a la Papelera (podrás restaurarla desde allí). Mientras esté en la papelera dejará ' +
         'de aparecer en los listados y los presupuestos, facturas, proyectos, solicitudes y fotos de ' +
-        'galería vinculados a esta visita quedarán sin visita asociada.',
+        `galería vinculados a esta visita quedarán sin visita asociada.${aviso}`,
       textoConfirmar: 'Eliminar',
     });
     if (!confirmado) return;

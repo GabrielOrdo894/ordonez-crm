@@ -18,8 +18,9 @@ export const ETAPAS_FUNNEL_SOLICITUD: EtapaFunnel[] = [
   'presupuesto_firmado',
 ];
 
-// Mapeo estado de presupuesto → etapa de funnel, compartido entre PresupuestosPage.tsx y
-// DocumentoDetalleInline.tsx (los dos sitios donde se cambia el estado de un presupuesto).
+// Mapeo estado de presupuesto → etapa de funnel, compartido entre los 3 sitios donde se cambia
+// el estado de un presupuesto: PresupuestosPage.tsx, DocumentoDetalleInline.tsx y
+// SolicitudesPage.tsx (pestaña "Respuestas a presupuestos").
 export const ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO: Partial<Record<string, EtapaFunnel>> = {
   Pendiente: 'presupuesto_enviado',
   Aceptado: 'presupuesto_aceptado',

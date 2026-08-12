@@ -3,7 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { registrarEventoFunnel, ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, type EtapaFunnel } from '../../lib/funnelTracking';
+import {
+  registrarEventoFunnel,
+  ETAPAS_FUNNEL_SOLICITUD,
+  ETIQUETA_ETAPA_FUNNEL,
+  ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO,
+  type EtapaFunnel,
+} from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { useSeleccionMultiple } from '../../hooks/useSeleccionMultiple';
@@ -254,6 +260,13 @@ export default function SolicitudesPage() {
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
+      // Tercer sitio (junto a PresupuestosPage.tsx/DocumentoDetalleInline.tsx) donde se cambia
+      // presupuestos.estado — sin esto el embudo se quedaba corto cada vez que se gestionaba una
+      // respuesta desde aquí en vez de desde Presupuestos (hallazgo real, revisión 2026-08-12).
+      const etapaFunnel = ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO[estado];
+      if (etapaFunnel) {
+        await Promise.all((ids as string[]).map((presupuestoId) => registrarEventoFunnel(etapaFunnel, { presupuestoId })));
+      }
     },
     onSuccess: () => {
       invalidarSeguimiento();

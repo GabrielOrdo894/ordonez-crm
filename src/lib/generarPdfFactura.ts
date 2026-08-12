@@ -277,10 +277,13 @@ async function construirPdfFactura(f: Factura) {
     doc.line(margen, 22, 210 - margen, 22);
     yCards = 28;
   } else if (plantilla === 'ejecutiva') {
+    // Alturas iguales a generarPdfPresupuesto.ts (mismo diseño en ambos documentos, revisión
+    // 2026-08-12) — el número ya no se pinta en la banda de color, vive en la tarjeta de debajo
+    // (igual que en el presupuesto), así que la banda no necesita la altura extra que tenía.
     doc.setFillColor(...colorOscuroRgb);
-    doc.rect(0, 0, 210, 42, 'F');
+    doc.rect(0, 0, 210, 34, 'F');
     doc.setFillColor(...colorSecundarioRgb);
-    doc.rect(0, 42, 210, 3, 'F');
+    doc.rect(0, 34, 210, 3, 'F');
 
     if (logoActivo) {
       const dim = await dimensionesImagen(logoActivo.dataUrl);
@@ -294,13 +297,10 @@ async function construirPdfFactura(f: Factura) {
     doc.text(tituloDoc, 195, 19, { align: 'right' });
     doc.setFontSize(10);
     doc.setFont(FUENTE_PDF, 'normal');
-    let yNumEj = 27;
     if (f.titulo) {
-      doc.text(f.titulo, 195, yNumEj, { align: 'right' });
-      yNumEj += 6;
+      doc.text(f.titulo, 195, 27, { align: 'right' });
     }
-    doc.text(`${t.numero}: ${f.numero ?? ''}`, 195, yNumEj, { align: 'right' });
-    yCards = 55;
+    yCards = 41;
   } else if (plantilla === 'creativa') {
     doc.setFillColor(...colorRgb);
     doc.rect(0, 0, 6, 297, 'F');
@@ -334,38 +334,38 @@ async function construirPdfFactura(f: Factura) {
     doc.text(`${t.numero}: ${f.numero ?? ''}`, 200, yNumCr, { align: 'right' });
     yCards = y + 32;
   } else {
+    // Alturas iguales a generarPdfPresupuesto.ts (mismo diseño en ambos documentos, revisión
+    // 2026-08-12) — el número ya no se pinta en la banda de color, vive en la tarjeta de debajo
+    // (igual que en el presupuesto), así que la banda no necesita la altura extra que tenía.
     if (plantilla === 'moderna') {
       doc.setDrawColor(...colorRgb);
       doc.setLineWidth(1);
-      doc.line(0, 38, 210, 38);
+      doc.line(0, 28, 210, 28);
       doc.setLineWidth(0.2);
     } else {
       doc.setFillColor(...colorOscuroRgb);
-      doc.rect(0, 0, 210, 40, 'F');
+      doc.rect(0, 0, 210, 30, 'F');
     }
 
     const colorPrincipal: [number, number, number] = plantilla === 'moderna' ? [30, 30, 30] : [255, 255, 255];
 
     if (logoActivo) {
       const dim = await dimensionesImagen(logoActivo.dataUrl);
-      const caja = ajustarCaja(dim.w, dim.h, 24, 24);
-      doc.addImage(logoActivo.dataUrl, logoActivo.formato, margen, 8, caja.w, caja.h);
+      const caja = ajustarCaja(dim.w, dim.h, 20, 20);
+      doc.addImage(logoActivo.dataUrl, logoActivo.formato, margen, 5, caja.w, caja.h);
     }
 
     doc.setTextColor(...(plantilla === 'moderna' ? colorRgb : ([255, 255, 255] as [number, number, number])));
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(22);
     doc.text(tituloDoc, 195, 18, { align: 'right' });
-    doc.setFontSize(10);
-    doc.setFont(FUENTE_PDF, 'normal');
-    doc.setTextColor(...colorPrincipal);
-    let yNumCm = 26;
     if (f.titulo) {
-      doc.text(f.titulo, 195, yNumCm, { align: 'right' });
-      yNumCm += 6;
+      doc.setFontSize(10);
+      doc.setFont(FUENTE_PDF, 'normal');
+      doc.setTextColor(...colorPrincipal);
+      doc.text(f.titulo, 195, 25, { align: 'right' });
     }
-    doc.text(`${t.numero}: ${f.numero ?? ''}`, 195, yNumCm, { align: 'right' });
-    yCards = 50;
+    yCards = 38;
   }
 
   // ---- Datos de la factura, bajo la cabecera y encima de las tarjetas (solo minimalista) ----
@@ -543,16 +543,19 @@ async function construirPdfFactura(f: Factura) {
       doc.setFont(FUENTE_PDF, 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(30, 30, 30);
-      doc.text(`${t.emision}: ${f.fecha_factura ?? ''}`, xDer + 4, yCards + 14);
-      doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, xDer + 4, yCards + 20);
+      // El número ya no se pinta en la banda de color de cabecera — vive aquí, como primera línea
+      // de la tarjeta, igual que en generarPdfPresupuesto.ts (revisión 2026-08-12).
+      doc.text(`${t.numero}: ${f.numero ?? ''}`, xDer + 4, yCards + 13);
+      doc.text(`${t.emision}: ${f.fecha_factura ?? ''}`, xDer + 4, yCards + 19);
+      doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, xDer + 4, yCards + 25);
       const estadoCanonico = f.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
       const estadoDocumento = idioma === 'fr' ? (estadoCanonico === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonico;
       doc.setFont(FUENTE_PDF, 'bold');
       doc.setTextColor(...colorEstadoPdf(estadoCanonico));
-      doc.text(`${t.estado} : ${estadoDocumento}`, xDer + 4, yCards + 26);
+      doc.text(`${t.estado} : ${estadoDocumento}`, xDer + 4, yCards + 31);
       doc.setFont(FUENTE_PDF, 'normal');
       doc.setTextColor(30, 30, 30);
-      if (f.metodo_pago) doc.text(`${t.metodoPago}: ${f.metodo_pago}`, xDer + 4, yCards + 32);
+      if (f.metodo_pago) doc.text(`${t.metodoPago}: ${f.metodo_pago}`, xDer + 4, yCards + 37);
     }
     yTabla = yCards + altoCard + 10;
   }

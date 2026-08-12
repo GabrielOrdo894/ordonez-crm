@@ -66,7 +66,17 @@ export default function ConstructorPortadaPage() {
     queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
   };
 
+  const TAMANO_MAX_IMAGEN = 10 * 1024 * 1024; // 10 MB
+
   const handleSubirLogo = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se admiten imágenes');
+      return;
+    }
+    if (file.size > TAMANO_MAX_IMAGEN) {
+      toast.error(`La imagen pesa demasiado (máximo ${TAMANO_MAX_IMAGEN / 1024 / 1024} MB)`);
+      return;
+    }
     setSubiendoLogo(true);
     const extension = file.name.split('.').pop() ?? 'png';
     const path = `logo_oficial_${Date.now()}.${extension}`;
@@ -88,6 +98,14 @@ export default function ConstructorPortadaPage() {
   };
 
   const handleSubirFoto = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se admiten imágenes');
+      return;
+    }
+    if (file.size > TAMANO_MAX_IMAGEN) {
+      toast.error(`La imagen pesa demasiado (máximo ${TAMANO_MAX_IMAGEN / 1024 / 1024} MB)`);
+      return;
+    }
     setSubiendoFoto(true);
     const extension = file.name.split('.').pop() ?? 'jpg';
     const path = `portada_${Date.now()}.${extension}`;

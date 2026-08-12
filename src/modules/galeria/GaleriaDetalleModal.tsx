@@ -103,6 +103,8 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
     setIndiceActual(0);
   };
 
+  const TAMANO_MAX_FOTO = 10 * 1024 * 1024; // 10 MB
+
   const handleSubirFotos = async (files: FileList) => {
     if (!proyecto) return;
     const listaActual = proyecto.fotos.filter((f) => f.tipo === categoriaSubida);
@@ -115,7 +117,15 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
     let ordenSiguiente = listaActual.length > 0 ? Math.max(...listaActual.map((f) => f.orden)) + 1 : 0;
 
     for (const file of Array.from(files)) {
-      const path = `${proyecto.id}/${Date.now()}_${file.name}`;
+      if (!file.type.startsWith('image/')) {
+        toast.error(`"${file.name}": solo se admiten imágenes`);
+        continue;
+      }
+      if (file.size > TAMANO_MAX_FOTO) {
+        toast.error(`"${file.name}" pesa demasiado (máximo ${TAMANO_MAX_FOTO / 1024 / 1024} MB)`);
+        continue;
+      }
+      const path = `${proyecto.id}/${crypto.randomUUID()}_${file.name}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type });
       if (error) {
         toast.error(error.message);

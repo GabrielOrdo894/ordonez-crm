@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Table } from '../../components/ui/Table';
@@ -20,6 +21,9 @@ function fechaHora(iso: string | null | undefined) {
 function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null; eliminado_por?: string | null }>(
   tabla: Tabla,
   limpiarRelacionados: (id: string) => Promise<void>,
+  // Aviso adicional a insertar en el mensaje de confirmación antes de purgar (p. ej. si quedan
+  // documentos activos vinculados) — devuelve '' si no hay nada que avisar.
+  avisoExtra?: (id: string) => Promise<string>,
 ) {
   const toast = useToast();
   const confirmar = useConfirmar();
@@ -71,9 +75,10 @@ function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null
   const handleRestaurar = (id: string) => restaurarMutation.mutate(id);
 
   const handleEliminarDefinitivo = async (id: string) => {
+    const aviso = avisoExtra ? await avisoExtra(id) : '';
     const confirmado = await confirmar({
       titulo: '¿Eliminar definitivamente?',
-      mensaje: 'Esta acción no se puede deshacer. El registro y sus notas/eventos vinculados se borrarán para siempre.',
+      mensaje: `Esta acción no se puede deshacer. El registro y sus notas/eventos vinculados se borrarán para siempre.${aviso}`,
       textoConfirmar: 'Eliminar definitivamente',
       peligroso: true,
     });
@@ -89,10 +94,17 @@ function nombreVisita(v: Visita) {
 }
 
 function TablaVisitas() {
-  const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Visita>('visitas', async (id) => {
-    const { error } = await supabase.from('notas_cliente').delete().eq('visita_id', id);
-    if (error) throw error;
-  });
+  const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Visita>(
+    'visitas',
+    async (id) => {
+      const { error } = await supabase.from('notas_cliente').delete().eq('visita_id', id);
+      if (error) throw error;
+    },
+    async (id) => {
+      const aviso = await avisoDocumentosActivosDeVisita(id);
+      return aviso ? `${aviso} Se quedarán sin cliente vinculado tras la purga.` : '';
+    },
+  );
 
   return (
     <Table<Visita>
