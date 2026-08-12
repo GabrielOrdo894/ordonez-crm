@@ -51,13 +51,18 @@ component library externo salvo las indicadas arriba.
 
 ## 3. Credenciales — rellenar antes del Bloque 1
 
-En el fichero `.env` (nunca subir a Git):
+En el fichero `.env` (nunca subir a Git — ni siquiera aquí, ver nota de más abajo):
 ```
-VITE_SUPABASE_URL= https://mhbicdrquinlwhasrvgo.supabase.co/rest/v1/       # supabase.com → proyecto → Settings → API
-VITE_SUPABASE_ANON_KEY= eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oYmljZHJxdWlubHdoYXNydmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0NjQ1MDQsImV4cCI6MjA5OTA0MDUwNH0.fl5FfVp_um5lMxhqrZaY_-jt9UFdhSnQrrMrZqD9ObQ  # supabase.com → proyecto → Settings → API
+VITE_SUPABASE_URL=       # supabase.com → proyecto → Settings → API (URL base, sin /rest/v1/)
+VITE_SUPABASE_ANON_KEY=  # supabase.com → proyecto → Settings → API
 VITE_GCAL_CLIENT_ID=     # console.cloud.google.com → proyecto "ordonez-crm"
 VITE_GMAPS_API_KEY=      # console.cloud.google.com → proyecto "ordonez-crm"
 ```
+
+> Este documento vive en git. No pegar aquí valores reales de `.env`, ni siquiera el anon key
+> (es público de por sí, pero mezclar plantilla y credencial real en un fichero versionado
+> invita a que algún día se pegue ahí algo que sí importa). El `.env` real del proyecto ya
+> tiene los cuatro valores correctos.
 
 ---
 

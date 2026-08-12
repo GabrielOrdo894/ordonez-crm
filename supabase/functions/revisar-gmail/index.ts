@@ -264,7 +264,7 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       continue;
     }
 
-    const { data: filaInsertada, error, count } = await supabase
+    const { data: filaInsertada, error } = await supabase
       .from('solicitudes')
       .upsert(
         {
@@ -287,11 +287,17 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       log.push(`Error insertando solicitud (asunto "${asunto}"): ${error.message}`);
       continue;
     }
-    if (count !== 0) {
+    // ignoreDuplicates hace que un conflicto no devuelva fila — filaInsertada solo trae algo
+    // cuando el insert fue real. `count` de supabase-js viene null si no se pide `{ count: 'exact' }`
+    // explícitamente, así que `count !== 0` daba siempre true y contaba duplicados como nuevos.
+    const nuevaId = filaInsertada?.[0]?.id;
+    if (nuevaId) {
       insertadas++;
-      const nuevaId = filaInsertada?.[0]?.id;
-      if (nuevaId) {
-        await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente });
+      const { error: errorFunnel } = await supabase
+        .from('funnel_eventos')
+        .insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente });
+      if (errorFunnel) {
+        log.push(`Error registrando funnel_eventos para solicitud ${nuevaId}: ${errorFunnel.message}`);
       }
     }
   }
@@ -599,7 +605,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
     const resumen = (ultimoMsg.snippet || texto).slice(0, 500);
     const fechaUltimo = new Date(Number(ultimoMsg.internalDate)).toISOString();
 
-    const { data: filaInsertada, error, count } = await supabase
+    const { data: filaInsertada, error } = await supabase
       .from('solicitudes')
       .upsert(
         {
@@ -621,13 +627,18 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
       log.push(`Error creando solicitud directa (hilo ${threadId}): ${error.message}`);
       continue;
     }
-    if (count !== 0) {
+    // Mismo fix que en la ingesta de las 3 fuentes de arriba: filaInsertada, no `count`
+    // (siempre null sin `{ count: 'exact' }`), es lo único fiable para saber si hubo insert real.
+    const nuevaId = filaInsertada?.[0]?.id;
+    if (nuevaId) {
       creadas++;
       hilosYaTracked.add(threadId);
       log.push(`Conversación directa detectada y añadida: ${deUltimo} (hilo ${threadId}).`);
-      const nuevaId = filaInsertada?.[0]?.id;
-      if (nuevaId) {
-        await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente: 'email_directo' });
+      const { error: errorFunnel } = await supabase
+        .from('funnel_eventos')
+        .insert({ etapa: 'solicitud_entrada', solicitud_id: nuevaId, fuente: 'email_directo' });
+      if (errorFunnel) {
+        log.push(`Error registrando funnel_eventos para solicitud ${nuevaId}: ${errorFunnel.message}`);
       }
     }
   }

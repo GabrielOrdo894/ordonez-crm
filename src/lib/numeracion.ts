@@ -7,13 +7,12 @@ const PREFIJOS = {
   seq_factura_rectificativa: 'R',
 } as const;
 
+// El incremento se hace en un solo UPDATE...RETURNING atómico dentro de Postgres (función
+// siguiente_numero_atomico, migración 20260812080049) — no en el cliente. Dos creaciones casi
+// simultáneas ya no pueden leer el mismo contador y generar el mismo número dos veces.
 export async function siguienteNumero(campo: keyof typeof PREFIJOS): Promise<string> {
-  const { data, error } = await supabase.from('empresa_config').select(campo).eq('id', 1).single();
+  const { data: siguiente, error } = await supabase.rpc('siguiente_numero_atomico', { p_campo: campo });
   if (error) throw error;
-
-  const siguiente = ((data as Record<string, number>)[campo] ?? 0) + 1;
-  const { error: errorUpdate } = await supabase.from('empresa_config').update({ [campo]: siguiente }).eq('id', 1);
-  if (errorUpdate) throw errorUpdate;
 
   const año = new Date().getFullYear();
   return `${PREFIJOS[campo]}-${año}-${String(siguiente).padStart(4, '0')}`;

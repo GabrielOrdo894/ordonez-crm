@@ -5,6 +5,7 @@ import { Search, User, FileText, Receipt } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { agruparClientes } from '../../modules/clientes/types';
 import { useDebounced } from '../../hooks/useDebounced';
+import { valorIlikeParaOr } from '../../lib/filtroTexto';
 import type { Visita } from '../../modules/visitas/types';
 import type { Presupuesto } from '../../modules/finanzas/presupuestos/types';
 import type { Factura } from '../../modules/finanzas/facturas/types';
@@ -38,7 +39,7 @@ export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
     queryKey: ['buscador-global', 'visitas', queryDebounced],
     enabled: activa,
     queryFn: async () => {
-      const q = `%${queryDebounced}%`;
+      const q = valorIlikeParaOr(queryDebounced);
       const { data, error } = await supabase
         .from('visitas')
         .select('*')
@@ -54,7 +55,7 @@ export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
     queryKey: ['buscador-global', 'presupuestos', queryDebounced],
     enabled: activa,
     queryFn: async () => {
-      const q = `%${queryDebounced}%`;
+      const q = valorIlikeParaOr(queryDebounced);
       const { data, error } = await supabase
         .from('presupuestos')
         .select('id, numero, cliente_nombre, fecha_emision, estado')
@@ -70,7 +71,7 @@ export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
     queryKey: ['buscador-global', 'facturas', queryDebounced],
     enabled: activa,
     queryFn: async () => {
-      const q = `%${queryDebounced}%`;
+      const q = valorIlikeParaOr(queryDebounced);
       const { data, error } = await supabase
         .from('facturas')
         .select('id, numero, cliente_nombre, fecha_factura, estado_cobro')
