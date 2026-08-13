@@ -3,14 +3,22 @@
 ## Datos legales
 
 ```
-Nombre:         Mario Ordoñez Quevedo
+Nombre:         Mario Ricardo Ordoñez Quevedo
 Razón social:   Reformas Ordoñez
-Forma jurídica: Entrepreneur Individuel (en conversión a EURL)
-SIRET:          994 426 286 00013
-TVA Francia:    FR 26994426286
+Forma jurídica: EURL (constituida 2026-06-24, inmatriculada RCS 2026-07-07)
+SIREN / RCS:    106 842 925 · R.C.S. Bayonne
+TVA Francia:    FR 47106842925
 CIF España:     44670089E
-RCS:            Bayonne · Code APE: 4399C
+Code APE:       4399C
 ```
+
+> Corregido 2026-08-12 tras verificar contra los estatutos, el extrait Kbis y el registre des
+> bénéficiaires effectifs reales (`documentos legales/` en el proyecto, fuera de git): el SIRET/TVA
+> que había aquí antes (994 426 286 00013 / FR 26994426286) no coincidía con el SIREN real de la
+> sociedad (106 842 925) — ya estaba mal también en `empresa_config` de Supabase, corregido ahí
+> también. Falta el SIRET completo de 14 dígitos (SIREN + código NIC del establecimiento) — el
+> Kbis solo trae el SIREN de 9 dígitos; consultar el NIC en el avis de situation Sirene (sirene.fr,
+> gratuito e instantáneo con el SIREN) o en el certificado de inmatriculation si Gabriel lo tiene.
 
 ## Direcciones
 
@@ -62,9 +70,9 @@ Rol y nombre guardados en `user_metadata` (`rol`, `nombre`) al crear el usuario 
 ```json
 {
   "razon_social": "Reformas Ordoñez",
-  "nombre_titular": "Mario Ordoñez Quevedo",
-  "siret": "994 426 286 00013",
-  "tva_fr": "FR 26994426286",
+  "nombre_titular": "Mario Ricardo Ordoñez Quevedo",
+  "siret": "106 842 925",
+  "tva_fr": "FR 47106842925",
   "cif_es": "44670089E",
   "dir_fr": "4 Av des Allées 2ème Étage, 64700 Hendaye, France",
   "dir_es": "Calle Estación n5, 5D, 20301 Irún, España",

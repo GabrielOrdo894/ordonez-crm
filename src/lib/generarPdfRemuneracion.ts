@@ -50,9 +50,10 @@ function piePagina(doc: jsPDF, margen: number, disclaimer: string) {
 /** "Décision de l'associé unique" fijando la rémunération anual del gérant — el documento
  * societario real que respalda las cifras del simulador de Cotisations URSSAF. No es un bulletin
  * de paie (el gérant majoritaire TNS no está sujeto a esa obligación), es el acta que formaliza la
- * decisión. Incluye la referencia real al registre obligatoire (art. R223-26 Code de commerce,
- * verificado 2026-08-12) — el documento queda "oficial" cuando el associé unique lo fecha, lo firma
- * y lo consigna en ese registro, no por generarlo aquí. */
+ * decisión. Las citas (article 12 y 15 des statuts, arts. L223-6/L223-29/R223-26 Code de commerce)
+ * están verificadas contra los estatutos reales de Reformas Ordoñez del 24/06/2026 (auditoría
+ * 2026-08-12) — el documento queda "oficial" cuando el associé unique lo fecha, lo firma y lo
+ * consigna en el registre des décisions, no por generarlo aquí. */
 export async function generarPdfDecisionRemuneracion(anio: number, remuneracionAnual: number, capitalSocial: number): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   await registrarFuentePoppins(doc);
@@ -80,28 +81,31 @@ export async function generarPdfDecisionRemuneracion(anio: number, remuneracionA
       `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.identificador || ''},`,
   );
   parrafo(
-    `Représentant l'intégralité du capital social et exerçant les pouvoirs dévolus à l'assemblée par les statuts de la ` +
-      `société, après avoir rappelé que la gérance est assurée par ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'},`,
+    `Représentant l'intégralité du capital social et exerçant les pouvoirs dévolus à l'associé unique par l'article 15 ` +
+      `des statuts de la société, après avoir rappelé que la gérance est assurée par ` +
+      `${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'},`,
   );
   parrafo('PREND LA DÉCISION SUIVANTE :', { negrita: true, espacioAntes: 4, espacioDespues: 8 });
   parrafo('Article unique — Rémunération du gérant', { negrita: true, espacioDespues: 4 });
   parrafo(
-    `La rémunération annuelle brute allouée à ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'}, au titre de son mandat ` +
-      `de gérant, pour l'exercice ${anio}, est fixée à ${fmtEur(remuneracionAnual)}, soit ${fmtEur(remuneracionAnual / 12)} ` +
-      'par mois.',
+    `Conformément à l'article 12 des statuts, qui prévoit que la rémunération du gérant est fixée par décision de ` +
+      `l'associé unique, la rémunération annuelle brute allouée à ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'}, ` +
+      `au titre de son mandat de gérant, pour l'exercice ${anio}, est fixée à ${fmtEur(remuneracionAnual)}, soit ` +
+      `${fmtEur(remuneracionAnual / 12)} par mois.`,
   );
   parrafo(
     'Cette rémunération est soumise aux cotisations sociales des travailleurs non-salariés (TNS) dues auprès de la ' +
       'Sécurité Sociale des Indépendants (SSI), conformément à la réglementation en vigueur.',
   );
   parrafo(
-    "La présente décision est consignée et numérotée dans le registre des décisions de l'associé unique tenu au siège " +
-      'social, conformément aux articles L223-31 et R223-26 du Code de commerce.',
+    "La présente décision constitue une décision collective au sens des articles L223-6 et L223-29 du Code de commerce ; " +
+      "elle est consignée et numérotée dans le registre des décisions de l'associé unique, coté et paraphé, tenu au siège " +
+      'social conformément aux articles 15 et 22 des statuts et à l’article R223-26 du Code de commerce.',
     { espacioDespues: 20 },
   );
   parrafo(`Fait à Hendaye, le ${fecha}, en un exemplaire original conservé au siège social.`, { espacioDespues: 20 });
   parrafo("L'associé unique,", { espacioDespues: 20 });
-  parrafo(entidad.nombre_titular || 'Mario Ordoñez Quevedo', { negrita: true });
+  parrafo(entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo', { negrita: true });
 
   piePagina(
     doc,
@@ -124,7 +128,7 @@ export async function generarPdfResumenTNS(anio: number, mes: number, remuneraci
   doc.setFont(FUENTE_PDF, 'normal');
   doc.setFontSize(9);
   doc.setTextColor(...GRIS_TEXTO);
-  doc.text(`${MESES_FR[mes - 1]} ${anio} — ${entidad.nombre_titular || 'Mario Ordoñez Quevedo'}, gérant`, margen, 36);
+  doc.text(`${MESES_FR[mes - 1]} ${anio} — ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'}, gérant`, margen, 36);
 
   const tns = calcularTNS(remuneracionAnual, config);
   const abattement = config('tns_abattement', 0.26);

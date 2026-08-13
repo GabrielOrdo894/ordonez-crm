@@ -53,6 +53,23 @@ export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   return { assiette, total, mensual: total / 12 };
 }
 
+// Article 18 des statuts (verificado contra los estatutos reales, auditoría 2026-08-12): del
+// beneficio de cada ejercicio se detrae un 5% para la reserva legal ANTES de que el resto quede a
+// disposición del associé unique para repartir como dividendos, hasta que esa reserva alcance el
+// 10% del capital social. Con capitalSocial = 1000 € el tope son solo 100 €, pero es una detracción
+// obligatoria que el simulador de dividendos no aplicaba antes de esta corrección. reservaAcumuladaPrevia
+// se guarda en fiscal_config (clave reserva_legal_acumulada) y hay que actualizarla a mano cada
+// ejercicio con lo ya dotado — el CRM no lleva la cuenta automáticamente entre ejercicios.
+export function calcularReservaLegal(beneficioTrasIS: number, capitalSocial: number, config: ConfigFn) {
+  const pct = config('reserva_legal_pct', 0.05);
+  const topePct = config('reserva_legal_tope_pct', 0.1);
+  const reservaAcumuladaPrevia = config('reserva_legal_acumulada', 0);
+  const tope = capitalSocial * topePct;
+  const margenDisponible = Math.max(0, tope - reservaAcumuladaPrevia);
+  const dotacion = Math.min(Math.max(0, beneficioTrasIS) * pct, margenDisponible);
+  return { pct, tope, reservaAcumuladaPrevia, margenDisponible, dotacion };
+}
+
 export function calcularDividendos(
   dividendos: number,
   capitalSocial: number,

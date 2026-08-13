@@ -29,6 +29,7 @@ npm-debug.log*
 # Datos de negocio (no son código, quedan solo en disco local)
 /avatares/
 /catalogos/
+/documentos legales/
 /equipo-marketing/
 /equipo-presupuestos/
 /guias/

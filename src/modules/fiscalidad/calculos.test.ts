@@ -4,6 +4,7 @@ import {
   calcularIS,
   calcularTNS,
   calcularDividendos,
+  calcularReservaLegal,
   generarEcheances,
   mesesTranscurridosEjercicio,
   type ConfigFn,
@@ -108,6 +109,34 @@ describe('calcularTNS', () => {
     const parteExceso = 80000 - topeAbatido;
     expect(r.assiette).toBeCloseTo(parteAbatida + parteExceso);
     expect(r.total).toBeCloseTo((parteAbatida + parteExceso) * 0.45);
+  });
+});
+
+describe('calcularReservaLegal', () => {
+  it('detrae el 5% del beneficio, sin superar el tope del 10% del capital social (Artículo 18 de los estatutos)', () => {
+    const r = calcularReservaLegal(8508.5, 1000, cfgPorDefecto);
+    expect(r.tope).toBe(100);
+    expect(r.reservaAcumuladaPrevia).toBe(0);
+    expect(r.margenDisponible).toBe(100);
+    // 5% de 8508,50 = 425,425 €, pero el margen disponible hasta el tope es solo 100 €.
+    expect(r.dotacion).toBeCloseTo(100);
+  });
+
+  it('sin superar el tope, detrae el 5% completo', () => {
+    const r = calcularReservaLegal(1000, 1000, cfgPorDefecto);
+    expect(r.dotacion).toBeCloseTo(50);
+  });
+
+  it('con la reserva ya completa (reserva_legal_acumulada = tope), no detrae nada más', () => {
+    const cfg: ConfigFn = (clave, porDefecto) => (clave === 'reserva_legal_acumulada' ? 100 : porDefecto);
+    const r = calcularReservaLegal(8508.5, 1000, cfg);
+    expect(r.margenDisponible).toBe(0);
+    expect(r.dotacion).toBe(0);
+  });
+
+  it('beneficio 0 o negativo no detrae nada', () => {
+    const r = calcularReservaLegal(-500, 1000, cfgPorDefecto);
+    expect(r.dotacion).toBe(0);
   });
 });
 

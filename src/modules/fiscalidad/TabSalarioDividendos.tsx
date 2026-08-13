@@ -4,7 +4,7 @@ import { AlertTriangle, TrendingUp, Landmark } from 'lucide-react';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { calcularDividendos, calcularIS, calcularTNS, limitesEjercicio } from './calculos';
+import { calcularDividendos, calcularIS, calcularReservaLegal, calcularTNS, limitesEjercicio } from './calculos';
 import type { ConfigFn } from './calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Input } from '../../components/ui/Input';
@@ -28,12 +28,14 @@ function escenario(
   const tns = calcularTNS(remuneracion, config);
   const beneficioTrasSalario = Math.max(0, beneficioAntesDeGastosPersonal - remuneracion - tns.total);
   const is = calcularIS(beneficioTrasSalario, meses, config);
-  const beneficioDistribuible = Math.max(0, beneficioTrasSalario - is.total);
+  const beneficioTrasIS = Math.max(0, beneficioTrasSalario - is.total);
+  const reservaLegal = calcularReservaLegal(beneficioTrasIS, capitalSocial, config);
+  const beneficioDistribuible = Math.max(0, beneficioTrasIS - reservaLegal.dotacion);
   const dividendos = beneficioDistribuible * (pctDividendos / 100);
   const divCalc = calcularDividendos(dividendos, capitalSocial, compteCourantMedio, config);
   const totalPrelevements = tns.total + is.total + divCalc.total;
   const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
-  return { tns, is, beneficioTrasSalario, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
+  return { tns, is, beneficioTrasSalario, reservaLegal, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
 }
 
 export function TabSalarioDividendos() {
@@ -121,8 +123,9 @@ export function TabSalarioDividendos() {
           Reparte el beneficio del ejercicio ({fmt(beneficioBruto)} antes de rémunération) entre salario del gérant y
           dividendos, y compara cuánto termina pagando en cotisations, IS y flat tax en cada combinación. El % de dividendos se
           aplica sobre el <strong>beneficio distribuible</strong> (lo que queda del beneficio después de restar la
-          rémunération, sus cotisations TNS y el IS) — si ese beneficio es 0 o negativo, no hay nada que repartir y el slider
-          no cambiará las cifras hasta que la empresa sea rentable en el período.
+          rémunération, sus cotisations TNS, el IS y el 5% de reserva legal que exige el Artículo 18 de los estatutos hasta
+          que esa reserva llegue al 10% del capital social) — si ese beneficio es 0 o negativo, no hay nada que repartir y el
+          slider no cambiará las cifras hasta que la empresa sea rentable en el período.
         </p>
         <div className="flex flex-col gap-3">
           <div>
@@ -164,6 +167,19 @@ export function TabSalarioDividendos() {
             {fmt(resultado.tns.total)} de sus cotisations{resultado.is.total > 0 ? ` y ${fmt(resultado.is.total)} de IS` : ''} al
             beneficio del ejercicio, queda {fmt(resultado.beneficioTrasSalario - resultado.is.total)}. Mueve el slider de
             rémunération hacia abajo, o espera a que el beneficio del ejercicio crezca, para poder repartir dividendos.
+          </span>
+        </div>
+      )}
+
+      {resultado.reservaLegal.dotacion > 0 && (
+        <div className="bg-gray-50 border border-gray-200 rounded-sm px-3 py-2 flex items-start gap-2 text-xs text-gray-600">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5 text-gray-400" />
+          <span>
+            Reserva legal (Artículo 18 de los estatutos): {fmt(resultado.reservaLegal.dotacion)} de este ejercicio van
+            obligatoriamente a la reserva antes de poder repartir nada, hasta que acumule {fmt(resultado.reservaLegal.tope)} (10%
+            del capital social). Reserva ya acumulada de ejercicios anteriores: {fmt(resultado.reservaLegal.reservaAcumuladaPrevia)}
+            {' '}— editable en fiscal_config (clave reserva_legal_acumulada) cuando se confirme la cifra real con el
+            expert-comptable.
           </span>
         </div>
       )}
@@ -246,7 +262,7 @@ export function TabSalarioDividendos() {
           },
           {
             q: 'Ejemplo completo con números',
-            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario: 30.000 × 0,74 × 45% = 9.990 €. Beneficio tras salario: 50.000 − 30.000 − 9.990 = 10.010 €. IS (ejercicio de 6 meses, plafond 21.250 €): 10.010 × 15% = 1.501,50 €. Beneficio distribuible: 10.010 − 1.501,50 = 8.508,50 €. Dividendos (50%): 4.254,25 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 30% = 30 €); los 4.154,25 € restantes llevan IR del 12,8% (531,74 €) + cotisations TNS del 45% (1.869,41 €) = 2.431,16 € de carga. Total prélèvements: 9.990 + 1.501,50 + 2.431,16 = 13.922,66 €. Neto disponible para Mario: 30.000 − 9.990 + 4.254,25 − 2.431,16 = 21.833,09 €.',
+            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario: 30.000 × 0,74 × 45% = 9.990 €. Beneficio tras salario: 50.000 − 30.000 − 9.990 = 10.010 €. IS (ejercicio de 6 meses, plafond 21.250 €): 10.010 × 15% = 1.501,50 €. Beneficio tras IS: 10.010 − 1.501,50 = 8.508,50 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 8.508,50 × 5% = 425,43 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 8.508,50 − 100 = 8.408,50 €. Dividendos (50%): 4.204,25 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 30% = 30 €); los 4.104,25 € restantes llevan IR del 12,8% (525,34 €) + cotisations TNS del 45% (1.846,91 €) = 2.402,26 € de carga. Total prélèvements: 9.990 + 1.501,50 + 2.402,26 = 13.893,76 €. Neto disponible para Mario: 30.000 − 9.990 + 4.204,25 − 2.402,26 = 21.811,99 €.',
           },
           {
             q: '¿Qué diferencia hay entre "Neto disponible Mario" y "Total prélèvements"?',
