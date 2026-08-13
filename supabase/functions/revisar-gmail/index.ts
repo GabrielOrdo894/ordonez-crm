@@ -60,7 +60,7 @@ const NUESTRO_EMAIL = 'reformasordonezeus@gmail.com';
 const EMAILJS_ASUNTO = 'new message from';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 

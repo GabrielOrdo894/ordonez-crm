@@ -378,9 +378,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   - **Excepción — facturas nunca se borran definitivamente** (2026-08-06): la numeración es correlativa sin
     huecos por ley (Code de commerce art. A123-12 en FR, RD 1619/2012 en ES). Desde `/papelera` una factura
     solo se puede restaurar, nunca eliminar de verdad. Para anular una factura real hace falta una factura
-    rectificativa (aún no implementada), no un borrado.
+    rectificativa (implementada 2026-08-11, ver más abajo), no un borrado.
 - **Tests:** Vitest (`npm run test`) cubre la lógica financiera crítica (`lineas.ts`, `iva.ts`,
-  `lineaDeduccionAcomptes`, `ofx.ts`). Añadir tests ahí al tocar cálculos de totales/IVA/acomptes.
+  `lineaDeduccionAcomptes`/`lineasRectificativa` en `facturas/types.ts`, `ofx.ts`) más `fiscalidad/calculos.ts`,
+  `filtroTexto.ts`, `numeracion.ts` (`numeroOrdenable`) y `pipelineSync.ts` (`etapaAutomatica`). Añadir tests ahí
+  al tocar cálculos de totales/IVA/acomptes o esta lógica de negocio.
 - **RGPD — pestaña "Privacidad" en la ficha de cliente** (`ClientePrivacidadTab.tsx`, 2026-08-06, corregido
   2026-08-09 y 2026-08-11): exporta a JSON o purga en cascada (borrado duro real, irreversible) todo lo
   vinculado a un cliente en `visitas`, `notas_cliente`, `proyectos`, `presupuestos`, `gastos`, `galeria`, más
@@ -450,3 +452,10 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   schema `public` — Postgres no permite `ALTER EXTENSION ... SET SCHEMA` para `pg_net`
   (`ERROR 0A000`); moverla exigiría recrearla y arriesgaría los cron jobs que dependen de ella
   (`alerta-diaria`, `revisar-gmail-diario`), así que se deja como está.
+- **CORS de las Edge Functions restringido a `https://ordonezrenov.com`** (2026-08-12): las 6 funciones con
+  `verify_jwt: true` (`google-token`, `documenso-crear-envelope`, `revisar-gmail`, `generar-mensaje-ia`,
+  `notificar-visita`, `alerta-diaria`) tenían `Access-Control-Allow-Origin: '*'` — endurecido al dominio real
+  donde vive el CRM. La autorización de verdad ya la hacía `esLlamadaAutorizada()` comprobando el rol del JWT
+  (no solo que esté firmado), así que esto es defensa en profundidad, no el cierre de un agujero explotable.
+  `google-oauth-callback` y `documenso-webhook` (`verify_jwt: false`) se quedan en `'*'` a propósito — son
+  webhooks públicos por diseño (redirect de Google, callback de Documenso), no los llama el frontend del CRM.
