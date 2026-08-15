@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
-import { generarPdfPresupuesto, generarPdfPresupuestoBlob } from '../../../lib/generarPdfPresupuesto';
+import { generarPdfPresupuesto, generarPdfPresupuestoBlob, generarPdfPresupuestoTraducido } from '../../../lib/generarPdfPresupuesto';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
 import { fechaCorta } from '../../../lib/fechas';
@@ -184,6 +184,20 @@ export default function PresupuestosPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  const traducirMutation = useMutation({
+    mutationFn: async (p: Presupuesto) => {
+      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id: p.id } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
+      toast.success('Traducción generada — uso interno, revisa el PDF antes de compartirlo');
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo generar la traducción')),
+  });
+
   const cambiarEstadoVariosMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
@@ -273,6 +287,14 @@ export default function PresupuestosPage() {
       await conAvisoDescarga(() => generarPdfPresupuesto(p), toast);
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el PDF'));
+    }
+  };
+
+  const handleDescargarPdfTraducido = async (p: Presupuesto) => {
+    try {
+      await conAvisoDescarga(() => generarPdfPresupuestoTraducido(p), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el PDF traducido'));
     }
   };
 
@@ -516,9 +538,19 @@ export default function PresupuestosPage() {
                 // Los orientativos solo sirven para dar una idea al cliente y llevarlo a un
                 // presupuesto real — nunca se firman ni se facturan, solo cambian de estado
                 // (Aceptado/Rechazado/Pendiente).
+                const idiomaTraduccion = p.idioma === 'Français' ? 'español' : 'francés';
                 const menu: AccionMenu[] = [
                   { label: 'Editar / Firmar', onClick: () => setPresupuestoSeleccionado(p) },
                   { label: 'Descargar PDF', onClick: () => handleDescargarPdf(p) },
+                  {
+                    label: p.traduccion ? `Volver a traducir a ${idiomaTraduccion}` : `Traducir a ${idiomaTraduccion} (uso interno)`,
+                    onClick: () => traducirMutation.mutate(p),
+                  },
+                  {
+                    label: 'Descargar PDF traducido (uso interno)',
+                    onClick: () => handleDescargarPdfTraducido(p),
+                    oculto: !p.traduccion,
+                  },
                   {
                     label: 'Marcar como aceptado',
                     onClick: () => cambiarEstadoMutation.mutate({ p, estado: 'Aceptado' }),

@@ -257,8 +257,9 @@ ordonez-crm/
 │       │   ├── proveedores/      ← Bloque 4
 │       │   └── iva.ts            ← lógica de IVA (el asistente vive en contabilidad/)
 │       │
-│       ├── contabilidad/         ← AsistenteIvaPage, BancoPage, DashboardContablePage, LibroIngresosPage, ResultadoPage
-│       ├── fiscalidad/           ← Bloque 5 — IS, TNS, calendario fiscal
+│       ├── contabilidad/         ← AsistenteIvaPage, BancoPage, DashboardContablePage, LibroIngresosPage, ResultadoPage,
+│       │                           LibroDiarioPage, LibroMayorPage (libro diario/mayor PCG, solo Francia)
+│       ├── fiscalidad/           ← Bloque 5 — IS, TNS, calendario fiscal, TabInmovilizado, TabLiasseFiscale
 │       ├── solicitudes/          ← Bloque 6 — solicitudes web + seguimiento asistido por IA
 │       ├── mensajeria/           ← hilos de email vinculados a clientes
 │       ├── notificaciones/       ← campana de notificaciones
@@ -291,7 +292,7 @@ ordonez-crm/
 | 3 | Clientes + Pipeline + Seguimiento (sin PDF, ver §9) | ✅ Hecho — Clientes y Pipeline; el "Plan de seguimiento de obra" (`seguimiento/SeguimientoPage.tsx`, `PlanForm.tsx`) descrito en la estructura de carpetas (§6) nunca se implementó, auditoría 2026-08-05 | 4–6   | supabase-schema.md    |
 | 4 | Finanzas + IVA + Firma        | ✅ Hecho    | 6–12  | finanzas.md           |
 | 5 | Fiscalidad & État (IS, TNS, calendario fiscal) | ✅ Hecho    | —     | guias/Bloque5_Fiscalidad_CRM_Reformas_Ordonez.html |
-| 6 | Solicitudes & Seguimiento: bandeja + generación de mensajes con IA + tracking del embudo solicitud→firma para el dashboard de Marketing | 🟡 En curso — rediseñado 2026-08-11, pendiente de verificación de Gabriel | —     | docs/bloque6-solicitudes-seguimiento.md |
+| 6 | Solicitudes & Seguimiento: bandeja + generación de mensajes con IA + tracking del embudo solicitud→firma para el dashboard de Marketing | ✅ Hecho — rediseñado 2026-08-11, verificado por Gabriel 2026-08-14 | —     | docs/bloque6-solicitudes-seguimiento.md |
 
 Actualizar: ⬜ Pendiente → 🟡 En curso → ✅ Hecho
 
@@ -391,8 +392,8 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   olvido se cumple anonimizando `cliente_nombre`/`cliente_dir`/`cliente_email`/`cliente_tel` en la factura en
   vez de eliminar la fila. Cumple el derecho de acceso/eliminación que el T&C promete al cliente. Las fotos de
   galería en Storage se borran también (corrección 2026-08-12, best-effort — un fallo no aborta la purga del
-  resto). Limitación conocida: los justificantes de gastos en Storage no se borran, quedan huérfanos —
-  pendiente si algún día hace falta limpiarlos también.
+  resto), igual que los justificantes de gastos en Storage (corrección 2026-08-14, mismo best-effort —
+  `gastos.adjunto_url` ya guarda el path del bucket privado `justificantes` directamente, sin recorte de URL).
   **Corrección 2026-08-11**: `solicitudes` (Bloque 6 — llega antes de que exista una visita, así que no
   cuelga de `visita_id` como el resto) se había quedado fuera tanto de la exportación como de la purga desde
   que existe la tabla (28 julio) — un cliente que escribió por el formulario web mantenía su nombre/email/
@@ -459,3 +460,74 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (no solo que esté firmado), así que esto es defensa en profundidad, no el cierre de un agujero explotable.
   `google-oauth-callback` y `documenso-webhook` (`verify_jwt: false`) se quedan en `'*'` a propósito — son
   webhooks públicos por diseño (redirect de Google, callback de Documenso), no los llama el frontend del CRM.
+- **Traducción interna de presupuestos ES↔FR** (columna `traduccion` jsonb, Edge Function
+  `traducir-presupuesto`, 2026-08-13): acción "Traducir a español/francés" en el menú de 3 puntos de
+  `/finanzas/presupuestos` — pensada para que Gabriel o su especialista puedan leer un presupuesto en el
+  otro idioma (ej. un presupuesto en francés revisado por un especialista que solo lee español), no para
+  enviarlo al cliente. La IA (Sonnet, se prioriza precisión sobre coste) traduce únicamente el texto libre
+  que Gabriel redactó a mano — designación/descripción de cada línea, `nota` del documento y los conceptos
+  del plan de pago — nunca precios, cantidades, IVA ni el país. Los Términos y Condiciones **nunca se
+  traducen con IA**: el PDF traducido (`generarPdfPresupuestoTraducido` en `generarPdfPresupuesto.ts`)
+  simplemente construye el documento con `idioma` invertido, reutilizando el T&C real ya redactado en
+  Configuración para ese idioma — por eso ignora a propósito un T&C propio del presupuesto (pestaña
+  "Condiciones"), que solo existiría en el idioma original y no se puede traducir sin riesgo. El PDF
+  resultante lleva una franja de aviso en cada página ("TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO
+  OFICIAL") para que nunca se confunda con el documento real. La traducción se guarda en el presupuesto
+  (se puede volver a generar si las líneas cambian) — no se descarga hasta que existe.
+- **Libro diario y Libro mayor (PCG, solo Francia)** (tabla `asientos_contables`, 2026-08-14): primera
+  pieza de la contabilidad legal francesa (Code de commerce art. L123-12 a L123-24) construida dentro del
+  CRM — confirmado régimen **réel normal IS + réel normal TVA** en el documento de síntesis del Guichet
+  Unique, lo que descarta la vía EFI gratuita para la liasse fiscale (queda para una ronda futura, ver
+  abajo). `asientos_contables` es **insert-only a propósito** (RLS solo `select`+`insert`, sin política de
+  `update`/`delete`) para que la inalterabilidad legal se cumpla a nivel de base de datos, no solo de
+  buena fe en el código — un asiento mal hecho se corrige con uno nuevo, nunca editando la fila. Los
+  asientos se generan automáticamente (`src/lib/asientosContables.ts`, mismo patrón que
+  `notaSistema`/`registrarDecision`) al **crear** un Gasto o Factura de `pais = 'Francia'` y al
+  **registrar un cobro** — nunca al editar un documento ya contabilizado (limitación conocida: si se
+  edita un Gasto/Factura después de que su asiento ya existe, el asiento queda desactualizado; no hay
+  rectificación automática todavía). Gastos usa la cuenta PCG ya existente en `cuenta_contable`
+  (`CUENTAS_FR`); si no tiene una asignada cae en la cuenta de espera `471` en vez de perderse. Facturas
+  no tiene campo de cuenta propio — la venta (`706`)/TVA collectée (`44571`) se derivan de `tipo_iva` y
+  `lineas` en el momento de generar el asiento. `/contabilidad/diario` (cronológico) y
+  `/contabilidad/mayor` (agrupado por cuenta, con saldo) son de solo lectura. **Fuera de esta ronda**:
+  registro de inmovilizado/amortizaciones por activo individual (hoy la amortización es un gasto
+  agregado en cuenta `68x`), y la liasse fiscale (2065 + tableaux 2050-2059-G) con su transmisión
+  EDI-TDFC obligatoria — necesita un partenaire EDI barato o que el CRM se acredite como partenaire EDI
+  ante la DGFiP (proyecto aparte).
+- **Inmovilizado, rectificación de asientos y liasse fiscale (ronda 2)** (2026-08-14): tabla
+  `inmovilizado` (RLS `authenticated for all`, a diferencia de `asientos_contables` sí es editable —
+  es un registro, no un libro contable) + columna `gastos.inmovilizado_id`. `src/lib/inmovilizado.ts`
+  (`calcularDotacionAnual` lineal con prorrateo por meses completos, `generarDotacionEjercicio`
+  idempotente por año) + pestaña Fiscalidad → "Inmovilizado" (`TabInmovilizado.tsx`): alta/edición/baja
+  de activos y botón "Generar dotación del ejercicio" por activo, que crea el `gasto` (cuenta `681`) y
+  su asiento igual que si se hiciera a mano en Gastos — cero lógica duplicada.
+  **Rectificación de asientos**: `asientos_contables` ganó una columna `tipo_evento`
+  (`'creacion' | 'cobro'`, distingue la emisión/gasto del cobro de una Factura, ambos comparten
+  `documento_tipo='factura'`) y `rectificarAsientos()` en `asientosContables.ts` — al editar un
+  Gasto/Factura de Francia ya contabilizado, inserta la reversa (debe/haber invertidos) del evento
+  correspondiente y registra uno nuevo con los valores corregidos; nunca toca la fila original (sigue
+  sin política de update/delete). Cierra la limitación documentada en la ronda 1.
+  **Liasse fiscale**: `cabeceraDocumento`/`piePagina` (antes locales de `generarPdfRemuneracion.ts`)
+  se movieron a `pdfEmpresa.ts` para reutilizarlos. `useComptaFrancia.ts` calcula el compte de résultat
+  agrupando `asientos_contables` por prefijo de cuenta PCG — **siempre por saldo neto (`debe − haber`),
+  nunca sumando un solo lado**, porque una rectificación inserta su reversa en la misma cuenta y sumar
+  solo `debe` (o solo `haber`) contaría el importe original dos veces y la reversa ninguna (bug real
+  encontrado y corregido en la verificación de esta ronda) — y el bilan simplificado (trésorerie desde
+  `512`, créances clients desde Facturas pendientes de Francia, inmovilizado neto desde el registro).
+  Pestaña "Liasse fiscale" (`TabLiasseFiscale.tsx`) muestra ambos y descarga un PDF resumen
+  (`generarPdfLiasseFiscale.ts`) organizado por tableau (2058-A/2054-2055/2050-2051/2052-2053), con
+  una franja de aviso "documento de preparación interna, no es el Cerfa oficial". **Dettes
+  fournisseurs siempre a 0€**, mostrado explícitamente en la UI y el PDF — los Gastos no llevan estado
+  de pago pendiente, así que el bilan puede no cuadrar exactamente y se avisa en vez de disimularlo.
+  **Sigue fuera de alcance a propósito** (decisión explícita con Gabriel): la transmisión EDI-TDFC real
+  (partenaire EDI de pago o acreditación del CRM ante la DGFiP) — el PDF resumen es para entregar a
+  quien haga esa transmisión, no la sustituye. Gabriel eligió **Edifiscale** (R&N Solutions SAS,
+  partenaire EDI n° 7500810) como partenaire EDI — 60€ HT por declaración, sin abono anual, y admite
+  importar un CSV de la "balance comptable" para auto-rellenar importes. `/contabilidad/mayor` tiene un
+  segundo botón "Exportar para Edifiscale (CSV)" que genera ese fichero en su formato exacto (modelo
+  real entregado por Edifiscale en `documentos legales/modele-balance.csv`, no inventado): columnas
+  `Compte;Libellé;Débit;Crédit`, cuenta PCG rellenada a 6 dígitos con ceros a la derecha (`512`→
+  `512000`), libellé sin el código, importes con coma decimal. **Sin probar contra su importador
+  real** (no tengo cuenta en Edifiscale) — Gabriel debe confirmarlo con una prueba antes de depender de
+  él para la declaración real; si el CSV entrecomillado (así lo genera `exportarCSV.ts` para todo el
+  CRM) da problemas, es un ajuste trivial.

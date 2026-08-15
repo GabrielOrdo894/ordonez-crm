@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FileText, PiggyBank } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -7,6 +8,7 @@ import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionRemuneracion, generarPdfResumenTNS } from '../../lib/generarPdfRemuneracion';
+import { registrarDecision } from '../../lib/registroDecisiones';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { calcularTNS } from './calculos';
@@ -33,6 +35,7 @@ const DESGLOSE_REFERENCIA = [
 ];
 
 export function TabCotisations() {
+  const queryClient = useQueryClient();
   const { config, fuente } = useFiscalConfig();
   const { gerantConfig, guardar, guardando } = useGerantConfig();
   const [remuneracion, setRemuneracion] = useState(0);
@@ -53,6 +56,12 @@ export function TabCotisations() {
     setGenerandoDecision(true);
     try {
       await conAvisoDescarga(() => generarPdfDecisionRemuneracion(anio, remuneracion, gerantConfig?.capital_social ?? 1000), toast);
+      try {
+        await registrarDecision({ tipo: 'remuneracion', titulo: `Rémunération du gérant — exercice ${anio}`, anio_ejercicio: anio });
+        queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
+      } catch (err) {
+        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${(err as { message?: string }).message ?? err}`);
+      }
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));
     } finally {
@@ -229,10 +238,6 @@ export function TabCotisations() {
           },
         ]}
       />
-
-      <p className="text-xs text-gray-400 text-center">
-        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
-      </p>
     </div>
   );
 }

@@ -191,6 +191,7 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
         notas: form.notas || null,
         google_event_id: null,
         estado_pipeline: 'Contacto',
+        pipeline_etapa_maxima: 'Contacto',
         estado: 'Pendiente',
       };
       const { data, error } = await supabase.from('visitas').insert(nueva).select().single();

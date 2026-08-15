@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, FileSignature, Copy } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, FileSignature, Copy, Languages, Eye, StickyNote } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -14,7 +14,7 @@ import { fechaCorta } from '../../lib/fechas';
 import { cargarEventos, registrarEvento } from '../../lib/eventos';
 import { registrarEventoFunnel, ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO } from '../../lib/funnelTracking';
 import { notaSistema } from '../../lib/notaSistema';
-import { generarPdfPresupuesto } from '../../lib/generarPdfPresupuesto';
+import { generarPdfPresupuesto, generarPdfPresupuestoTraducido, verPdfPresupuestoTraducido } from '../../lib/generarPdfPresupuesto';
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
 import { enviarPresupuestoAFirmar } from '../../lib/documenso';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
@@ -233,6 +233,55 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     },
     onError: (error) => toast.error(error.message),
   });
+
+  const [notaInternaLocal, setNotaInternaLocal] = useState(presupuesto?.nota_interna ?? '');
+  useEffect(() => {
+    setNotaInternaLocal(presupuesto?.nota_interna ?? '');
+  }, [presupuesto?.nota_interna]);
+
+  const notaInternaMutation = useMutation({
+    mutationFn: async (valor: string) => {
+      const { error } = await supabase.from('presupuestos').update({ nota_interna: valor || null }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['presupuesto', id] });
+      refetchPresupuesto();
+      toast.success('Nota interna guardada');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const traducirMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['presupuesto', id] });
+      refetchPresupuesto();
+      toast.success('Traducción generada — uso interno, revisa el PDF antes de compartirlo');
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo generar la traducción')),
+  });
+
+  const handleVerPdfTraducido = async () => {
+    try {
+      if (presupuesto) await conAvisoDescarga(() => verPdfPresupuestoTraducido(presupuesto), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el PDF traducido'));
+    }
+  };
+
+  const handleDescargarPdfTraducido = async () => {
+    try {
+      if (presupuesto) await conAvisoDescarga(() => generarPdfPresupuestoTraducido(presupuesto), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el PDF traducido'));
+    }
+  };
 
   const [linkDocumensoModal, setLinkDocumensoModal] = useState<string | null>(null);
 
@@ -485,6 +534,32 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
         <div>{tipo === 'presupuesto' ? <PresupuestoPreview presupuesto={presupuesto!} /> : <FacturaPreview factura={factura!} />}</div>
 
         <div className="flex flex-col gap-4">
+          {tipo === 'presupuesto' && presupuesto && (
+            <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2 flex items-center gap-1.5">
+                <StickyNote size={13} />
+                Nota interna (no sale en el PDF)
+              </p>
+              <textarea
+                value={notaInternaLocal}
+                onChange={(e) => setNotaInternaLocal(e.target.value)}
+                placeholder="Recordatorios, referencias a otros presupuestos, pendientes con Gabriel... nunca de cara al cliente."
+                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[80px] focus:border-brand focus:outline-none"
+              />
+              {notaInternaLocal !== (presupuesto.nota_interna ?? '') && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2"
+                  onClick={() => notaInternaMutation.mutate(notaInternaLocal)}
+                  disabled={notaInternaMutation.isPending}
+                >
+                  {notaInternaMutation.isPending ? 'Guardando...' : 'Guardar nota interna'}
+                </Button>
+              )}
+            </section>
+          )}
+
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Relaciones</p>
             {!relaciones || relaciones.length === 0 ? (
@@ -549,6 +624,50 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               </div>
             )}
           </section>
+
+          {tipo === 'presupuesto' && presupuesto && (
+            <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2 flex items-center gap-1.5">
+                <Languages size={13} />
+                Traducción (uso interno)
+              </p>
+              {presupuesto.traduccion ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-gray-500">
+                    {presupuesto.traduccion.idioma} · generada {fechaCorta(presupuesto.traduccion.generado_en?.slice(0, 10))}
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button size="sm" variant="secondary" onClick={handleVerPdfTraducido}>
+                      <span className="flex items-center gap-1.5">
+                        <Eye size={13} />
+                        Ver PDF
+                      </span>
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={handleDescargarPdfTraducido}>
+                      <span className="flex items-center gap-1.5">
+                        <Download size={13} />
+                        Descargar
+                      </span>
+                    </Button>
+                  </div>
+                  <button
+                    onClick={() => traducirMutation.mutate()}
+                    disabled={traducirMutation.isPending}
+                    className="text-xs text-gray-400 hover:text-brand text-left"
+                  >
+                    {traducirMutation.isPending ? 'Generando…' : 'Volver a traducir'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-gray-400">Sin traducción generada.</p>
+                  <Button size="sm" variant="secondary" onClick={() => traducirMutation.mutate()} disabled={traducirMutation.isPending}>
+                    {traducirMutation.isPending ? 'Generando…' : `Traducir a ${presupuesto.idioma === 'Français' ? 'español' : 'francés'}`}
+                  </Button>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </div>
 

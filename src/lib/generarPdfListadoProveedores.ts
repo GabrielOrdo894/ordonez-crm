@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { cargarConfigCompleta, urlABase64, dimensionesImagen, ajustarCaja, GRIS_BORDE, GRIS_TEXTO, hexARgb, totalPaginasPdf } from './pdfEmpresa';
+import { cargarConfigCompleta, urlABase64, dimensionesImagen, ajustarCaja, GRIS_BORDE, GRIS_TEXTO, hexARgb, totalPaginasPdf, piePaginaNumerado } from './pdfEmpresa';
 import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 import type { Proveedor } from '../modules/finanzas/proveedores/types';
@@ -69,13 +69,7 @@ export async function generarPdfListadoProveedores(proveedores: Proveedor[], fil
   const totalPaginas = totalPaginasPdf(doc);
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i);
-    doc.setDrawColor(...GRIS_BORDE);
-    doc.line(margen, 285, 210 - margen, 285);
-    doc.setFont(FUENTE_PDF, 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRIS_TEXTO);
-    doc.text('Reformas Ordoñez', margen, 291);
-    doc.text(`Página ${i}/${totalPaginas}`, 210 - margen, 291, { align: 'right' });
+    piePaginaNumerado(doc, margen, 'Reformas Ordoñez', i, totalPaginas, 'Página');
   }
 
   return doc.output('blob');

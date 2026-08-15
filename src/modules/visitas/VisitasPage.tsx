@@ -4,6 +4,7 @@ import { useOutletContext } from 'react-router-dom';
 import { Search, Check, Ban, Clock3 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
+import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -88,6 +89,18 @@ export default function VisitasPage() {
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('visitas').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
+      if (estado === 'Cancelada') {
+        const eventIds = (visitas ?? [])
+          .filter((v) => (ids as string[]).includes(v.id) && v.google_event_id)
+          .map((v) => v.google_event_id as string);
+        for (const eventId of eventIds) {
+          try {
+            await eliminarEventoVisita(eventId);
+          } catch (error) {
+            toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
+          }
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

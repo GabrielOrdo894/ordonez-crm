@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from './Sidebar';
@@ -104,7 +104,9 @@ export function AppLayout() {
           ) : (
             <div key={location.pathname} className="animate-[slide-fade-left_220ms_ease-out]">
               <ErrorBoundary>
-                <Outlet context={context} />
+                <Suspense fallback={<div className="h-96 bg-surface border border-gray-200 rounded-sm animate-pulse" />}>
+                  <Outlet context={context} />
+                </Suspense>
               </ErrorBoundary>
             </div>
           )}

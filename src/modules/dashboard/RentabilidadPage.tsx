@@ -148,9 +148,12 @@ export default function RentabilidadPage() {
             {
               key: 'margen',
               label: 'Margen',
-              render: (f) => (
-                <span className={f.margen >= 0 ? 'text-gray-900' : 'text-red-600 font-medium'}>{formatearPrecio(f.margen)}</span>
-              ),
+              render: (f) =>
+                f.facturado === 0 ? (
+                  <span className="text-amber-700 font-medium">Sin facturar — {formatearPrecio(f.margen)} en gastos</span>
+                ) : (
+                  <span className={f.margen >= 0 ? 'text-gray-900' : 'text-red-600 font-medium'}>{formatearPrecio(f.margen)}</span>
+                ),
             },
             {
               key: 'margenPct',
@@ -164,8 +167,13 @@ export default function RentabilidadPage() {
             },
           ]}
           data={filas}
-          rowClassName={(f) => (f.margen < 0 ? 'bg-red-50' : '')}
+          rowClassName={(f) => (f.facturado === 0 ? 'bg-amber-50' : f.margen < 0 ? 'bg-red-50' : '')}
         />
+        <p className="text-xs text-gray-400 mt-2">
+          Filas en ámbar: proyectos con gastos ya registrados pero sin ninguna factura todavía — no son una pérdida
+          real, solo obra en curso pendiente de facturar. Solo se marca en rojo un margen negativo cuando ya hay
+          facturación de por medio.
+        </p>
       </div>
     </div>
   );

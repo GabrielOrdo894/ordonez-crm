@@ -186,3 +186,26 @@ export async function crearEventoVisita(v: EventoVisita): Promise<string | null>
   const data = await res.json();
   return data.id ?? null;
 }
+
+// Borra el evento de una visita cancelada — 404/410 significan que ya no existe (borrado a mano
+// por Gabriel, por ejemplo), no es un error real, así que se ignoran igual que un éxito.
+export async function eliminarEventoVisita(eventId: string): Promise<void> {
+  let token = await obtenerAccessToken();
+
+  let res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (res.status === 401) {
+    token = await obtenerAccessToken(true);
+    res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    const detalle = await res.text().catch(() => '');
+    throw new Error(`No se pudo borrar el evento en Google Calendar (${res.status}): ${detalle}`);
+  }
+}

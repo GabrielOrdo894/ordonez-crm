@@ -22,6 +22,9 @@ export type Visita = {
   empleado: string | null;
   estado: EstadoVisita | null;
   estado_pipeline: string;
+  // Etapa más avanzada que la visita alcanzó de verdad en el embudo lineal (ETAPAS_PIPELINE) —
+  // nunca retrocede, ni siquiera cuando estado_pipeline pasa a "Perdido" (ver pipelineSync.ts).
+  pipeline_etapa_maxima: string | null;
   notas: string | null;
   google_event_id: string | null;
   es_empresa?: boolean | null;

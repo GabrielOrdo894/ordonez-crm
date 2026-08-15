@@ -1,13 +1,20 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Scale } from 'lucide-react';
+import { Scale, FileText } from 'lucide-react';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
+import { useToast } from '../../hooks/useToast';
+import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
+import { mensajeError } from '../../lib/mensajeError';
+import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
+import { registrarDecision } from '../../lib/registroDecisiones';
+import { Button } from '../../components/ui/Button';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { calcularIS, calcularTNS, calcularReservaLegal, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
 
@@ -24,6 +31,9 @@ function fmtFecha(f: string) {
 }
 
 export function TabIS() {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
   const anio = new Date().getFullYear();
   const ejercicio = limitesEjercicio(anio);
   const { config, fuente } = useFiscalConfig();
@@ -43,8 +53,28 @@ export function TabIS() {
   const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
   const is = calcularIS(beneficioNeto, ejercicio.meses, config);
   const tipoEfectivo = beneficioNeto > 0 ? is.total / beneficioNeto : 0;
-  const margenNeto = ingresosHT > 0 ? (beneficioNeto - is.total) / ingresosHT : 0;
+  const resultadoNeto = Math.max(0, beneficioNeto - is.total);
+  const margenNeto = ingresosHT > 0 ? resultadoNeto / ingresosHT : 0;
+  const capitalSocial = gerantConfig?.capital_social ?? 1000;
+  const reservaLegal = calcularReservaLegal(resultadoNeto, capitalSocial, config);
   const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config);
+
+  const handleAprobacionCuentas = async () => {
+    setGenerandoAprobacion(true);
+    try {
+      await conAvisoDescarga(() => generarPdfDecisionAprobacionCuentas(anio, { resultadoNeto, reservaLegal, capitalSocial }), toast);
+      try {
+        await registrarDecision({ tipo: 'aprobacion_cuentas', titulo: `Approbation des comptes — exercice ${anio}`, anio_ejercicio: anio });
+        queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
+      } catch (err) {
+        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${(err as { message?: string }).message ?? err}`);
+      }
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoAprobacion(false);
+    }
+  };
 
   const proyeccion = useMemo(() => {
     const beneficioMedioMensual = beneficioNeto / mesesTranscurridos;
@@ -190,6 +220,20 @@ export function TabIS() {
         )}
       </div>
 
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+          <FileText size={14} className="text-brand" /> Documentos del ejercicio
+        </p>
+        <p className="text-xs text-gray-500 leading-relaxed mb-3">
+          Acta de la décision de l'associé unique aprobando las cuentas del ejercicio y la afectación del resultado —
+          paso previo obligatorio al dépôt des comptes en el Greffe. Usa el resultado neto estimado de arriba
+          ({fmt(resultadoNeto)}) y la dotación a la réserve légale (article 18 des statuts).
+        </p>
+        <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>
+          {generandoAprobacion ? 'Generando...' : `Décision d'approbation des comptes ${anio} (PDF)`}
+        </Button>
+      </div>
+
       <Faq
         items={[
           {
@@ -226,10 +270,6 @@ export function TabIS() {
           },
         ]}
       />
-
-      <p className="text-xs text-gray-400 text-center">
-        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
-      </p>
     </div>
   );
 }

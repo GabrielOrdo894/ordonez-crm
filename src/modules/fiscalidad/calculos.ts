@@ -88,6 +88,36 @@ export function calcularDividendos(
   return { umbralLibre, libre, exceso, pfuLibre, irExceso, tnsExceso, total: pfuLibre + irExceso + tnsExceso, superaSeuil: exceso > 0 };
 }
 
+// Encadena las 4 fórmulas de arriba en el orden real en que se aplican sobre el beneficio de un
+// ejercicio: primero se paga el gérant (rémunération + sus cotisations TNS, gasto deducible antes
+// del IS), luego la société paga el IS sobre lo que queda, luego se detrae la reserva legal
+// obligatoria (Artículo 18 de los estatutos) y por último se reparte el resto como dividendos —
+// con la parte que supera el umbral libre (10% capital + compte courant) tributando como
+// "rémunération encubierta" (TNS) en vez de al PFU. Usado tanto por "Salario vs Dividendos" (con
+// el beneficio REAL del ejercicio en curso) como por el "Simulador" (con ingresos/gastos
+// hipotéticos) — una sola fuente de verdad para no mantener la cadena duplicada.
+export function simularEjercicio(
+  remuneracion: number,
+  pctDividendos: number,
+  beneficioAntesDeGastosPersonal: number,
+  capitalSocial: number,
+  compteCourantMedio: number,
+  meses: number,
+  config: ConfigFn,
+) {
+  const tns = calcularTNS(remuneracion, config);
+  const beneficioTrasSalario = Math.max(0, beneficioAntesDeGastosPersonal - remuneracion - tns.total);
+  const is = calcularIS(beneficioTrasSalario, meses, config);
+  const beneficioTrasIS = Math.max(0, beneficioTrasSalario - is.total);
+  const reservaLegal = calcularReservaLegal(beneficioTrasIS, capitalSocial, config);
+  const beneficioDistribuible = Math.max(0, beneficioTrasIS - reservaLegal.dotacion);
+  const dividendos = beneficioDistribuible * (pctDividendos / 100);
+  const divCalc = calcularDividendos(dividendos, capitalSocial, compteCourantMedio, config);
+  const totalPrelevements = tns.total + is.total + divCalc.total;
+  const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
+  return { tns, is, beneficioTrasSalario, reservaLegal, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
+}
+
 export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[] {
   const tvaDeadlineDia = config('tva_deadline_dia', 21);
   const acompteIsDia = config('acompte_is_dia', 15);

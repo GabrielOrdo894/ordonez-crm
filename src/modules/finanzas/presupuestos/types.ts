@@ -10,6 +10,17 @@ export type PlazoPago = {
   importe: number;
 };
 
+/** Traducción interna generada por IA (Edge Function `traducir-presupuesto`) — solo el texto
+ * libre (líneas, nota, conceptos del plan de pago), nunca precios/cantidades/T&C. Uso interno,
+ * nunca se envía al cliente tal cual (ver `generarPdfPresupuestoTraducido`). */
+export type TraduccionPresupuesto = {
+  idioma: string;
+  lineas: Linea[];
+  nota: string | null;
+  plan_pago: PlazoPago[];
+  generado_en: string;
+};
+
 export type Presupuesto = {
   id: string;
   created_at: string;
@@ -39,6 +50,7 @@ export type Presupuesto = {
   terminos_condiciones: string | null;
   condiciones_pago: Record<string, string> | null;
   nota: string | null;
+  nota_interna?: string | null;
   estado: string;
   firmado: boolean;
   firma_nombre: string | null;
@@ -50,6 +62,7 @@ export type Presupuesto = {
   documenso_estado: string | null;
   eliminado_en?: string | null;
   eliminado_por?: string | null;
+  traduccion?: TraduccionPresupuesto | null;
 };
 
 export type NuevoPresupuesto = Omit<Presupuesto, 'id' | 'created_at'>;

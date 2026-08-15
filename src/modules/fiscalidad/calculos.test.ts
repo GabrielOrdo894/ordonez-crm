@@ -5,6 +5,7 @@ import {
   calcularTNS,
   calcularDividendos,
   calcularReservaLegal,
+  simularEjercicio,
   generarEcheances,
   mesesTranscurridosEjercicio,
   type ConfigFn,
@@ -169,6 +170,32 @@ describe('calcularDividendos', () => {
     expect(r.umbralLibre).toBe(300);
     expect(r.exceso).toBe(0);
     expect(r.superaSeuil).toBe(false);
+  });
+});
+
+describe('simularEjercicio', () => {
+  it('encadena TNS → IS → reserva legal → dividendos igual que el ejemplo del FAQ de Salario vs Dividendos', () => {
+    // Beneficio 50.000 €, rémunération 30.000 €, 50% del resto como dividendos, ejercicio de 6 meses,
+    // capital social 1.000 €, sin compte courant — mismos números que el ejemplo documentado en
+    // TabSalarioDividendos.tsx (regresión: si esto cambia de valor sin querer, el texto del FAQ deja
+    // de ser correcto).
+    const r = simularEjercicio(30000, 50, 50000, 1000, 0, 6, cfgPorDefecto);
+    expect(r.tns.total).toBeCloseTo(9990, 0);
+    expect(r.beneficioTrasSalario).toBeCloseTo(10010, 0);
+    expect(r.is.total).toBeCloseTo(1501.5, 1);
+    expect(r.reservaLegal.dotacion).toBeCloseTo(100, 0);
+    expect(r.dividendos).toBeCloseTo(4204.25, 1);
+    expect(r.divCalc.total).toBeCloseTo(2402.26, 1);
+    expect(r.totalPrelevements).toBeCloseTo(13893.76, 1);
+    expect(r.netoDisponible).toBeCloseTo(21811.99, 1);
+  });
+
+  it('sin beneficio (0), no hay IS ni dividendos, solo las cotisations TNS mínimas sobre la rémunération', () => {
+    const r = simularEjercicio(20000, 100, 0, 1000, 0, 12, cfgPorDefecto);
+    expect(r.beneficioTrasSalario).toBe(0);
+    expect(r.is.total).toBe(0);
+    expect(r.dividendos).toBe(0);
+    expect(r.netoDisponible).toBeCloseTo(20000 - r.tns.total, 1);
   });
 });
 

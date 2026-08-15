@@ -129,6 +129,7 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
         empleado: null,
         estado: null,
         estado_pipeline: 'Contacto',
+        pipeline_etapa_maxima: 'Contacto',
         notas: null,
         google_event_id: null,
         es_empresa: form.esEmpresa,

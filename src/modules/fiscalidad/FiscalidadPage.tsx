@@ -4,10 +4,26 @@ import { DashboardFiscal } from './DashboardFiscal';
 import { TabIS } from './TabIS';
 import { TabCotisations } from './TabCotisations';
 import { TabSalarioDividendos } from './TabSalarioDividendos';
+import { TabSimulador } from './TabSimulador';
 import { TabCalendario } from './TabCalendario';
+import { TabDocumentos } from './TabDocumentos';
+import { TabInmovilizado } from './TabInmovilizado';
+import { TabLiasseFiscale } from './TabLiasseFiscale';
+import { TabCierreEjercicio } from './TabCierreEjercicio';
 import { Faq } from './Faq';
 
-type Pestana = 'dashboard' | 'tva' | 'is' | 'cotisations' | 'salario' | 'calendario';
+type Pestana =
+  | 'dashboard'
+  | 'tva'
+  | 'is'
+  | 'cotisations'
+  | 'salario'
+  | 'simulador'
+  | 'calendario'
+  | 'documentos'
+  | 'inmovilizado'
+  | 'liasse'
+  | 'cierre';
 
 const PESTANAS: { value: Pestana; label: string }[] = [
   { value: 'dashboard', label: 'Dashboard' },
@@ -15,7 +31,12 @@ const PESTANAS: { value: Pestana; label: string }[] = [
   { value: 'is', label: 'Impôt sur les Sociétés' },
   { value: 'cotisations', label: 'Cotisations URSSAF' },
   { value: 'salario', label: 'Salario vs Dividendos' },
+  { value: 'simulador', label: 'Simulador completo' },
   { value: 'calendario', label: 'Calendario fiscal' },
+  { value: 'documentos', label: 'Documentos obligatorios' },
+  { value: 'inmovilizado', label: 'Inmovilizado' },
+  { value: 'liasse', label: 'Liasse fiscale' },
+  { value: 'cierre', label: 'Cierre de ejercicio' },
 ];
 
 export default function FiscalidadPage() {
@@ -27,7 +48,8 @@ export default function FiscalidadPage() {
     <div>
       <h1 className="text-xl font-bold text-gray-900 mb-1">Fiscalidad</h1>
       <p className="text-sm text-gray-500 mb-4">
-        Impôt sur les Sociétés, cotisations TNS del gérant, TVA y calendario de échéances — EURL Reformas Ordoñez.
+        Impôt sur les Sociétés, cotisations TNS del gérant, TVA, calendario de échéances, inmovilizado, preparación de
+        la liasse fiscale y asistente de cierre de ejercicio — EURL Reformas Ordoñez.
       </p>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -80,7 +102,16 @@ export default function FiscalidadPage() {
       {pestana === 'is' && <TabIS />}
       {pestana === 'cotisations' && <TabCotisations />}
       {pestana === 'salario' && <TabSalarioDividendos />}
+      {pestana === 'simulador' && <TabSimulador />}
       {pestana === 'calendario' && <TabCalendario />}
+      {pestana === 'documentos' && <TabDocumentos />}
+      {pestana === 'inmovilizado' && <TabInmovilizado />}
+      {pestana === 'liasse' && <TabLiasseFiscale />}
+      {pestana === 'cierre' && <TabCierreEjercicio />}
+
+      <p className="text-xs text-gray-400 text-center mt-4">
+        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
+      </p>
     </div>
   );
 }

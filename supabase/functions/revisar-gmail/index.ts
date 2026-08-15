@@ -469,6 +469,82 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
   return actualizados;
 }
 
+// Solicitudes "Nueva"/"Borrador" — busca directamente en Gmail si ya existe un correo NUESTRO
+// dirigido al email del cliente, posterior a la creación de la solicitud, y si lo hay la marca
+// como "Enviada" (mismo efecto que el botón manual "Marcar como enviado" de SolicitudDetalle.tsx).
+// OJO: no se puede reusar el `gmail_thread_id` guardado al ingerir la solicitud — ese hilo es la
+// notificación automática del formulario (de landbot@.../noreply@ordonezrenov.com hacia nosotros),
+// no la conversación real con el cliente; la respuesta real de Gabriel casi seguro vive en un hilo
+// nuevo, distinto (salvo que esos formularios configuren "Responder a" con el email del cliente,
+// algo que no se puede confirmar sin verlo). Por eso se busca por destinatario en vez de por hilo
+// — mismo patrón de búsqueda por email que ya usa revisarRespuestasPresupuestos cuando no hay
+// thread_id todavía, pero aplicado siempre aquí, no solo como fallback.
+async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id, email, fuente, created_at')
+    .in('estado', ['Nueva', 'Borrador'])
+    .not('email', 'is', null);
+
+  if (error) {
+    log.push(`Error leyendo solicitudes Nueva/Borrador: ${error.message}`);
+    return 0;
+  }
+  log.push(`Solicitudes Nueva/Borrador con email a revisar: ${solicitudes.length}.`);
+
+  let actualizadas = 0;
+  for (const s of solicitudes) {
+    const query = `from:${NUESTRO_EMAIL} to:${s.email} newer_than:30d`;
+    let listado: { messages?: { id: string }[] };
+    try {
+      listado = await gmailFetch<{ messages?: { id: string }[] }>(
+        `messages?q=${encodeURIComponent(query)}&maxResults=3`,
+        token,
+      );
+    } catch (err) {
+      log.push(`Error buscando envíos a ${s.email}: ${String(err)}`);
+      continue;
+    }
+    const mensajes = listado.messages ?? [];
+    if (mensajes.length === 0) continue;
+
+    // Nos quedamos con el más antiguo de los correos NUESTROS posteriores a la creación de la
+    // solicitud — si solo hay correos anteriores (cliente recurrente con historial previo), no
+    // cuenta como respuesta a ESTA solicitud.
+    let fechaEnvio: string | null = null;
+    for (const { id } of mensajes) {
+      let msg: GmailMessage;
+      try {
+        msg = await gmailFetch<GmailMessage>(`messages/${id}?format=minimal`, token);
+      } catch (err) {
+        log.push(`Error leyendo mensaje ${id} (solicitud ${s.id}): ${String(err)}`);
+        continue;
+      }
+      const fechaMsg = new Date(Number(msg.internalDate)).toISOString();
+      if (fechaMsg > s.created_at && (!fechaEnvio || fechaMsg < fechaEnvio)) fechaEnvio = fechaMsg;
+    }
+    if (!fechaEnvio) continue;
+
+    const { error: updError } = await supabase
+      .from('solicitudes')
+      .update({ estado: 'Enviada', mensaje_enviado_en: fechaEnvio })
+      .eq('id', s.id);
+    if (updError) {
+      log.push(`Error actualizando solicitud ${s.id}: ${updError.message}`);
+      continue;
+    }
+    const { error: errorFunnel } = await supabase
+      .from('funnel_eventos')
+      .insert({ etapa: 'solicitud_respondida', solicitud_id: s.id, fuente: s.fuente });
+    if (errorFunnel) {
+      log.push(`Error registrando funnel_eventos para solicitud ${s.id}: ${errorFunnel.message}`);
+    }
+    actualizadas++;
+    log.push(`Solicitud ${s.id}: correo nuestro a ${s.email} detectado, se marca como Enviada.`);
+  }
+  return actualizadas;
+}
+
 // Solicitudes ya enviadas (Gabriel ya contestó) que aún no se han convertido en un
 // presupuesto real — comprueba si el cliente respondió dentro del mismo hilo de Gmail y, si
 // es así, guarda el resumen y la devuelve a "Nueva" para que vuelva a aparecer como pendiente.
@@ -663,11 +739,12 @@ Deno.serve(async (req: Request) => {
     const solicitudesFormulario = await ingerirSolicitudesNuevas(token, supabase, log);
     const respuestasPresupuestos = await revisarRespuestasPresupuestos(token, supabase, log);
     const respuestasSolicitudes = await revisarRespuestasSolicitudes(token, supabase, log);
+    const enviosSolicitudes = await revisarEnviosSolicitudes(token, supabase, log);
     const conversacionesDirectas = await detectarConversacionesDirectas(token, supabase, log, listaNegra);
     const solicitudesNuevas = solicitudesFormulario + conversacionesDirectas;
     const respuestasDetectadas = respuestasPresupuestos + respuestasSolicitudes;
 
-    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, log });
+    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, log });
   } catch (err) {
     log.push(String(err instanceof Error ? err.message : err));
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err), log }, 500);

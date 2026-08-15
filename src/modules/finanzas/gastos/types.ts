@@ -18,6 +18,7 @@ export type Gasto = {
   adjunto_nombre: string | null;
   adjunto_tipo: string | null;
   num_factura_proveedor: string | null;
+  inmovilizado_id: string | null;
 };
 
 export type NuevoGasto = Omit<Gasto, 'id' | 'created_at'>;

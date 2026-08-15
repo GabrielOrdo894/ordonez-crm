@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
+import { eliminarEventoVisita } from '../../lib/googleCalendar';
+import { fechaVisitaCorta } from '../../lib/fechas';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Table } from '../../components/ui/Table';
@@ -97,6 +99,23 @@ function TablaVisitas() {
   const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Visita>(
     'visitas',
     async (id) => {
+      // El soft-delete (mover a la papelera) no toca el evento de Google Calendar a propósito —
+      // si se restaura la visita, el evento debe seguir ahí. Solo se borra aquí, al eliminar
+      // definitivamente, que es cuando de verdad no hay vuelta atrás (hallazgo real, revisión
+      // 2026-08-13: antes el evento se quedaba huérfano para siempre).
+      const { data: visita, error: errorLectura } = await supabase
+        .from('visitas')
+        .select('google_event_id')
+        .eq('id', id)
+        .maybeSingle();
+      if (errorLectura) throw errorLectura;
+      if (visita?.google_event_id) {
+        try {
+          await eliminarEventoVisita(visita.google_event_id);
+        } catch (error) {
+          console.warn('No se pudo borrar el evento de Google Calendar al purgar la visita:', (error as Error).message);
+        }
+      }
       const { error } = await supabase.from('notas_cliente').delete().eq('visita_id', id);
       if (error) throw error;
     },
@@ -113,7 +132,7 @@ function TablaVisitas() {
       emptyMessage="No hay visitas en la papelera"
       columns={[
         { key: 'nombre', label: 'Cliente', render: (v) => nombreVisita(v) },
-        { key: 'fecha_visita', label: 'Fecha visita', render: (v) => v.fecha_visita ?? '—' },
+        { key: 'fecha_visita', label: 'Fecha visita', render: (v) => fechaVisitaCorta(v.fecha_visita) },
         { key: 'eliminado_por', label: 'Eliminado por', render: (v) => v.eliminado_por ?? '—' },
         { key: 'eliminado_en', label: 'Eliminado el', render: (v) => fechaHora(v.eliminado_en) },
         {

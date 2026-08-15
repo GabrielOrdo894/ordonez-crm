@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 // VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY reales — etapaAutomatica no lo necesita, es pura.
 vi.mock('./supabase', () => ({ supabase: {} }));
 
-const { etapaAutomatica } = await import('./pipelineSync');
+const { etapaAutomatica, etapaMaximaAlcanzada } = await import('./pipelineSync');
 
 function senales(overrides: Partial<Parameters<typeof etapaAutomatica>[0]> = {}) {
   return {
@@ -56,5 +56,49 @@ describe('etapaAutomatica', () => {
 
   it('factura cobrada → Finalizado aunque el proyecto siga En curso', () => {
     expect(etapaAutomatica(senales({ proyectoEstado: 'En curso', facturaCobrada: true }))).toBe('Finalizado');
+  });
+
+  it('único presupuesto Rechazado → Perdido', () => {
+    expect(etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }] }))).toBe('Perdido');
+  });
+
+  it('todos los presupuestos Rechazados → Perdido', () => {
+    expect(
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }, { estado: 'Rechazado' }] })),
+    ).toBe('Perdido');
+  });
+
+  it('un presupuesto Rechazado pero otro Pendiente → sigue Presupuesto enviado, no Perdido', () => {
+    expect(
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }, { estado: 'Pendiente' }] })),
+    ).toBe('Presupuesto enviado');
+  });
+
+  it('visita Cancelada sin presupuestos → Perdido', () => {
+    expect(etapaAutomatica(senales({ visitaEstado: 'Cancelada', visitaTieneFecha: true }))).toBe('Perdido');
+  });
+
+  it('visita Cancelada pero con presupuesto Aceptado → Presupuesto aceptado, no Perdido', () => {
+    expect(
+      etapaAutomatica(senales({ visitaEstado: 'Cancelada', presupuestos: [{ estado: 'Aceptado' }] })),
+    ).toBe('Presupuesto aceptado');
+  });
+});
+
+describe('etapaMaximaAlcanzada', () => {
+  it('sin máxima previa, adopta la nueva etapa', () => {
+    expect(etapaMaximaAlcanzada('Visita realizada', null)).toBe('Visita realizada');
+  });
+
+  it('avanza cuando la nueva etapa está más adelante que la máxima previa', () => {
+    expect(etapaMaximaAlcanzada('Presupuesto enviado', 'Visita realizada')).toBe('Presupuesto enviado');
+  });
+
+  it('"Perdido" (fuera del embudo lineal) conserva la máxima previa en vez de perderla', () => {
+    expect(etapaMaximaAlcanzada('Perdido', 'Presupuesto enviado')).toBe('Presupuesto enviado');
+  });
+
+  it('un retroceso manual no baja la máxima ya alcanzada', () => {
+    expect(etapaMaximaAlcanzada('Contacto', 'Presupuesto aceptado')).toBe('Presupuesto aceptado');
   });
 });

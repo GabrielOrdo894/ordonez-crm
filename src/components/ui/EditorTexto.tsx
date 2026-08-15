@@ -658,19 +658,67 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
     actualizarBloques(copia);
   };
 
+  // Rango [desde, hasta] (índices) de bloques cubiertos por la selección actual, si esta cruza más
+  // de un bloque — null si la selección está dentro de un único bloque (o no hay selección), en
+  // cuyo caso los botones de la barra siguen operando solo sobre `bloqueEnFocoId` como antes. Antes
+  // de este fix, seleccionar varias líneas (p. ej. todos los títulos de artículo de un T&C) y pulsar
+  // "Negrita" solo aplicaba el estilo a la línea con el foco, no a toda la selección — al guardar,
+  // el resto de líneas nunca habían llegado a marcarse en negrita de verdad (reportado 2026-08-14).
+  const rangoDeSeleccion = (): [number, number] | null => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    const idInicio = idDeNodo(range.startContainer);
+    const idFin = idDeNodo(range.endContainer);
+    if (!idInicio || !idFin || idInicio === idFin) return null;
+    const actual = bloquesRef.current;
+    const idxInicio = actual.findIndex((b) => b.id === idInicio);
+    const idxFin = actual.findIndex((b) => b.id === idFin);
+    if (idxInicio === -1 || idxFin === -1) return null;
+    return idxInicio < idxFin ? [idxInicio, idxFin] : [idxFin, idxInicio];
+  };
+
   const aplicarEstilo = (estilo: EstiloLinea) => {
+    const rango = rangoDeSeleccion();
+    if (rango) {
+      const [desde, hasta] = rango;
+      const actual = bloquesRef.current;
+      const todosYaLoTienen = actual.slice(desde, hasta + 1).every((b) => b.estilo === estilo);
+      actualizarBloques(
+        actual.map((b, i) => (i >= desde && i <= hasta ? { ...b, estilo: todosYaLoTienen ? 'normal' : estilo } : b)),
+      );
+      return;
+    }
     const id = bloqueEnFocoId ?? bloquesRef.current[bloquesRef.current.length - 1]?.id;
     if (!id) return;
     actualizarBloques(bloquesRef.current.map((b) => (b.id === id ? { ...b, estilo: b.estilo === estilo ? 'normal' : estilo } : b)));
   };
 
   const aplicarTipo = (tipo: TipoLinea) => {
+    const rango = rangoDeSeleccion();
+    if (rango) {
+      const [desde, hasta] = rango;
+      const actual = bloquesRef.current;
+      const todosYaLoTienen = actual.slice(desde, hasta + 1).every((b) => b.tipo === tipo);
+      actualizarBloques(
+        actual.map((b, i) => (i >= desde && i <= hasta ? { ...b, tipo: todosYaLoTienen ? 'normal' : tipo } : b)),
+      );
+      return;
+    }
     const id = bloqueEnFocoId ?? bloquesRef.current[bloquesRef.current.length - 1]?.id;
     if (!id) return;
     actualizarBloques(bloquesRef.current.map((b) => (b.id === id ? { ...b, tipo: b.tipo === tipo ? 'normal' : tipo } : b)));
   };
 
   const limpiarFormato = () => {
+    const rango = rangoDeSeleccion();
+    if (rango) {
+      const [desde, hasta] = rango;
+      actualizarBloques(
+        bloquesRef.current.map((b, i) => (i >= desde && i <= hasta ? { ...b, tipo: 'normal', estilo: 'normal' } : b)),
+      );
+      return;
+    }
     const id = bloqueEnFocoId ?? bloquesRef.current[bloquesRef.current.length - 1]?.id;
     if (!id) return;
     actualizarBloques(bloquesRef.current.map((b) => (b.id === id ? { ...b, tipo: 'normal', estilo: 'normal' } : b)));

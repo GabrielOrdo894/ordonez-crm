@@ -15,10 +15,14 @@ import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila } from '../../components/ui/AccionesFila';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { generarPdfDossierObra } from '../../lib/generarPdfDossierObra';
+import { generarPdfPlanning } from '../../lib/generarPdfPlanning';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
+import { calcularTotales } from '../finanzas/lineas';
+import type { TraduccionPlanning } from '../../lib/generarPdfPlanningTraducido';
 import { PlanningObraDetalle } from './PlanningObraDetalle';
+import { PlanningVistaPrevia } from './PlanningVistaPrevia';
 import { IniciarPlanningPage } from './IniciarPlanningPage';
 
 export type FaseObra = {
@@ -27,6 +31,7 @@ export type FaseObra = {
   fecha_inicio: string | null;
   fecha_fin: string | null;
   completada: boolean;
+  seccion: string | null;
 };
 
 export type Proyecto = {
@@ -37,6 +42,7 @@ export type Proyecto = {
   fecha_inicio: string | null;
   estado: string;
   fases: FaseObra[];
+  traduccion?: TraduccionPlanning | null;
 };
 
 const ESTADOS_FILTRO = ['Todos', 'Planificado', 'En curso', 'Pausado', 'Finalizado'];
@@ -49,6 +55,7 @@ export default function PlanningObraPage() {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [proyectoAbierto, setProyectoAbierto] = useState<Proyecto | null>(null);
+  const [editando, setEditando] = useState(false);
   const [creandoPlanning, setCreandoPlanning] = useState(false);
   const { seleccion, toggleFila, toggleTodas, limpiar } = useSeleccionMultiple();
 
@@ -108,6 +115,7 @@ export default function PlanningObraPage() {
       queryClient.invalidateQueries({ queryKey: ['proyectos', 'todos'] });
       setCreandoPlanning(false);
       setProyectoAbierto(data);
+      setEditando(true);
       toast.success('Planning de obra creado');
     },
     onError: (error) => toast.error(error.message),
@@ -115,6 +123,12 @@ export default function PlanningObraPage() {
 
   const eliminarVariosMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
+      const { error: errorEventos } = await supabase
+        .from('documento_eventos')
+        .delete()
+        .eq('documento_tipo', 'proyecto')
+        .in('documento_id', ids as string[]);
+      if (errorEventos) throw errorEventos;
       const { error } = await supabase.from('proyectos').delete().in('id', ids as string[]);
       if (error) throw error;
     },
@@ -167,12 +181,51 @@ export default function PlanningObraPage() {
     }
   };
 
-  if (proyectoAbierto) {
+  const handleDescargarPlanning = async (p: Proyecto) => {
+    const presupuesto = presupuestoPorId(p.presupuesto_id);
+    const pais = presupuesto?.pais ?? 'España';
+    const idioma = presupuesto?.idioma === 'Français' ? 'fr' : 'es';
+    try {
+      await conAvisoDescarga(
+        () =>
+          generarPdfPlanning({
+            clienteNombre: presupuesto?.cliente_nombre ?? '',
+            clienteTelefono: presupuesto?.cliente_tel ?? '',
+            clienteDir: presupuesto?.cliente_dir ?? '',
+            pais,
+            idioma,
+            nombreObra: p.nombre_obra,
+            estado: p.estado,
+            fechaInicio: p.fecha_inicio,
+            presupuestoNumero: presupuesto?.numero ?? null,
+            presupuestoFecha: presupuesto?.fecha_emision ?? null,
+            presupuestoTotal: presupuesto ? calcularTotales(presupuesto.lineas).totalConIva : null,
+            fases: p.fases,
+          }),
+        toast,
+      );
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el PDF'));
+    }
+  };
+
+  if (proyectoAbierto && editando) {
     return (
       <PlanningObraDetalle
         proyecto={proyectoAbierto}
         presupuesto={presupuestoPorId(proyectoAbierto.presupuesto_id)}
+        onVolver={() => setEditando(false)}
+      />
+    );
+  }
+
+  if (proyectoAbierto) {
+    return (
+      <PlanningVistaPrevia
+        proyecto={proyectoAbierto}
+        presupuesto={presupuestoPorId(proyectoAbierto.presupuesto_id)}
         onVolver={() => setProyectoAbierto(null)}
+        onEditar={() => setEditando(true)}
       />
     );
   }
@@ -278,6 +331,7 @@ export default function PlanningObraPage() {
                   <AccionesFila
                     menu={[
                       { label: 'Abrir', onClick: () => setProyectoAbierto(p) },
+                      { label: 'Descargar planning (PDF)', onClick: () => handleDescargarPlanning(p) },
                       {
                         label: 'Descargar dossier completo (PDF)',
                         onClick: () => handleDescargarDossier(p),

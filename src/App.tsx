@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './modules/auth/LoginPage';
@@ -22,6 +22,8 @@ const ProveedoresPage = lazy(() => import('./modules/finanzas/proveedores/Provee
 const LibroIngresosPage = lazy(() => import('./modules/contabilidad/LibroIngresosPage'));
 const ResultadoPage = lazy(() => import('./modules/contabilidad/ResultadoPage'));
 const BancoPage = lazy(() => import('./modules/contabilidad/BancoPage'));
+const LibroDiarioPage = lazy(() => import('./modules/contabilidad/LibroDiarioPage'));
+const LibroMayorPage = lazy(() => import('./modules/contabilidad/LibroMayorPage'));
 const FiscalidadPage = lazy(() => import('./modules/fiscalidad/FiscalidadPage'));
 const ConfiguracionPage = lazy(() => import('./modules/configuracion/ConfiguracionPage'));
 const ConstructorPlantillasPage = lazy(() => import('./modules/configuracion/ConstructorPlantillasPage'));
@@ -44,41 +46,41 @@ export default function App() {
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
-      <Suspense fallback={null}>
-        <Routes>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<InicioPage />} />
-            <Route path="/visitas" element={<VisitasPage />} />
-            <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
-            <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />
-            <Route path="/calendario" element={<CalendarioPage />} />
-            <Route path="/visitas/:id" element={<VisitaDetallePage />} />
-            <Route path="/clientes" element={<ClientesPage />} />
-            <Route path="/clientes/:id" element={<ClienteDetallePage />} />
-            <Route path="/pipeline" element={<PipelinePage />} />
-            <Route path="/planning-obra" element={<PlanningObraPage />} />
-            <Route path="/galeria" element={<GaleriaPage />} />
-            <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
-            <Route path="/finanzas/facturas" element={<FacturasPage />} />
-            <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />
-            <Route path="/contabilidad/ingresos" element={<LibroIngresosPage />} />
-            <Route path="/contabilidad/gastos" element={<GastosPage />} />
-            <Route path="/contabilidad/resultado" element={<ResultadoPage />} />
-            <Route path="/contabilidad/banco" element={<BancoPage />} />
-            <Route path="/fiscalidad" element={<Navigate to="/fiscalidad/dashboard" replace />} />
-            <Route path="/fiscalidad/:tab" element={<FiscalidadPage />} />
-            <Route path="/dashboard" element={<DashboardHubPage />} />
-            <Route path="/papelera" element={<PapeleraPage />} />
-            <Route path="/configuracion" element={<ConfiguracionPage />} />
-            <Route path="/configuracion/plantillas" element={<ConstructorPlantillasPage />} />
-            <Route path="/configuracion/planning" element={<ConstructorPlanningPage />} />
-            <Route path="/configuracion/portada" element={<ConstructorPortadaPage />} />
-            <Route path="/perfil" element={<PerfilPage />} />
-            <Route path="/perfil/avatares" element={<AvatarGaleriaPage />} />
-            <Route path="/mensajeria" element={<MensajeriaPage />} />
-          </Route>
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<InicioPage />} />
+          <Route path="/visitas" element={<VisitasPage />} />
+          <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
+          <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />
+          <Route path="/calendario" element={<CalendarioPage />} />
+          <Route path="/visitas/:id" element={<VisitaDetallePage />} />
+          <Route path="/clientes" element={<ClientesPage />} />
+          <Route path="/clientes/:id" element={<ClienteDetallePage />} />
+          <Route path="/pipeline" element={<PipelinePage />} />
+          <Route path="/planning-obra" element={<PlanningObraPage />} />
+          <Route path="/galeria" element={<GaleriaPage />} />
+          <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
+          <Route path="/finanzas/facturas" element={<FacturasPage />} />
+          <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />
+          <Route path="/contabilidad/ingresos" element={<LibroIngresosPage />} />
+          <Route path="/contabilidad/gastos" element={<GastosPage />} />
+          <Route path="/contabilidad/resultado" element={<ResultadoPage />} />
+          <Route path="/contabilidad/banco" element={<BancoPage />} />
+          <Route path="/contabilidad/diario" element={<LibroDiarioPage />} />
+          <Route path="/contabilidad/mayor" element={<LibroMayorPage />} />
+          <Route path="/fiscalidad" element={<Navigate to="/fiscalidad/dashboard" replace />} />
+          <Route path="/fiscalidad/:tab" element={<FiscalidadPage />} />
+          <Route path="/dashboard" element={<DashboardHubPage />} />
+          <Route path="/papelera" element={<PapeleraPage />} />
+          <Route path="/configuracion" element={<ConfiguracionPage />} />
+          <Route path="/configuracion/plantillas" element={<ConstructorPlantillasPage />} />
+          <Route path="/configuracion/planning" element={<ConstructorPlanningPage />} />
+          <Route path="/configuracion/portada" element={<ConstructorPortadaPage />} />
+          <Route path="/perfil" element={<PerfilPage />} />
+          <Route path="/perfil/avatares" element={<AvatarGaleriaPage />} />
+          <Route path="/mensajeria" element={<MensajeriaPage />} />
+        </Route>
+      </Routes>
     </BrowserRouter>
   );
 }

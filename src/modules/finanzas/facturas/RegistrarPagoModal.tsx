@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { registrarEvento } from '../../../lib/eventos';
+import { registrarEventoFunnel } from '../../../lib/funnelTracking';
+import { registrarAsientoFacturaCobro } from '../../../lib/asientosContables';
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../hooks/useToast';
 import { Modal } from '../../../components/ui/Modal';
@@ -56,10 +58,21 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
         );
       }
       await registrarEvento('factura', factura.id, `Pago registrado: ${monto.toFixed(2)} € (${estado_cobro})`);
+      if (estado_cobro === 'Cobrada' && factura.presupuesto_id) {
+        await registrarEventoFunnel('factura_cobrada', { presupuestoId: factura.presupuesto_id });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       toast.success('Pago registrado');
+      // Solo facturas de Francia van al libro diario (PCG) — ver plan de Contabilidad francesa.
+      if (factura && factura.pais === 'Francia') {
+        registrarAsientoFacturaCobro(
+          { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
+          monto,
+          fechaPago,
+        ).catch((error) => toast.warning(`Pago guardado, pero no se pudo registrar en el libro diario: ${error.message}`));
+      }
       onClose();
     },
     onError: (error) => toast.error(error.message),

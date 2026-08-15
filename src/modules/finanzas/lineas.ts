@@ -23,6 +23,17 @@ export function getTiposServicio(idioma?: 'es' | 'fr'): string[] {
   return idioma === 'fr' ? TIPOS_SERVICIO_FR : TIPOS_SERVICIO_ES;
 }
 
+// Traducción por diccionario (no por IA, no hace falta: es una lista fija de 5 valores) — usada al
+// generar la traducción interna de un presupuesto para que `tipo_servicio` también se traduzca en
+// vez de quedarse en el idioma original (bug real: la Edge Function `traducir-presupuesto` nunca
+// tocaba este campo, reportado 2026-08-14).
+export function traducirTipoServicio(tipoServicio: string, idiomaDestino: 'es' | 'fr'): string {
+  const origen = idiomaDestino === 'fr' ? TIPOS_SERVICIO_ES : TIPOS_SERVICIO_FR;
+  const destino = idiomaDestino === 'fr' ? TIPOS_SERVICIO_FR : TIPOS_SERVICIO_ES;
+  const idx = origen.indexOf(tipoServicio);
+  return idx !== -1 ? destino[idx] : tipoServicio;
+}
+
 // Línea guardada en el catálogo reutilizable (tabla lineas_catalogo) — ver LineasEditor.tsx y
 // CatalogoLineasSection.tsx.
 export type LineaCatalogo = {
@@ -39,7 +50,10 @@ export type LineaCatalogo = {
 // Limpia restos de notación LaTeX que a veces se pegan en descripciones (ej. de informes técnicos
 // generados con IA) — "$\ge 45\text{ A}$" o "$4,34 \text{ m}^2$" — y muestra "m2"/"m^2" con
 // superíndice real (el carácter unicode ² lo soportan directamente las fuentes base de jsPDF).
-export function formatearUnidadTexto(texto: string): string {
+// Acepta null/undefined porque una línea mal formada (dato corrupto histórico, ver P-2026-0040)
+// no debe tumbar toda la pantalla — mejor mostrar vacío que un error sin recuperación posible.
+export function formatearUnidadTexto(texto: string | null | undefined): string {
+  if (!texto) return '';
   return texto
     .replace(/\\text\{([^}]*)\}/g, '$1')
     .replace(/\$/g, '')

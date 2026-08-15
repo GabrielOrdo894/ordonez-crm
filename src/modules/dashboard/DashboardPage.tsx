@@ -5,8 +5,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Funnel,
-  FunnelChart,
   LabelList,
   Legend,
   Pie,
@@ -16,13 +14,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { Users, TrendingUp, Handshake } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { calcularTotales } from '../finanzas/lineas';
 import { ETAPAS_PIPELINE } from '../clientes/types';
-import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, type EtapaFunnel } from '../../lib/funnelTracking';
+import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, contarUnicosEnFunnel, type EtapaFunnel } from '../../lib/funnelTracking';
 import { FUENTE_LABEL } from '../solicitudes/types';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
@@ -36,7 +35,8 @@ type ProyectoResumen = { presupuesto_id: string | null; estado: string };
 
 const COLORES_DONUT = ['#1a5c38', '#0f3d24', '#5b8f74', '#94b8a6', '#c8ddd0', '#6b7280', '#9ca3af'];
 const COLORES_FUNNEL = ['#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
-const COLORES_FUNNEL_SOLICITUDES = ['#0f3d24', '#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
+// 7 tonos — uno por etapa de ETAPAS_FUNNEL_SOLICITUD (ahora llega hasta "Factura cobrada").
+const COLORES_FUNNEL_SOLICITUDES = ['#0f3d24', '#1a5c38', '#2e6d49', '#3d7a5a', '#5f9878', '#7dab93', '#c8ddd0'];
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const ETAPAS_FUNNEL = ['Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'Finalizado'];
 
@@ -207,7 +207,9 @@ export default function DashboardPage() {
     const etapas = ETAPAS_PIPELINE as readonly string[];
     const base = ETAPAS_FUNNEL.map((etapa) => {
       const idxEtapa = etapas.indexOf(etapa);
-      const count = visitasFiltradas.filter((v) => etapas.indexOf(v.estado_pipeline) >= idxEtapa).length;
+      // pipeline_etapa_maxima (no estado_pipeline) — así un lead marcado "Perdido" sigue contando
+      // en las etapas que de verdad alcanzó antes de perderse, en vez de desaparecer del funnel.
+      const count = visitasFiltradas.filter((v) => etapas.indexOf(v.pipeline_etapa_maxima ?? v.estado_pipeline) >= idxEtapa).length;
       return { etapa, count };
     });
     const total = base[0]?.count ?? 0;
@@ -216,16 +218,11 @@ export default function DashboardPage() {
 
   // 2b. Embudo de solicitudes entrantes → firma (independiente del funnel de visitas de arriba:
   // este mide desde el primer contacto, antes incluso de agendar una visita)
-  const contarUnicosEnEtapa = (eventos: FunnelEvento[], etapa: EtapaFunnel) => {
-    const campo = etapa.startsWith('presupuesto_') ? 'presupuesto_id' : 'solicitud_id';
-    return new Set(eventos.filter((e) => e.etapa === etapa).map((e) => e[campo]).filter(Boolean)).size;
-  };
-
   const funnelSolicitudes = useMemo(() => {
     const eventos = funnelEventos ?? [];
-    const total = contarUnicosEnEtapa(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
+    const total = contarUnicosEnFunnel(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
     return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
-      const count = contarUnicosEnEtapa(eventos, etapa);
+      const count = contarUnicosEnFunnel(eventos, etapa);
       return { etapa: ETIQUETA_ETAPA_FUNNEL[etapa], count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
   }, [funnelEventos]);
@@ -262,6 +259,19 @@ export default function DashboardPage() {
       }))
       .sort((a, b) => b.entradas - a.entradas);
   }, [funnelEventos]);
+
+  // KPIs de cabecera — resumen de un vistazo antes de entrar en los gráficos de detalle de abajo.
+  const kpisCabecera = useMemo(() => {
+    const primero = funnel[0]?.count ?? 0;
+    const ultimo = funnel[funnel.length - 1]?.count ?? 0;
+    const conversionVisitas = primero > 0 ? Math.round((ultimo / primero) * 100) : null;
+
+    const primeroSolicitud = funnelSolicitudes[0]?.count ?? 0;
+    const ultimoSolicitud = funnelSolicitudes[funnelSolicitudes.length - 1]?.count ?? 0;
+    const conversionSolicitudes = primeroSolicitud > 0 ? Math.round((ultimoSolicitud / primeroSolicitud) * 100) : null;
+
+    return { visitas: visitasFiltradas.length, conversionVisitas, conversionSolicitudes };
+  }, [visitasFiltradas, funnel, funnelSolicitudes]);
 
   // 3. Facturación por zona
   const facturacionPorZona = useMemo(() => {
@@ -422,6 +432,31 @@ export default function DashboardPage() {
         />
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
+            <Users size={13} className="text-brand" /> Visitas del período
+          </p>
+          <p className="text-2xl font-semibold text-gray-900">{kpisCabecera.visitas}</p>
+        </div>
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
+            <TrendingUp size={13} className="text-brand" /> Conversión visita → finalizado
+          </p>
+          <p className="text-2xl font-semibold text-brand">
+            {kpisCabecera.conversionVisitas != null ? `${kpisCabecera.conversionVisitas}%` : '—'}
+          </p>
+        </div>
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
+            <Handshake size={13} className="text-brand" /> Conversión solicitud → firma
+          </p>
+          <p className="text-2xl font-semibold text-brand">
+            {kpisCabecera.conversionSolicitudes != null ? `${kpisCabecera.conversionSolicitudes}%` : '—'}
+          </p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
@@ -453,25 +488,32 @@ export default function DashboardPage() {
           ) : (
             <>
               <ResponsiveContainer width="100%" height={220}>
-                <FunnelChart margin={{ left: 90, right: 40 }}>
+                <BarChart data={funnel} layout="vertical" margin={{ left: 0, right: 30 }}>
+                  <XAxis type="number" hide />
+                  <YAxis
+                    type="category"
+                    dataKey="etapa"
+                    width={140}
+                    tick={{ fontSize: 11, fill: '#374151' }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  <Funnel dataKey="count" data={funnel} isAnimationActive nameKey="etapa">
-                    <LabelList position="left" dataKey="etapa" fill="#374151" stroke="none" fontSize={11} />
-                    <LabelList position="right" dataKey="count" fill="#374151" stroke="none" fontSize={11} fontWeight={600} />
+                  <Bar dataKey="count" radius={[0, 2, 2, 0]}>
+                    <LabelList position="right" dataKey="count" fill="#374151" fontSize={11} fontWeight={600} />
                     <LabelList
                       position="center"
                       dataKey="pct"
                       fill="#fff"
-                      stroke="none"
-                      fontSize={12}
+                      fontSize={11}
                       fontWeight={600}
                       formatter={(v) => `${v}%`}
                     />
                     {funnel.map((_, i) => (
                       <Cell key={i} fill={COLORES_FUNNEL[i % COLORES_FUNNEL.length]} />
                     ))}
-                  </Funnel>
-                </FunnelChart>
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
               <div className="flex items-center justify-center gap-4 mt-1">
                 {funnel.slice(1).map((f, i) => {
@@ -502,26 +544,33 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-400 py-10 text-center">Sin solicitudes registradas en este período</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <ResponsiveContainer width="100%" height={220}>
-              <FunnelChart margin={{ left: 90, right: 40 }}>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={funnelSolicitudes} layout="vertical" margin={{ left: 0, right: 30 }}>
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="etapa"
+                  width={140}
+                  tick={{ fontSize: 11, fill: '#374151' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
-                <Funnel dataKey="count" data={funnelSolicitudes} isAnimationActive nameKey="etapa">
-                  <LabelList position="left" dataKey="etapa" fill="#374151" stroke="none" fontSize={11} />
-                  <LabelList position="right" dataKey="count" fill="#374151" stroke="none" fontSize={11} fontWeight={600} />
+                <Bar dataKey="count" radius={[0, 2, 2, 0]}>
+                  <LabelList position="right" dataKey="count" fill="#374151" fontSize={11} fontWeight={600} />
                   <LabelList
                     position="center"
                     dataKey="pct"
                     fill="#fff"
-                    stroke="none"
-                    fontSize={12}
+                    fontSize={11}
                     fontWeight={600}
                     formatter={(v) => `${v}%`}
                   />
                   {funnelSolicitudes.map((_, i) => (
                     <Cell key={i} fill={COLORES_FUNNEL_SOLICITUDES[i % COLORES_FUNNEL_SOLICITUDES.length]} />
                   ))}
-                </Funnel>
-              </FunnelChart>
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
             <div>
               <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-2">Conversión a firma por fuente</p>

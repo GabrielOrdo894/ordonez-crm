@@ -6,6 +6,8 @@ import { notaSistema } from '../../../lib/notaSistema';
 import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
 import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
+import { registrarEventoFunnel } from '../../../lib/funnelTracking';
+import { registrarAsientoFacturaEmision, rectificarAsientos } from '../../../lib/asientosContables';
 import { generarPdfFactura, notasLegales } from '../../../lib/generarPdfFactura';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
@@ -371,7 +373,10 @@ export function FacturaForm({
       if (factura) {
         const { error } = await supabase.from('facturas').update(nueva).eq('id', factura.id);
         if (error) throw error;
-        return factura.id;
+        if (factura.estado_cobro !== 'Cobrada' && form.estado_cobro === 'Cobrada' && form.presupuesto_id) {
+          await registrarEventoFunnel('factura_cobrada', { presupuestoId: form.presupuesto_id });
+        }
+        return { id: factura.id, numero: factura.numero, esNueva: false };
       }
 
       const secuencia =
@@ -395,13 +400,43 @@ export function FacturaForm({
         const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : form.tipo === 'rectificativa' ? 'rectificativa' : 'completa/final';
         await registrarEvento('presupuesto', form.presupuesto_id, `Factura ${numero} generada (${tipoTexto})`);
       }
-      return data.id;
+      return { id: data.id as string, numero: numero as string, esNueva: true };
     },
-    onSuccess: async () => {
+    onSuccess: async (resultado) => {
       await sincronizarPipelineCliente(form.cliente_tel);
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(factura ? 'Factura actualizada' : 'Factura creada');
+      // Al emitir: asiento nuevo si es de Francia. Al editar: se rectifica (asiento espejo, solo
+      // el evento de emisión — el cobro, si existe, no se toca aquí) el asiento previo y se
+      // registra uno nuevo con los valores corregidos si sigue siendo de Francia.
+      if (resultado.esNueva && form.pais === 'Francia') {
+        registrarAsientoFacturaEmision({
+          id: resultado.id,
+          numero: resultado.numero,
+          cliente_nombre: form.cliente_nombre || null,
+          fecha_factura: form.fecha_factura,
+          lineas: form.lineas,
+        }).catch((error) => toast.warning(`Factura guardada, pero no se pudo registrar en el libro diario: ${error.message}`));
+      } else if (!resultado.esNueva) {
+        (async () => {
+          try {
+            await rectificarAsientos('factura', resultado.id, 'creacion');
+            if (form.pais === 'Francia') {
+              await registrarAsientoFacturaEmision({
+                id: resultado.id,
+                numero: resultado.numero,
+                cliente_nombre: form.cliente_nombre || null,
+                fecha_factura: form.fecha_factura,
+                lineas: form.lineas,
+              });
+            }
+          } catch (error) {
+            toast.warning(`Factura actualizada, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+          }
+        })();
+      }
       onClose();
     },
     onError: (error) => toast.error(error.message),

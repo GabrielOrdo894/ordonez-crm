@@ -16,6 +16,7 @@ import type { Proveedor } from '../proveedores/types';
 import { CategoriaPicker } from './CategoriaPicker';
 import { cuentaLabel, GRUPOS_CATEGORIA } from './categorias';
 import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
+import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
 
 const NUEVO_PROVEEDOR = '__nuevo__';
 const TIPO_INTRACOM = 'INTRACOM';
@@ -253,6 +254,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
         adjunto_nombre: adjunto?.nombre ?? null,
         adjunto_tipo: adjunto?.tipo ?? null,
         num_factura_proveedor: form.num_factura_proveedor || null,
+        inmovilizado_id: gasto?.inmovilizado_id ?? null,
       };
 
       if (gasto) {
@@ -266,7 +268,42 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     },
     onSuccess: (id) => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(gasto ? 'Gasto actualizado' : 'Gasto registrado');
+      // Al crear: asiento nuevo si es de Francia. Al editar: se rectifica (asiento espejo, nunca
+      // se toca el original — ver plan de Contabilidad francesa) el asiento previo si existía, y
+      // se registra uno nuevo con los valores corregidos si sigue siendo de Francia. Si algo falla
+      // no debe deshacer ni bloquear el guardado del gasto ya confirmado.
+      if (id && form.pais === 'Francia') {
+        registrarAsientoGasto({
+          id,
+          fecha: form.fecha,
+          descripcion: form.descripcion || null,
+          proveedor: form.proveedor || null,
+          cuenta_contable: form.cuenta_contable || null,
+          importe_base: Math.round(importeBase * 100) / 100,
+          importe_iva: Math.round(importeIvaDeducible * 100) / 100,
+        }).catch((error) => toast.warning(`Gasto guardado, pero no se pudo registrar en el libro diario: ${error.message}`));
+      } else if (gasto) {
+        (async () => {
+          try {
+            await rectificarAsientos('gasto', gasto.id);
+            if (form.pais === 'Francia') {
+              await registrarAsientoGasto({
+                id: gasto.id,
+                fecha: form.fecha,
+                descripcion: form.descripcion || null,
+                proveedor: form.proveedor || null,
+                cuenta_contable: form.cuenta_contable || null,
+                importe_base: Math.round(importeBase * 100) / 100,
+                importe_iva: Math.round(importeIvaDeducible * 100) / 100,
+              });
+            }
+          } catch (error) {
+            toast.warning(`Gasto actualizado, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+          }
+        })();
+      }
       if (id) onGuardado?.(id);
       onClose();
     },

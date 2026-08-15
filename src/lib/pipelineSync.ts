@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { notaSistema } from './notaSistema';
-import { normalizarTelefono } from '../modules/clientes/types';
+import { normalizarTelefono, ETAPAS_PIPELINE } from '../modules/clientes/types';
 import type { EstadoVisita } from '../modules/visitas/types';
 
 type SenalesPipeline = {
@@ -16,9 +16,48 @@ export function etapaAutomatica(s: SenalesPipeline): string {
   if (s.proyectoEstado === 'En curso' || s.proyectoEstado === 'Pausado') return 'En obra';
   if (s.presupuestos.some((p) => p.estado === 'Aceptado')) return 'Presupuesto aceptado';
   if (s.presupuestos.some((p) => p.estado === 'Pendiente')) return 'Presupuesto enviado';
+  // Todos los presupuestos de esta visita rechazados (y ninguno pendiente/aceptado, ya
+  // descartado arriba) → lead perdido, no "Visita realizada" indistinguible de uno sin responder.
+  if (s.presupuestos.length > 0 && s.presupuestos.every((p) => p.estado === 'Rechazado')) return 'Perdido';
+  if (s.visitaEstado === 'Cancelada') return 'Perdido';
   if (s.visitaEstado === 'Realizada') return 'Visita realizada';
   if (s.visitaTieneFecha) return 'Visita programada';
   return 'Contacto';
+}
+
+// "Perdido" no forma parte de ETAPAS_PIPELINE (índice -1) — queda fuera a propósito para no
+// inflar los funnels acumulativos de Dashboard/Inicio (ver comentario en PipelinePage.tsx). Pero
+// eso significa que, sin este cálculo aparte, marcar un lead como Perdido le "borraría" de golpe
+// el haber llegado antes a "Visita realizada" o "Presupuesto enviado" en esos mismos funnels. Esta
+// función lleva la cuenta de la etapa MÁS AVANZADA alcanzada de verdad — nunca retrocede, ni
+// siquiera cuando la etapa actual pasa a Perdido (bug real corregido 2026-08-13).
+export function etapaMaximaAlcanzada(nuevaEtapa: string, maximaPrevia: string | null): string {
+  const idxNueva = ETAPAS_PIPELINE.indexOf(nuevaEtapa as (typeof ETAPAS_PIPELINE)[number]);
+  const idxPrevia = ETAPAS_PIPELINE.indexOf((maximaPrevia ?? 'Contacto') as (typeof ETAPAS_PIPELINE)[number]);
+  const idx = Math.max(idxNueva, idxPrevia, 0);
+  return ETAPAS_PIPELINE[idx];
+}
+
+// Punto único de escritura de estado_pipeline para los movimientos MANUALES (flechas, arrastrar,
+// marcar perdido/reactivar en Pipeline, y el selector de la ficha de cliente) — comparte la misma
+// lógica de etapaMaximaAlcanzada que la sincronización automática de abajo, para que ningún camino
+// de escritura se salte el tracking del progreso real.
+export async function actualizarEtapaPipeline(visitaId: string, nuevaEtapa: string, nombreUsuario: string) {
+  const { data: visita, error: errorLectura } = await supabase
+    .from('visitas')
+    .select('pipeline_etapa_maxima')
+    .eq('id', visitaId)
+    .single();
+  if (errorLectura) throw errorLectura;
+
+  const etapaMaxima = etapaMaximaAlcanzada(nuevaEtapa, visita?.pipeline_etapa_maxima ?? null);
+  const { error } = await supabase
+    .from('visitas')
+    .update({ estado_pipeline: nuevaEtapa, pipeline_etapa_maxima: etapaMaxima })
+    .eq('id', visitaId);
+  if (error) throw error;
+
+  await notaSistema(visitaId, `Pipeline movido a ${nuevaEtapa} por ${nombreUsuario}`);
 }
 
 // Sincronización secundaria en segundo plano tras guardar visitas/presupuestos/proyectos — no
@@ -91,12 +130,18 @@ export async function sincronizarPipelineCliente(telefono: string | null | undef
     facturaCobrada,
   });
 
-  if (nuevaEtapa !== ultimaVisita.estado_pipeline) {
-    const { error } = await supabase.from('visitas').update({ estado_pipeline: nuevaEtapa }).eq('id', ultimaVisita.id);
+  const etapaMaxima = etapaMaximaAlcanzada(nuevaEtapa, ultimaVisita.pipeline_etapa_maxima ?? null);
+  if (nuevaEtapa !== ultimaVisita.estado_pipeline || etapaMaxima !== ultimaVisita.pipeline_etapa_maxima) {
+    const { error } = await supabase
+      .from('visitas')
+      .update({ estado_pipeline: nuevaEtapa, pipeline_etapa_maxima: etapaMaxima })
+      .eq('id', ultimaVisita.id);
     if (error) {
       console.warn('sincronizarPipelineCliente: no se pudo actualizar estado_pipeline:', error.message);
       return;
     }
-    await notaSistema(ultimaVisita.id, `Pipeline actualizado automáticamente a "${nuevaEtapa}"`);
+    if (nuevaEtapa !== ultimaVisita.estado_pipeline) {
+      await notaSistema(ultimaVisita.id, `Pipeline actualizado automáticamente a "${nuevaEtapa}"`);
+    }
   }
 }

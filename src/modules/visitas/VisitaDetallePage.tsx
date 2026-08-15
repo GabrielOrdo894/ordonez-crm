@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
+import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
@@ -33,6 +34,13 @@ export default function VisitaDetallePage() {
       const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', v.id);
       if (error) throw error;
       await notaSistema(v.id, 'Visita cancelada');
+      if (v.google_event_id) {
+        try {
+          await eliminarEventoVisita(v.google_event_id);
+        } catch (error) {
+          toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

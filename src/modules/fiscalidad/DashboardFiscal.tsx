@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, CalendarClock, Landmark, PiggyBank } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Landmark, PiggyBank, Wallet } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { calcularTotales } from '../finanzas/lineas';
@@ -22,6 +22,7 @@ import type { Gasto } from '../finanzas/gastos/types';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
+import { useComptaFrancia } from './useComptaFrancia';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
 import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
@@ -50,6 +51,7 @@ export function DashboardFiscal() {
   const { config } = useFiscalConfig();
   const { gerantConfig } = useGerantConfig();
   const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const { bilanActivo } = useComptaFrancia(anioActual);
   const { echeances } = useEcheances();
 
   const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
@@ -67,18 +69,35 @@ export function DashboardFiscal() {
   const inicioMes = iso(new Date(hoyDate.getFullYear(), hoyDate.getMonth(), 1));
   const finMes = iso(new Date(hoyDate.getFullYear(), hoyDate.getMonth() + 1, 0));
 
+  // Todo lo que se usa de facturas/gastos en este dashboard (tvaMes, evolucionAnual) está acotado
+  // a Francia y al año en curso — se filtra aquí en la query en vez de traer la tabla entera y
+  // filtrar en JS (auditoría de rendimiento 2026-08-15).
+  const inicioAnio = `${anioActual}-01-01`;
+  const finAnio = `${anioActual}-12-31`;
+
   const { data: facturas } = useQuery({
-    queryKey: ['facturas'],
+    queryKey: ['facturas', 'francia', anioActual],
     queryFn: async () => {
-      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('*')
+        .eq('pais', 'Francia')
+        .is('eliminado_en', null)
+        .gte('fecha_factura', inicioAnio)
+        .lte('fecha_factura', finAnio);
       if (error) throw error;
       return data as Factura[];
     },
   });
   const { data: gastos } = useQuery({
-    queryKey: ['gastos'],
+    queryKey: ['gastos', 'francia', anioActual],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*');
+      const { data, error } = await supabase
+        .from('gastos')
+        .select('*')
+        .eq('pais', 'Francia')
+        .gte('fecha', inicioAnio)
+        .lte('fecha', finAnio);
       if (error) throw error;
       return data as Gasto[];
     },
@@ -135,7 +154,15 @@ export function DashboardFiscal() {
         partir de tus Facturas y Gastos, y de la rémunération del gérant configurada en "Cotisations URSSAF". Cada pestaña de
         arriba explica su cálculo en detalle, con la fuente oficial y un apartado de preguntas frecuentes.
       </p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
+            <Wallet size={13} className="text-brand" /> Trésorerie (libro diario)
+          </p>
+          <p className="text-2xl font-semibold text-gray-900">{fmt(bilanActivo.tresoreria)}</p>
+          <p className="text-xs text-gray-400 mt-1">saldo de la cuenta 512, solo actividad de Francia contabilizada</p>
+        </div>
+
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
             <Landmark size={13} className="text-brand" /> IS del ejercicio {anioActual}
@@ -254,6 +281,10 @@ export function DashboardFiscal() {
       <Faq
         items={[
           {
+            q: '¿Qué es la tarjeta "Trésorerie (libro diario)"?',
+            a: 'Es el saldo de la cuenta bancaria (512) según el libro diario (`/contabilidad/diario`) — sube cuando cobras una factura de Francia y baja cuando pagas un gasto de Francia con cuenta contable asignada. No es tu saldo bancario real: solo refleja lo que ya tiene un asiento contable en el CRM, así que si hay gastos de Francia sin registrar aún, o gastos de España, no aparecen aquí. Para más detalle por cuenta, ve a "Libro mayor" en Contabilidad.',
+          },
+          {
             q: '¿Qué es el Impôt sur les Sociétés (IS)?',
             a: 'Es el impuesto francés sobre el beneficio de las sociedades (el equivalente al Impuesto de Sociedades español). Reformas Ordoñez, al ser una EURL que ha optado por tributar como sociedad (régimen IS), paga este impuesto sobre lo que le queda de beneficio después de pagar todos los gastos, incluida la rémunération del gérant. Se calcula y se paga una vez al año (con acomptes a cuenta durante el ejercicio siguiente), a diferencia de la TVA que es mensual.',
           },
@@ -291,10 +322,6 @@ export function DashboardFiscal() {
           },
         ]}
       />
-
-      <p className="text-xs text-gray-400 text-center">
-        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
-      </p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
   Bar,
   BarChart,
@@ -12,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { NotebookPen, Rows3, Boxes, FileText, Wallet } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Select } from '../../components/ui/Select';
@@ -19,9 +21,17 @@ import { Input } from '../../components/ui/Input';
 import { calcularTotales } from '../finanzas/lineas';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { normalizarTelefono } from '../clientes/types';
+import { useComptaFrancia } from '../fiscalidad/useComptaFrancia';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Gasto } from '../finanzas/gastos/types';
+
+const ACCESOS_CONTABILIDAD = [
+  { to: '/contabilidad/diario', label: 'Libro diario', icon: NotebookPen },
+  { to: '/contabilidad/mayor', label: 'Libro mayor', icon: Rows3 },
+  { to: '/fiscalidad/inmovilizado', label: 'Inmovilizado', icon: Boxes },
+  { to: '/fiscalidad/liasse', label: 'Liasse fiscale', icon: FileText },
+];
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
@@ -62,6 +72,7 @@ export default function DashboardContablePage() {
   const [hastaCustom, setHastaCustom] = useState(iso(new Date()));
 
   const { desde, hasta } = useMemo(() => rangoPeriodo(periodo, desdeCustom, hastaCustom), [periodo, desdeCustom, hastaCustom]);
+  const { bilanActivo } = useComptaFrancia(anioActual);
 
   const { data: facturas } = useQuery({
     queryKey: ['facturas'],
@@ -244,6 +255,26 @@ export default function DashboardContablePage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {ACCESOS_CONTABILIDAD.map((a) => (
+          <Link
+            key={a.to}
+            to={a.to}
+            className="bg-surface border border-gray-200 rounded-sm p-4 hover:border-brand flex items-center gap-2.5"
+          >
+            <a.icon size={16} className="text-brand shrink-0" />
+            <span className="text-sm text-gray-700">{a.label}</span>
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
+            <Wallet size={13} className="text-brand" /> Trésorerie (libro diario)
+          </p>
+          <p className="text-2xl font-semibold text-gray-900">{bilanActivo.tresoreria.toFixed(2)} €</p>
+          <p className="text-xs text-gray-400 mt-1">cuenta 512, solo Francia contabilizada</p>
+        </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos del período</p>
           <p className="text-2xl font-semibold text-brand">{kpis.ingresos.toFixed(2)} €</p>

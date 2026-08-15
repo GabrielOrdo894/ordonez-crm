@@ -142,6 +142,7 @@ async function pasoBorrado(nombre: string, ejecutar: () => PromiseLike<{ error: 
 // primero lo que depende de presupuesto_id/gasto_id, luego lo que depende de visita_id, y las filas
 // de visitas al final (todo lo demás las referencia; facturas.visita_id queda a NULL automáticamente).
 const BUCKET_GALERIA = 'galeria';
+const BUCKET_JUSTIFICANTES = 'justificantes';
 
 function pathGaleriaDesdeUrl(url: string): string | null {
   const marca = `/storage/v1/object/public/${BUCKET_GALERIA}/`;
@@ -153,7 +154,7 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   const [presus, facs, gas, gal, solicitudesCliente] = await Promise.all([
     supabase.from('presupuestos').select('id').in('visita_id', visitaIds),
     supabase.from('facturas').select('id').in('visita_id', visitaIds),
-    supabase.from('gastos').select('id').in('visita_id', visitaIds),
+    supabase.from('gastos').select('id, adjunto_url').in('visita_id', visitaIds),
     supabase.from('galeria').select('fotos').in('visita_id', visitaIds),
     buscarSolicitudesCliente(cliente),
   ]);
@@ -162,10 +163,11 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   if (gas.error) throw new Error(`gastos: ${gas.error.message}`);
   if (gal.error) throw new Error(`galeria: ${gal.error.message}`);
 
-  // Las filas de `galeria` se borran más abajo, pero los ficheros de Storage no se borraban solos
-  // (a diferencia de GaleriaDetalleModal.tsx, que sí limpia Storage al borrar un proyecto normal) —
-  // se quedaban huérfanos incluso en una purga "de verdad" (hallazgo real, revisión 2026-08-12).
-  // Best-effort: un fallo al borrar Storage no debe abortar la purga del resto de datos personales.
+  // Las filas de `galeria`/`gastos` se borran más abajo, pero los ficheros de Storage no se
+  // borraban solos (a diferencia de GaleriaDetalleModal.tsx, que sí limpia Storage al borrar un
+  // proyecto normal) — se quedaban huérfanos incluso en una purga "de verdad" (hallazgo real,
+  // revisión 2026-08-12 para galería, 2026-08-14 para justificantes de gastos). Best-effort: un
+  // fallo al borrar Storage no debe abortar la purga del resto de datos personales.
   const rutasFotos = (gal.data ?? [])
     .flatMap((g) => (g.fotos as { url: string }[] | null) ?? [])
     .map((f) => pathGaleriaDesdeUrl(f.url))
@@ -173,6 +175,14 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   if (rutasFotos.length > 0) {
     const { error: errorStorage } = await supabase.storage.from(BUCKET_GALERIA).remove(rutasFotos);
     if (errorStorage) console.warn('No se pudieron borrar todas las fotos de galería en Storage:', errorStorage.message);
+  }
+
+  // `gastos.adjunto_url` ya guarda el path del bucket privado directamente (no una URL pública que
+  // haya que recortar, a diferencia de galería) — ver GastoForm.tsx.
+  const rutasJustificantes = (gas.data ?? []).map((g) => g.adjunto_url as string | null).filter((p): p is string => !!p);
+  if (rutasJustificantes.length > 0) {
+    const { error: errorStorage } = await supabase.storage.from(BUCKET_JUSTIFICANTES).remove(rutasJustificantes);
+    if (errorStorage) console.warn('No se pudieron borrar todos los justificantes de gastos en Storage:', errorStorage.message);
   }
 
   const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
@@ -276,9 +286,8 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
           galería y solicitudes de contacto. Las facturas son la única excepción: por ley la numeración debe
           quedar completa y sin huecos,
           así que no se eliminan — se anonimizan (el nombre, dirección, email y teléfono del cliente se borran de
-          la factura, pero el registro numerado se conserva). No se puede deshacer. Las fotos y justificantes
-          adjuntos en el almacenamiento no se borran automáticamente — se quedan huérfanos y hay que limpiarlos
-          a mano si hace falta.
+          la factura, pero el registro numerado se conserva). También borra las fotos de galería y los
+          justificantes de gastos guardados en el almacenamiento. No se puede deshacer.
         </p>
         <Button variant="danger" size="sm" onClick={() => setModalPurgaAbierto(true)}>
           <span className="flex items-center gap-1.5">

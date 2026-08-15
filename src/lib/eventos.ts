@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-export type TipoDocumentoEvento = 'presupuesto' | 'factura';
+export type TipoDocumentoEvento = 'presupuesto' | 'factura' | 'proyecto';
 
 export type DocumentoEvento = {
   id: string;

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
+import { actualizarEtapaPipeline } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { Button } from '../../components/ui/Button';
@@ -183,9 +184,7 @@ export function ClienteDetalleContenido({ cliente, tabInicial, onPurgado }: Clie
   const moverPipelineMutation = useMutation({
     mutationFn: async (etapa: string) => {
       if (!ultimaVisita) throw new Error('Sin visita de referencia');
-      const { error } = await supabase.from('visitas').update({ estado_pipeline: etapa }).eq('id', ultimaVisita.id);
-      if (error) throw error;
-      await notaSistema(ultimaVisita.id, `Pipeline movido a ${etapa} por ${nombreUsuarioActual}`);
+      await actualizarEtapaPipeline(ultimaVisita.id, etapa, nombreUsuarioActual);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
@@ -544,7 +543,7 @@ export function ClienteDetalleContenido({ cliente, tabInicial, onPurgado }: Clie
       {tab === 'pipeline' && (
         <div>
           <div className="flex flex-wrap gap-2 mb-4">
-            {ETAPAS_PIPELINE.map((etapa) => (
+            {[...ETAPAS_PIPELINE, 'Perdido'].map((etapa) => (
               <button
                 key={etapa}
                 onClick={() => moverPipelineMutation.mutate(etapa)}

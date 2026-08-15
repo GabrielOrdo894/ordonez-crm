@@ -6,6 +6,7 @@ import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
+import { fechaVisitaCorta } from '../../lib/fechas';
 
 type FacturaCobrada = {
   id: string;
@@ -108,7 +109,7 @@ export default function LibroIngresosPage() {
           data={filtrados}
           emptyMessage="Sin ingresos registrados todavía (se rellena al registrar pagos de facturas)"
           columns={[
-            { key: 'fecha', label: 'Fecha de cobro' },
+            { key: 'fecha', label: 'Fecha de cobro', render: (i) => fechaVisitaCorta(i.fecha) },
             { key: 'titulo', label: 'Título' },
             { key: 'sinIva', label: 'Ingresos sin IVA', render: (i) => `${i.sinIva.toFixed(2)} €` },
             { key: 'conIva', label: 'Ingresos con IVA', render: (i) => `${i.conIva.toFixed(2)} €` },

@@ -61,7 +61,16 @@ Deno.serve(async (req: Request) => {
   const tokenData = await tokenRes.json();
 
   if (!tokenRes.ok || !tokenData.refresh_token) {
-    console.error('Error obteniendo refresh_token de Google', tokenData);
+    // Nunca loguear tokenData completo: si Google devuelve un access_token sin refresh_token (p.
+    // ej. consentimiento ya otorgado antes sin prompt=consent), ese access_token quedaría en
+    // texto plano en los logs de la Edge Function, accesibles desde el dashboard de Supabase
+    // (hallazgo de la auditoría de seguridad 2026-08-15). Solo se loguea el motivo del error.
+    console.error('Error obteniendo refresh_token de Google', {
+      status: tokenRes.status,
+      error: tokenData.error,
+      error_description: tokenData.error_description,
+      tuvoRefreshToken: Boolean(tokenData.refresh_token),
+    });
     return Response.redirect(`${volverA}?gcal=error`, 302);
   }
 

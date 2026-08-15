@@ -2,11 +2,10 @@ import type jsPDF from 'jspdf';
 import { supabase } from './supabase';
 import { direccionEnDosLineas } from './direcciones';
 import { FUENTE_PDF } from './fuentePdf';
+import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
 
 export const VERDE_OSCURO: [number, number, number] = [15, 61, 36];
-export const VERDE: [number, number, number] = [26, 92, 56];
 export const VERDE_CLARO: [number, number, number] = [234, 242, 237];
-export const GRIS_FONDO: [number, number, number] = [245, 245, 244];
 export const GRIS_BORDE: [number, number, number] = [209, 213, 219];
 export const GRIS_TEXTO: [number, number, number] = [107, 114, 128];
 
@@ -69,6 +68,65 @@ export async function cargarConfigCompleta() {
   const { data: config, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
   if (error) throw error;
   return config;
+}
+
+// Cabecera/pie compartidos por los documentos societarios generados con jsPDF (décisions,
+// resúmenes, liasse fiscale) — extraídos de generarPdfRemuneracion.ts para que cualquier generador
+// nuevo los reutilice sin duplicar el boilerplate de razón social/color/margen.
+export async function cabeceraDocumento(doc: jsPDF, titulo: string) {
+  const config = await cargarConfigCompleta();
+  const { entidad } = await cargarEntidad('Francia');
+  const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);
+  const colorRgb = hexARgb(configPlantilla.colorPrimario);
+  const margen = 15;
+
+  doc.setTextColor(30, 30, 30);
+  doc.setFont(FUENTE_PDF, 'bold');
+  doc.setFontSize(10);
+  doc.text(entidad.razon_social || 'Reformas Ordoñez', margen, 15);
+  doc.setTextColor(...colorRgb);
+  doc.setFontSize(15);
+  doc.text(titulo, margen, 24);
+
+  doc.setDrawColor(...GRIS_BORDE);
+  doc.setLineWidth(0.3);
+  doc.line(margen, 29, 210 - margen, 29);
+
+  return { config, entidad, colorRgb, margen };
+}
+
+export function piePagina(doc: jsPDF, margen: number, disclaimer: string) {
+  doc.setDrawColor(...GRIS_BORDE);
+  doc.line(margen, 280, 210 - margen, 280);
+  doc.setFont(FUENTE_PDF, 'italic');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS_TEXTO);
+  const lineas = doc.splitTextToSize(disclaimer, 210 - margen * 2);
+  doc.text(lineas, margen, 286);
+}
+
+// Línea + texto a la izquierda (razón social, opcionalmente + teléfono) y paginación a la
+// derecha — el pie fijo que comparten los documentos multipágina (factura, presupuesto,
+// planning, dossier de obra, listado de proveedores). Se dibuja sobre la página ya seleccionada
+// por el caller (doc.setPage(i)) dentro de su propio bucle, que puede tener lógica distinta antes
+// de esta llamada (mensaje de agradecimiento, pie de página personalizado, página inicial según
+// si hay portada) — extraído 2026-08-15 para no duplicar el dibujo en cada generador.
+export function piePaginaNumerado(
+  doc: jsPDF,
+  margen: number,
+  textoIzquierda: string,
+  paginaActual: number,
+  totalPaginas: number,
+  prefijoPagina?: string,
+) {
+  doc.setDrawColor(...GRIS_BORDE);
+  doc.line(margen, 285, 210 - margen, 285);
+  doc.setFont(FUENTE_PDF, 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS_TEXTO);
+  doc.text(textoIzquierda, margen, 291);
+  const textoDerecha = prefijoPagina ? `${prefijoPagina} ${paginaActual}/${totalPaginas}` : `${paginaActual}/${totalPaginas}`;
+  doc.text(textoDerecha, 210 - margen, 291, { align: 'right' });
 }
 
 export async function urlABase64(url: string): Promise<{ dataUrl: string; formato: string } | null> {

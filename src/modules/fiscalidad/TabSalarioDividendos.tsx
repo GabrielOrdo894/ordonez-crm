@@ -4,8 +4,7 @@ import { AlertTriangle, TrendingUp, Landmark } from 'lucide-react';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { calcularDividendos, calcularIS, calcularReservaLegal, calcularTNS, limitesEjercicio } from './calculos';
-import type { ConfigFn } from './calculos';
+import { simularEjercicio, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -16,28 +15,6 @@ function fmt(n: number) {
   return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
-function escenario(
-  remuneracion: number,
-  pctDividendos: number,
-  beneficioAntesDeGastosPersonal: number,
-  capitalSocial: number,
-  compteCourantMedio: number,
-  meses: number,
-  config: ConfigFn,
-) {
-  const tns = calcularTNS(remuneracion, config);
-  const beneficioTrasSalario = Math.max(0, beneficioAntesDeGastosPersonal - remuneracion - tns.total);
-  const is = calcularIS(beneficioTrasSalario, meses, config);
-  const beneficioTrasIS = Math.max(0, beneficioTrasSalario - is.total);
-  const reservaLegal = calcularReservaLegal(beneficioTrasIS, capitalSocial, config);
-  const beneficioDistribuible = Math.max(0, beneficioTrasIS - reservaLegal.dotacion);
-  const dividendos = beneficioDistribuible * (pctDividendos / 100);
-  const divCalc = calcularDividendos(dividendos, capitalSocial, compteCourantMedio, config);
-  const totalPrelevements = tns.total + is.total + divCalc.total;
-  const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
-  return { tns, is, beneficioTrasSalario, reservaLegal, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
-}
-
 export function TabSalarioDividendos() {
   const anio = new Date().getFullYear();
   const ejercicio = limitesEjercicio(anio);
@@ -45,11 +22,17 @@ export function TabSalarioDividendos() {
   const { gerantConfig, guardar, guardando } = useGerantConfig();
   const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
   const capitalSocial = gerantConfig?.capital_social ?? 1000;
-  // Antes hardcodeado a 0 en todas las llamadas a escenario() de más abajo — el umbral libre de
+  // Antes hardcodeado a 0 en todas las llamadas a simularEjercicio() de más abajo — el umbral libre de
   // cotisations TNS sobre dividendos (capitalSocial + compteCourantMedio) × 10% nunca llegaba a
   // contar el compte courant real, así que salía sistemáticamente más bajo de lo real (bug real
   // corregido 2026-08-11).
   const compteCourantMedio = gerantConfig?.compte_courant_medio ?? 0;
+  // Igual que TabIS.tsx: `beneficioBruto` (useResultadoEjercicio) solo suma lo facturado/gastado
+  // hasta HOY, no el ejercicio completo — usar `ejercicio.meses` para el plafond del 15% de IS
+  // infla ese plafond respecto a un beneficio parcial y da una cifra de IS distinta (más optimista)
+  // que la que muestra "Impôt sur les Sociétés" para el mismo beneficio real (bug real, auditoría
+  // 2026-08-15).
+  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
 
   const [remuneracion, setRemuneracion] = useState(30000);
   const [pctDividendos, setPctDividendos] = useState(50);
@@ -64,20 +47,20 @@ export function TabSalarioDividendos() {
   }, [gerantConfig]);
 
   const resultado = useMemo(
-    () => escenario(remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config),
-    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config],
+    () => simularEjercicio(remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config),
+    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config],
   );
 
   const escenarios = useMemo(() => {
-    const todoSalario = escenario(beneficioBruto, 0, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
-    const salario30kDiv = escenario(30000, 100, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
-    const salario30kReservas = escenario(30000, 0, beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config);
+    const todoSalario = simularEjercicio(beneficioBruto, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
+    const salario30kDiv = simularEjercicio(30000, 100, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
+    const salario30kReservas = simularEjercicio(30000, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
     return [
       { nombre: 'Todo salario', neto: todoSalario.netoDisponible, prelevements: todoSalario.totalPrelevements },
       { nombre: 'Salario 30k + dividendos', neto: salario30kDiv.netoDisponible, prelevements: salario30kDiv.totalPrelevements },
       { nombre: 'Salario 30k + reservas', neto: salario30kReservas.netoDisponible, prelevements: salario30kReservas.totalPrelevements },
     ];
-  }, [beneficioBruto, capitalSocial, compteCourantMedio, ejercicio.meses, config]);
+  }, [beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -278,10 +261,6 @@ export function TabSalarioDividendos() {
           },
         ]}
       />
-
-      <p className="text-xs text-gray-400 text-center">
-        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
-      </p>
     </div>
   );
 }

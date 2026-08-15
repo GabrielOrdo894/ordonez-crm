@@ -16,6 +16,7 @@ import { Input } from '../../components/ui/Input';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila } from '../../components/ui/AccionesFila';
 import { agruparClientes } from './types';
+import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 
@@ -86,7 +87,9 @@ export default function ClientesPage() {
       const primera = c.visitas[c.visitas.length - 1];
       return primera?.created_at?.slice(0, 7) === mesActual;
     }).length;
-    const pipelineActivo = clientes.filter((c) => c.visitas[0]?.estado_pipeline !== 'Finalizado').length;
+    const pipelineActivo = clientes.filter(
+      (c) => c.visitas[0]?.estado_pipeline !== 'Finalizado' && c.visitas[0]?.estado_pipeline !== 'Perdido',
+    ).length;
     const pendienteConfirmar = clientes.filter((c) => c.visitas.some((v) => v.estado === 'Pendiente')).length;
     return [
       { label: 'Total clientes', valor: clientes.length },
@@ -197,7 +200,7 @@ export default function ClientesPage() {
               key: 'ultima',
               label: 'Última visita',
               sortValue: (c) => c.visitas[0]?.fecha_visita ?? '',
-              render: (c) => c.visitas[0]?.fecha_visita ?? '—',
+              render: (c) => fechaVisitaCorta(c.visitas[0]?.fecha_visita),
             },
             {
               key: 'pipeline',

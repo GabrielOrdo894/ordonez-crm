@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
+import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -340,6 +341,13 @@ export default function InicioPage() {
       const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', visita.id);
       if (error) throw error;
       await notaSistema(visita.id, 'Visita cancelada');
+      if (visita.google_event_id) {
+        try {
+          await eliminarEventoVisita(visita.google_event_id);
+        } catch (error) {
+          toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
@@ -492,9 +500,12 @@ export default function InicioPage() {
     const idxRealizada = etapas.indexOf('Visita realizada');
     const idxEnviado = etapas.indexOf('Presupuesto enviado');
     const idxAceptado = etapas.indexOf('Presupuesto aceptado');
-    const realizadas = visitasEsteMes.filter((v) => etapas.indexOf(v.estado_pipeline) >= idxRealizada).length;
-    const enviados = visitasEsteMes.filter((v) => etapas.indexOf(v.estado_pipeline) >= idxEnviado).length;
-    const aceptados = visitasEsteMes.filter((v) => etapas.indexOf(v.estado_pipeline) >= idxAceptado).length;
+    // pipeline_etapa_maxima (no estado_pipeline) — un lead marcado "Perdido" sigue contando en las
+    // etapas que de verdad alcanzó antes de perderse, en vez de desaparecer de estas conversiones.
+    const progreso = (v: (typeof visitasEsteMes)[number]) => etapas.indexOf(v.pipeline_etapa_maxima ?? v.estado_pipeline);
+    const realizadas = visitasEsteMes.filter((v) => progreso(v) >= idxRealizada).length;
+    const enviados = visitasEsteMes.filter((v) => progreso(v) >= idxEnviado).length;
+    const aceptados = visitasEsteMes.filter((v) => progreso(v) >= idxAceptado).length;
 
     const pctEnviados = realizadas > 0 ? Math.round((enviados / realizadas) * 100) : 0;
     const pctAceptados = enviados > 0 ? Math.round((aceptados / enviados) * 100) : 0;

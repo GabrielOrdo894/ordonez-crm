@@ -13,6 +13,7 @@ import {
   dimensionesImagen,
   ajustarCaja,
   totalPaginasPdf,
+  piePaginaNumerado,
   DECENNALE_BULLETS_FR,
 } from './pdfEmpresa';
 import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
@@ -799,10 +800,12 @@ async function construirPdfFactura(f: Factura) {
       tableWidth: anchoCol,
       head: [[t.planPago, ...t.columnasPago.slice(1)]],
       body: planPagoPresupuesto.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
+      // cellWidth fijo en % e importe para que ninguno tenga que partirse en dos líneas dentro de
+      // la celda ("33,33%" no cabía en 10mm — reportado 2026-08-14, mismo fix que en el devis).
       styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
       headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
       bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: 'right', cellWidth: 10 }, 2: { halign: 'right', cellWidth: 24 } },
+      columnStyles: { 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right', cellWidth: 24 } },
     });
     yDer = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   }
@@ -1050,13 +1053,7 @@ async function construirPdfFactura(f: Factura) {
       doc.setTextColor(...colorRgb);
       doc.text(doc.splitTextToSize(mensajeGracias, anchoContenido), 105, 280, { align: 'center' });
     }
-    doc.setDrawColor(...GRIS_BORDE);
-    doc.line(margen, 285, 210 - margen, 285);
-    doc.setFont(FUENTE_PDF, 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRIS_TEXTO);
-    doc.text(entidad.razon_social ?? '', margen, 291);
-    doc.text(`${t.pagina} ${i}/${totalPaginas}`, 210 - margen, 291, { align: 'right' });
+    piePaginaNumerado(doc, margen, entidad.razon_social ?? '', i, totalPaginas, t.pagina);
   }
 
   return { doc };

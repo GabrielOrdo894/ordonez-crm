@@ -1,8 +1,8 @@
 export const FASES_EJEMPLO = [
-  { nombre: 'Demolición', descripcion: 'Retirada de mobiliario y alicatado antiguo', fecha_inicio: '2026-08-03', fecha_fin: '2026-08-05', completada: true },
-  { nombre: 'Fontanería y electricidad', descripcion: 'Nuevas instalaciones vistas', fecha_inicio: '2026-08-06', fecha_fin: '2026-08-10', completada: true },
-  { nombre: 'Alicatado y solado', descripcion: 'Colocación de baldosa cerámica', fecha_inicio: '2026-08-11', fecha_fin: '2026-08-18', completada: false },
-  { nombre: 'Sanitarios y acabados', descripcion: 'Instalación de sanitarios y pintura final', fecha_inicio: '2026-08-19', fecha_fin: '2026-08-22', completada: false },
+  { nombre: 'Demolición', descripcion: 'Retirada de mobiliario y alicatado antiguo', seccion: 'Obra gruesa', fecha_inicio: '2026-08-03', fecha_fin: '2026-08-05', completada: true },
+  { nombre: 'Fontanería y electricidad', descripcion: 'Nuevas instalaciones vistas', seccion: 'Obra gruesa', fecha_inicio: '2026-08-06', fecha_fin: '2026-08-10', completada: true },
+  { nombre: 'Alicatado y solado', descripcion: 'Colocación de baldosa cerámica', seccion: 'Acabados', fecha_inicio: '2026-08-11', fecha_fin: '2026-08-18', completada: false },
+  { nombre: 'Sanitarios y acabados', descripcion: 'Instalación de sanitarios y pintura final', seccion: 'Acabados', fecha_inicio: '2026-08-19', fecha_fin: '2026-08-22', completada: false },
 ];
 
 export const PROYECTO_EJEMPLO = {

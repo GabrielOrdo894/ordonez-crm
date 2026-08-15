@@ -25,6 +25,8 @@ import {
   PiggyBank,
   Banknote,
   ArrowLeftRight,
+  NotebookPen,
+  Rows3,
   CalendarClock,
   LayoutDashboard,
   Settings,
@@ -92,6 +94,8 @@ const CONTABILIDAD_SECTION: NavSection = {
     { to: '/contabilidad/gastos', label: 'Libro de Gastos', icon: Wallet },
     { to: '/contabilidad/resultado', label: 'Resultado', icon: TrendingUp },
     { to: '/contabilidad/banco', label: 'Movimientos bancarios', icon: ArrowLeftRight },
+    { to: '/contabilidad/diario', label: 'Libro diario (Francia)', icon: NotebookPen },
+    { to: '/contabilidad/mayor', label: 'Libro mayor (Francia)', icon: Rows3 },
   ],
 };
 const FISCALIDAD_SECTION: NavSection = {

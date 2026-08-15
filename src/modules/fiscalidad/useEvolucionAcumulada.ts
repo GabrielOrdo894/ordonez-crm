@@ -21,18 +21,34 @@ export function useEvolucionAcumulada(
   remuneracionAnual: number,
   config: ConfigFn,
 ) {
+  // Filtrado a nivel de query (país + rango del ejercicio) en vez de traer la tabla entera y
+  // filtrar en JS — antes esta query compartía cache con el `['facturas']`/`['gastos']` sin
+  // filtrar de useResultadoEjercicio.ts (mismo dataset completo), así que no costaba una petición
+  // aparte; ahora es una query más pequeña y con su propia key, más barata a medida que crezcan
+  // los datos de varios ejercicios (auditoría 2026-08-15).
   const { data: facturas } = useQuery({
-    queryKey: ['facturas'],
+    queryKey: ['facturas', 'francia', ejercicio.inicio, ejercicio.fin],
     queryFn: async () => {
-      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('*')
+        .is('eliminado_en', null)
+        .eq('pais', 'Francia')
+        .gte('fecha_factura', ejercicio.inicio)
+        .lte('fecha_factura', ejercicio.fin);
       if (error) throw error;
       return data as Factura[];
     },
   });
   const { data: gastos } = useQuery({
-    queryKey: ['gastos'],
+    queryKey: ['gastos', 'francia', ejercicio.inicio, ejercicio.fin],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*');
+      const { data, error } = await supabase
+        .from('gastos')
+        .select('*')
+        .eq('pais', 'Francia')
+        .gte('fecha', ejercicio.inicio)
+        .lte('fecha', ejercicio.fin);
       if (error) throw error;
       return data as Gasto[];
     },
@@ -48,11 +64,12 @@ export function useEvolucionAcumulada(
       const mesIndex = mesInicio + i;
       const desde = iso(new Date(anio, mesIndex, 1));
       const hasta = iso(new Date(anio, mesIndex + 1, 0));
+      // pais ya viene filtrado por la query — solo queda acotar el mes dentro del ejercicio ya traído.
       const ingresosMes = (facturas ?? [])
-        .filter((f) => f.pais === 'Francia' && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
+        .filter((f) => f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
         .reduce((s, f) => s + calcularTotales(f.lineas).totalSinIva, 0);
       const gastosMes = (gastos ?? [])
-        .filter((g) => g.pais === 'Francia' && g.fecha && g.fecha >= desde && g.fecha <= hasta)
+        .filter((g) => g.fecha && g.fecha >= desde && g.fecha <= hasta)
         .reduce((s, g) => s + (g.importe_base ?? 0), 0);
       acumIngresos += ingresosMes;
       acumGastos += gastosMes;

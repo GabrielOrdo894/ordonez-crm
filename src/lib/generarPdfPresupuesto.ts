@@ -15,6 +15,7 @@ import {
   configPortadaDesde,
   FOTO_PORTADA_DEFECTO,
   dibujarPortada,
+  piePaginaNumerado,
   DECENNALE_BULLETS_FR,
 } from './pdfEmpresa';
 import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
@@ -126,7 +127,73 @@ export async function generarPdfPresupuestoBlob(p: Presupuesto): Promise<{ blob:
   return { blob: doc.output('blob'), cajaFirma };
 }
 
-async function construirPdfPresupuesto(p: Presupuesto) {
+/** PDF de la traducción interna guardada en `p.traduccion` (Edge Function `traducir-presupuesto`).
+ * Solo texto libre traducido — precios, cantidades, IVA y país se mantienen intactos, y los
+ * Términos y Condiciones se generan con el texto real ya existente en el idioma de destino (nunca
+ * traducidos con IA) ignorando a propósito cualquier T&C propio del presupuesto original, que
+ * solo existiría en el idioma de origen. Lleva un aviso en cada página dejando claro que es una
+ * copia de uso interno, nunca el documento oficial para el cliente. */
+async function construirPdfPresupuestoTraducido(p: Presupuesto) {
+  if (!p.traduccion) throw new Error('Este presupuesto todavía no tiene una traducción generada');
+
+  const pTraducido: Presupuesto = {
+    ...p,
+    idioma: p.traduccion.idioma,
+    lineas: p.traduccion.lineas,
+    nota: p.traduccion.nota,
+    plan_pago: p.traduccion.plan_pago,
+    terminos_condiciones: null,
+  };
+  const { doc } = await construirPdfPresupuesto(pTraducido);
+
+  const AVISO = 'TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO OFICIAL  ·  TRADUCTION INTERNE — NON VALABLE COMME DOCUMENT OFFICIEL';
+  const totalPaginas = totalPaginasPdf(doc);
+  for (let i = 1; i <= totalPaginas; i++) {
+    doc.setPage(i);
+    doc.setFillColor(217, 119, 6);
+    doc.rect(0, 0, 210, 5, 'F');
+    doc.setFont(FUENTE_PDF, 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(AVISO, 105, 3.3, { align: 'center' });
+  }
+
+  return doc;
+}
+
+export async function generarPdfPresupuestoTraducido(p: Presupuesto) {
+  const doc = await construirPdfPresupuestoTraducido(p);
+  const sufijoIdioma = p.traduccion!.idioma === 'Français' ? 'fr' : 'es';
+  doc.save(`${p.numero ?? 'presupuesto'}_traduccion_${sufijoIdioma}.pdf`);
+}
+
+/** Igual que `generarPdfPresupuestoTraducido` pero abre el PDF en una pestaña nueva en vez de
+ * descargarlo — para el botón "Ver PDF traducido" de la vista previa del presupuesto. */
+export async function verPdfPresupuestoTraducido(p: Presupuesto) {
+  const doc = await construirPdfPresupuestoTraducido(p);
+  const blob = doc.output('blob');
+  window.open(URL.createObjectURL(blob), '_blank');
+}
+
+/** Opciones para embeber el contenido de un presupuesto (tabla de líneas, resumen, plan de pago,
+ * firma) dentro de OTRO documento jsPDF ya empezado — usado por el dossier de obra para incluir
+ * el presupuesto en su formato completo real en vez de una tabla simplificada propia. Sin estas
+ * opciones el comportamiento es exactamente el de siempre (documento nuevo, con su portada según
+ * `p.formato`, sus T&C y su pie de página). */
+export type OpcionesConstruccionPresupuesto = {
+  /** Doc jsPDF ya creado (con la fuente ya registrada) sobre el que dibujar, en vez de crear uno
+   * nuevo — quien lo pasa es responsable de llamar `doc.addPage()` antes si quiere que el
+   * presupuesto empiece en una página en blanco. */
+  doc?: jsPDF;
+  /** Por defecto sigue el criterio normal (`p.formato === 'completo'`). */
+  incluirPortada?: boolean;
+  incluirTyC?: boolean;
+  /** Pie de página con paginación y nombre de la entidad — desactivar cuando el documento que
+   * embebe este contenido va a dibujar su propio pie uniforme para todas sus páginas. */
+  incluirPie?: boolean;
+};
+
+export async function construirPdfPresupuesto(p: Presupuesto, opciones?: OpcionesConstruccionPresupuesto) {
   const idioma = p.idioma === 'Français' ? 'fr' : 'es';
   const t = TEXTOS[idioma];
   const esOrientativo = p.tipo === 'orientativo';
@@ -162,8 +229,8 @@ async function construirPdfPresupuesto(p: Presupuesto) {
   const logo = logoUrl ? await urlABase64(logoUrl) : null;
   const logoActivo = configPlantilla.mostrarLogo ? logo : null;
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  await registrarFuentePoppins(doc);
+  const doc = opciones?.doc ?? new jsPDF({ unit: 'mm', format: 'a4' });
+  if (!opciones?.doc) await registrarFuentePoppins(doc);
   const margen = 15;
   const anchoContenido = 210 - margen * 2;
   // Posición (en mm, página A4) del recuadro de firma del cliente — se rellena al dibujarlo más
@@ -176,7 +243,8 @@ async function construirPdfPresupuesto(p: Presupuesto) {
   const tituloDoc = esOrientativo ? `${t.titulo} ${etiquetaOrientativo}` : t.titulo;
 
   // ---- Portada (solo formato completo) ----
-  if (p.formato === 'completo') {
+  const incluirPortada = opciones?.incluirPortada ?? p.formato === 'completo';
+  if (incluirPortada) {
     const descripcionPortada = esOrientativo
       ? idioma === 'fr'
         ? 'Proposition de prix indicative pour votre projet, à préciser lors de la visite technique.'
@@ -951,13 +1019,13 @@ async function construirPdfPresupuesto(p: Presupuesto) {
       body: p.plan_pago.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
       // valign 'middle' — por defecto autoTable alinea arriba, y con un concepto largo que ocupa
       // varias líneas el % y el importe (una sola línea) quedaban pegados al borde superior de la
-      // fila en vez de centrados (reportado 2026-08-11). cellWidth fijo en % e importe para que el
-      // importe formateado ("15 707,59€") nunca tenga que partirse en dos líneas — el concepto es
-      // el único que se ajusta al ancho restante.
+      // fila en vez de centrados (reportado 2026-08-11). cellWidth fijo en % e importe para que
+      // ninguno de los dos tenga que partirse en dos líneas ("33,33%" no cabía en 10mm — reportado
+      // 2026-08-14) — el concepto es el único que se ajusta al ancho restante.
       styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
       headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
       bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: 'right', cellWidth: 10 }, 2: { halign: 'right', cellWidth: 24 } },
+      columnStyles: { 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right', cellWidth: 24 } },
     });
     yPlanForma = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
   }
@@ -1139,7 +1207,7 @@ async function construirPdfPresupuesto(p: Presupuesto) {
       : idioma === 'fr'
         ? config?.tc_fr
         : config?.tc_es);
-  if (tcCrudo) {
+  if (tcCrudo && (opciones?.incluirTyC ?? true)) {
     const tc = renderizarTC(tcCrudo, p.plan_pago, idioma);
     const { fontSize: fontSizeTc, lineHeight: lineHeightTc } = tamanoFuenteTC(config?.tc_tamano);
     const dibujarCabeceraTC = () => {
@@ -1177,23 +1245,19 @@ async function construirPdfPresupuesto(p: Presupuesto) {
   }
 
   // ---- Pie de página ----
-  const totalPaginas = totalPaginasPdf(doc);
-  const primeraPaginaConPie = p.formato === 'completo' ? 2 : 1;
-  for (let i = primeraPaginaConPie; i <= totalPaginas; i++) {
-    doc.setPage(i);
-    if (mensajeGracias && i >= paginaResumenPago) {
-      doc.setFont(FUENTE_PDF, 'italic');
-      doc.setFontSize(11);
-      doc.setTextColor(...colorRgb);
-      doc.text(doc.splitTextToSize(mensajeGracias, anchoContenido), 105, 280, { align: 'center' });
+  if (opciones?.incluirPie ?? true) {
+    const totalPaginas = totalPaginasPdf(doc);
+    const primeraPaginaConPie = incluirPortada ? 2 : 1;
+    for (let i = primeraPaginaConPie; i <= totalPaginas; i++) {
+      doc.setPage(i);
+      if (mensajeGracias && i >= paginaResumenPago) {
+        doc.setFont(FUENTE_PDF, 'italic');
+        doc.setFontSize(11);
+        doc.setTextColor(...colorRgb);
+        doc.text(doc.splitTextToSize(mensajeGracias, anchoContenido), 105, 280, { align: 'center' });
+      }
+      piePaginaNumerado(doc, margen, entidad.razon_social ?? '', i, totalPaginas, t.pagina);
     }
-    doc.setDrawColor(...GRIS_BORDE);
-    doc.line(margen, 285, 210 - margen, 285);
-    doc.setFont(FUENTE_PDF, 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRIS_TEXTO);
-    doc.text(entidad.razon_social ?? '', margen, 291);
-    doc.text(`${t.pagina} ${i}/${totalPaginas}`, 210 - margen, 291, { align: 'right' });
   }
 
   return { doc, cajaFirma: cajaFirmaDocumenso };

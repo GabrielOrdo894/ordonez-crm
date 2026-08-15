@@ -234,10 +234,6 @@ export function TabCalendario() {
           },
         ]}
       />
-
-      <p className="text-xs text-gray-400 text-center">
-        Herramienta de estimación interna. No sustituye el asesoramiento de un expert-comptable.
-      </p>
     </div>
   );
 }

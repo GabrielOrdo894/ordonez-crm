@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { KpiRow } from '../../components/ui/Kpi';
 import { parseOfx } from '../../lib/ofx';
+import { fechaVisitaCorta } from '../../lib/fechas';
 import { GastoForm } from '../finanzas/gastos/GastoForm';
 import { VincularFacturaModal } from './VincularFacturaModal';
 import type { MovimientoBanco } from './types';
@@ -172,7 +173,7 @@ export default function BancoPage() {
           data={filtrados}
           emptyMessage="Sin movimientos — importa un fichero OFX de tu banca online para empezar"
           columns={[
-            { key: 'fecha', label: 'Fecha' },
+            { key: 'fecha', label: 'Fecha', render: (m) => fechaVisitaCorta(m.fecha) },
             { key: 'descripcion', label: 'Descripción' },
             {
               key: 'importe',

@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import {
   registrarEventoFunnel,
+  contarUnicosEnFunnel,
   ETAPAS_FUNNEL_SOLICITUD,
   ETIQUETA_ETAPA_FUNNEL,
   ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO,
@@ -123,14 +124,9 @@ export default function SolicitudesPage() {
 
   const embudo = useMemo(() => {
     const eventos = funnelEventos ?? [];
-    const contarUnicos = (etapa: EtapaFunnel) => {
-      const campo = etapa.startsWith('presupuesto_') ? 'presupuesto_id' : 'solicitud_id';
-      return new Set(eventos.filter((e) => e.etapa === etapa).map((e) => e[campo]).filter(Boolean)).size;
-    };
-    const base = ETAPAS_FUNNEL_SOLICITUD[0];
-    const total = contarUnicos(base);
+    const total = contarUnicosEnFunnel(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
     return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
-      const count = contarUnicos(etapa);
+      const count = contarUnicosEnFunnel(eventos, etapa);
       return { etapa, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
   }, [funnelEventos]);
@@ -140,12 +136,14 @@ export default function SolicitudesPage() {
       const { data, error } = await supabase.functions.invoke('revisar-gmail');
       if (error) throw error;
       if (data?.ok === false) throw new Error(data.error);
-      return data as { solicitudesNuevas: number; respuestasDetectadas: number };
+      return data as { solicitudesNuevas: number; respuestasDetectadas: number; enviosSolicitudes: number };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
-      toast.success(`Gmail revisado: ${data.solicitudesNuevas} solicitud(es) nueva(s), ${data.respuestasDetectadas} respuesta(s) detectada(s)`);
+      toast.success(
+        `Gmail revisado: ${data.solicitudesNuevas} solicitud(es) nueva(s), ${data.respuestasDetectadas} respuesta(s) detectada(s), ${data.enviosSolicitudes} marcada(s) como enviada(s)`,
+      );
     },
     onError: (error) => toast.error(error.message),
   });
