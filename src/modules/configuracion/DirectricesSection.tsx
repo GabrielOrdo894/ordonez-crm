@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
@@ -47,7 +48,7 @@ export function DirectricesSection() {
   const toast = useToast();
   const queryClient = useQueryClient();
 
-  const { data: filas, isLoading } = useQuery({
+  const { data: filas, isLoading, error: errorFilas } = useQuery({
     queryKey: ['directrices', 'catalogo'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -61,6 +62,10 @@ export function DirectricesSection() {
       return data as DirectrizRow[];
     },
   });
+  useEffect(() => {
+    if (errorFilas) toast.error(`No se pudieron cargar las directrices: ${errorFilas.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorFilas]);
 
   const toggleMutation = useMutation({
     mutationFn: async ({ item, fila, activar }: { item: CatalogoItem; fila: DirectrizRow | undefined; activar: boolean }) => {

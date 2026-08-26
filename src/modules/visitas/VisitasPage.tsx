@@ -5,9 +5,11 @@ import { Search, Check, Ban, Clock3 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
+import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
+import { notaSistema } from '../../lib/notaSistema';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
-import { useConfirmar } from '../../hooks/useConfirm';
+import { useConfirmar, useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { useSeleccionMultiple } from '../../hooks/useSeleccionMultiple';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
@@ -19,6 +21,7 @@ import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../components/ui/AccionesFila';
 import { VisitaResumenModal } from './VisitaResumenModal';
 import { fechaVisitaCorta } from '../../lib/fechas';
+import { useCatalogosVisitas } from './useCatalogosVisitas';
 import type { EstadoVisita, Visita } from './types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 
@@ -28,14 +31,18 @@ const PAISES = ['Todos', 'España', 'Francia'];
 export default function VisitasPage() {
   const { abrirNuevaVisita, abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const { user } = useAuth();
+  const catalogos = useCatalogosVisitas();
+  const EMPLEADOS_FILTRO = ['Todos', ...catalogos.empleados];
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
   const toast = useToast();
   const confirmar = useConfirmar();
+  const confirmarConMotivo = useConfirmarConMotivo();
   const queryClient = useQueryClient();
 
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('Todos');
   const [filtroPais, setFiltroPais] = useState('Todos');
+  const [filtroEmpleado, setFiltroEmpleado] = useState('Todos');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [visitaResumen, setVisitaResumen] = useState<Visita | null>(null);
@@ -48,7 +55,7 @@ export default function VisitasPage() {
         .from('visitas')
         .select('*')
         .is('eliminado_en', null)
-        .order('fecha_visita', { ascending: true });
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Visita[];
     },
@@ -86,24 +93,54 @@ export default function VisitasPage() {
   });
 
   const cambiarEstadoVariasMutation = useMutation({
-    mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
+    mutationFn: async ({ ids, estado, motivo }: { ids: (string | number)[]; estado: string; motivo?: string }) => {
       const { error } = await supabase.from('visitas').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
       if (estado === 'Cancelada') {
-        const eventIds = (visitas ?? [])
-          .filter((v) => (ids as string[]).includes(v.id) && v.google_event_id)
-          .map((v) => v.google_event_id as string);
-        for (const eventId of eventIds) {
+        // Antes solo quedaba "Visita cancelada" genérico, sin saber si fue el cliente, no
+        // contactable o una reprogramación (mejora real, auditoría de Visitas 2026-08-18).
+        if (motivo) {
+          for (const id of ids as string[]) {
+            try {
+              await notaSistema(id, `Visita cancelada — motivo: ${motivo}`);
+            } catch (error) {
+              toast.warning(`No se pudo registrar el motivo de cancelación: ${(error as Error).message}`);
+            }
+          }
+        }
+        const conEvento = (visitas ?? []).filter((v) => (ids as string[]).includes(v.id) && v.google_event_id);
+        for (const v of conEvento) {
           try {
-            await eliminarEventoVisita(eventId);
+            await eliminarEventoVisita(v.google_event_id as string);
           } catch (error) {
             toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
+          }
+        }
+        if (conEvento.length > 0) {
+          // Sin esto, reactivar una visita cancelada y reprogramarla creía que ya tenía evento
+          // (google_event_id seguía relleno) aunque el real ya se hubiera borrado en Google —
+          // corregido junto con "reprogramar actualiza Calendar" (mejora real, auditoría de
+          // Visitas 2026-08-18).
+          await supabase
+            .from('visitas')
+            .update({ google_event_id: null })
+            .in('id', conEvento.map((v) => v.id));
+        }
+      }
+      if (estado === 'Realizada') {
+        const completadas = (visitas ?? []).filter((v) => (ids as string[]).includes(v.id));
+        for (const v of completadas) {
+          try {
+            await crearGastoKilometricoPendiente(v);
+          } catch (error) {
+            toast.warning(`No se pudo generar el gasto de kilometraje de ${v.nombre}: ${(error as Error).message}`);
           }
         }
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos'] });
       toast.success('Estado actualizado');
       limpiar();
     },
@@ -117,12 +154,13 @@ export default function VisitasPage() {
       if (!v.fecha_visita) return false; // clientes creados sin visita programada (ver ClienteForm)
       if (filtroEstado !== 'Todos' && v.estado !== filtroEstado) return false;
       if (filtroPais !== 'Todos' && v.pais !== filtroPais) return false;
+      if (filtroEmpleado !== 'Todos' && v.empleado !== filtroEmpleado) return false;
       if (desde && (!v.fecha_visita || v.fecha_visita < desde)) return false;
       if (hasta && (!v.fecha_visita || v.fecha_visita > hasta)) return false;
       if (q && !`${v.nombre} ${v.apellidos} ${v.telefono}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [visitas, busqueda, filtroEstado, filtroPais, desde, hasta]);
+  }, [visitas, busqueda, filtroEstado, filtroPais, filtroEmpleado, desde, hasta]);
 
   const handleEliminar = async (v: Visita) => {
     const aviso = await avisoDocumentosActivosDeVisita(v.id);
@@ -136,6 +174,19 @@ export default function VisitasPage() {
     });
     if (!confirmado) return;
     eliminarMutation.mutate(v.id);
+  };
+
+  const cancelarConMotivo = async (ids: (string | number)[]): Promise<boolean> => {
+    const motivo = await confirmarConMotivo({
+      titulo: `¿Cancelar ${ids.length > 1 ? `${ids.length} visitas` : 'la visita'}?`,
+      mensaje: 'Esta acción marcará la visita como cancelada.',
+      motivoLabel: 'Motivo (opcional)',
+      motivoPlaceholder: 'Cliente canceló, no contactable, reprogramación…',
+      textoConfirmar: 'Cancelar visita',
+    });
+    if (motivo === null) return false;
+    cambiarEstadoVariasMutation.mutate({ ids, estado: 'Cancelada', motivo: motivo || undefined });
+    return true;
   };
 
   const accionesRapidas = (v: Visita): AccionRapida[] => {
@@ -156,7 +207,7 @@ export default function VisitasPage() {
         icon: Ban,
         label: 'Marcar cancelada',
         tono: 'peligro',
-        onClick: () => cambiarEstadoVariasMutation.mutate({ ids: [v.id], estado: 'Cancelada' }),
+        onClick: () => cancelarConMotivo([v.id]),
       },
     };
     return (['Pendiente', 'Realizada', 'Cancelada'] as EstadoVisita[]).filter((e) => e !== v.estado).map((e) => opciones[e]);
@@ -223,6 +274,13 @@ export default function VisitasPage() {
           onChange={(e) => setFiltroPais(e.target.value)}
           className="w-40"
         />
+        <Select
+          label="Empleado"
+          options={EMPLEADOS_FILTRO.map((v) => ({ value: v, label: v }))}
+          value={filtroEmpleado}
+          onChange={(e) => setFiltroEmpleado(e.target.value)}
+          className="w-56"
+        />
         <Input label="Fecha desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
         <Input label="Fecha hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
       </div>
@@ -240,7 +298,7 @@ export default function VisitasPage() {
           },
           {
             label: 'Cancelar visitas',
-            onClick: () => cambiarEstadoVariasMutation.mutate({ ids: Array.from(seleccion), estado: 'Cancelada' }),
+            onClick: () => cancelarConMotivo(Array.from(seleccion)),
             disabled: cambiarEstadoVariasMutation.isPending,
           },
           {
@@ -340,9 +398,7 @@ export default function VisitasPage() {
           abrirEditarVisita(v);
         }}
         onCancelar={async (v) => {
-          if (!(await confirmar(`¿Cancelar la visita de ${v.nombre} ${v.apellidos}?`))) return;
-          cambiarEstadoVariasMutation.mutate({ ids: [v.id], estado: 'Cancelada' });
-          setVisitaResumen(null);
+          if (await cancelarConMotivo([v.id])) setVisitaResumen(null);
         }}
       />
     </div>

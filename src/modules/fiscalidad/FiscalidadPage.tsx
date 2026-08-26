@@ -1,4 +1,13 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Calculator,
+  CalendarClock,
+  Landmark,
+  ClipboardCheck,
+  type LucideIcon,
+} from 'lucide-react';
 import AsistenteIvaPage from '../contabilidad/AsistenteIvaPage';
 import { DashboardFiscal } from './DashboardFiscal';
 import { TabIS } from './TabIS';
@@ -25,24 +34,52 @@ type Pestana =
   | 'liasse'
   | 'cierre';
 
-const PESTANAS: { value: Pestana; label: string }[] = [
-  { value: 'dashboard', label: 'Dashboard' },
-  { value: 'tva', label: 'TVA' },
-  { value: 'is', label: 'Impôt sur les Sociétés' },
-  { value: 'cotisations', label: 'Cotisations URSSAF' },
-  { value: 'salario', label: 'Salario vs Dividendos' },
-  { value: 'simulador', label: 'Simulador completo' },
-  { value: 'calendario', label: 'Calendario fiscal' },
-  { value: 'documentos', label: 'Documentos obligatorios' },
-  { value: 'inmovilizado', label: 'Inmovilizado' },
-  { value: 'liasse', label: 'Liasse fiscale' },
-  { value: 'cierre', label: 'Cierre de ejercicio' },
+const ETIQUETAS: Record<Pestana, string> = {
+  dashboard: 'Resumen',
+  tva: 'TVA',
+  is: 'Impôt sur les Sociétés',
+  cotisations: 'Cotisations URSSAF',
+  salario: 'Salario vs Dividendos',
+  simulador: 'Simulador completo',
+  calendario: 'Calendario fiscal',
+  documentos: 'Documentos obligatorios',
+  inmovilizado: 'Inmovilizado',
+  liasse: 'Liasse fiscale',
+  cierre: 'Cierre de ejercicio',
+};
+
+// Las 11 pestañas de siempre, agrupadas por la pregunta real que responden en vez de por orden de
+// creación — mismo patrón de datos que GRUPOS_NAV en ConfiguracionPage.tsx, adaptado a pills de 2
+// filas (categoría → subpestaña) porque aquí cada pestaña sustituye todo el contenido, no es una
+// página larga de scroll. Ninguna ruta /fiscalidad/:tab cambia, solo cómo se llega a ellas.
+type ItemStandalone = { tipo: 'standalone'; value: Pestana; icon: LucideIcon };
+type ItemGrupo = { tipo: 'grupo'; id: string; label: string; icon: LucideIcon; tabs: Pestana[] };
+type ItemNav = ItemStandalone | ItemGrupo;
+
+function esGrupo(item: ItemNav): item is ItemGrupo {
+  return item.tipo === 'grupo';
+}
+
+const NAV: ItemNav[] = [
+  { tipo: 'standalone', value: 'dashboard', icon: LayoutDashboard },
+  { tipo: 'grupo', id: 'obligaciones', label: 'Obligaciones mensuales', icon: CalendarClock, tabs: ['tva', 'cotisations', 'calendario'] },
+  { tipo: 'grupo', id: 'is', label: 'Impôt sur les Sociétés', icon: Landmark, tabs: ['is', 'salario'] },
+  { tipo: 'standalone', value: 'simulador', icon: Calculator },
+  { tipo: 'grupo', id: 'cierre', label: 'Cierre y documentación', icon: ClipboardCheck, tabs: ['inmovilizado', 'cierre', 'liasse', 'documentos'] },
 ];
+
+const TODAS_LAS_PESTANAS = Object.keys(ETIQUETAS) as Pestana[];
 
 export default function FiscalidadPage() {
   const { tab } = useParams<{ tab: string }>();
   const navigate = useNavigate();
-  const pestana: Pestana = PESTANAS.some((p) => p.value === tab) ? (tab as Pestana) : 'dashboard';
+  const pestana: Pestana = TODAS_LAS_PESTANAS.includes(tab as Pestana) ? (tab as Pestana) : 'dashboard';
+
+  // El ejercicio elegido vive aquí (no en cada pestaña) para que se recuerde al moverte entre
+  // Impôt sur les Sociétés, Cotisations, Salario vs Dividendos y Liasse fiscale.
+  const [anioFiscal, setAnioFiscal] = useState(new Date().getFullYear());
+
+  const grupoActivo = NAV.filter(esGrupo).find((item) => item.tabs.includes(pestana));
 
   return (
     <div>
@@ -52,21 +89,41 @@ export default function FiscalidadPage() {
         la liasse fiscale y asistente de cierre de ejercicio — EURL Reformas Ordoñez.
       </p>
 
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {PESTANAS.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => navigate(`/fiscalidad/${t.value}`)}
-            className={`px-3 py-1.5 rounded-sm text-xs font-semibold uppercase tracking-wide border transition-colors ${
-              pestana === t.value
-                ? 'bg-brand text-white border-brand'
-                : 'bg-surface border-gray-200 text-gray-600 hover:border-brand'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className={`flex items-center gap-2 flex-wrap ${grupoActivo ? 'mb-2' : 'mb-4'}`}>
+        {NAV.map((item) => {
+          const activo = item.tipo === 'standalone' ? pestana === item.value : grupoActivo?.id === item.id;
+          const destino = item.tipo === 'standalone' ? item.value : item.tabs[0];
+          const label = item.tipo === 'standalone' ? ETIQUETAS[item.value] : item.label;
+          return (
+            <button
+              key={item.tipo === 'standalone' ? item.value : item.id}
+              onClick={() => navigate(`/fiscalidad/${destino}`)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-semibold uppercase tracking-wide border transition-colors ${
+                activo ? 'bg-brand text-white border-brand' : 'bg-surface border-gray-200 text-gray-600 hover:border-brand'
+              }`}
+            >
+              <item.icon size={13} />
+              {label}
+            </button>
+          );
+        })}
       </div>
+
+      {grupoActivo && (
+        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+          {grupoActivo.tabs.map((t) => (
+            <button
+              key={t}
+              onClick={() => navigate(`/fiscalidad/${t}`)}
+              className={`px-2.5 py-1 rounded-sm text-[11px] font-medium border transition-colors ${
+                pestana === t ? 'bg-brand-light text-brand border-brand' : 'bg-surface border-gray-200 text-gray-500 hover:border-brand'
+              }`}
+            >
+              {ETIQUETAS[t]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {pestana === 'dashboard' && <DashboardFiscal />}
       {pestana === 'tva' && (
@@ -99,14 +156,14 @@ export default function FiscalidadPage() {
           />
         </div>
       )}
-      {pestana === 'is' && <TabIS />}
-      {pestana === 'cotisations' && <TabCotisations />}
-      {pestana === 'salario' && <TabSalarioDividendos />}
+      {pestana === 'is' && <TabIS anio={anioFiscal} onAnioChange={setAnioFiscal} />}
+      {pestana === 'cotisations' && <TabCotisations anio={anioFiscal} onAnioChange={setAnioFiscal} />}
+      {pestana === 'salario' && <TabSalarioDividendos anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'simulador' && <TabSimulador />}
       {pestana === 'calendario' && <TabCalendario />}
       {pestana === 'documentos' && <TabDocumentos />}
       {pestana === 'inmovilizado' && <TabInmovilizado />}
-      {pestana === 'liasse' && <TabLiasseFiscale />}
+      {pestana === 'liasse' && <TabLiasseFiscale anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'cierre' && <TabCierreEjercicio />}
 
       <p className="text-xs text-gray-400 text-center mt-4">

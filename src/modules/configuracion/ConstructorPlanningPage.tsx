@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
@@ -16,6 +16,7 @@ import { FASES_EJEMPLO, PROYECTO_EJEMPLO } from '../planning/datosEjemploPlannin
 import { notificarCambioConfig } from '../../lib/notificaciones';
 import { guardarConfigDatos } from '../../lib/empresaConfig';
 import { useHidratarUnaVez } from '../../hooks/useHidratarUnaVez';
+import { ColorInput } from './ColorInput';
 
 const TAMANOS_TITULO: { value: TamanoTitulo; label: string }[] = [
   { value: 'sm', label: 'Pequeño' },
@@ -34,11 +35,24 @@ function Bloque({ titulo, children }: { titulo: string; children: React.ReactNod
   );
 }
 
-function Interruptor({ etiqueta, checked, onChange }: { etiqueta: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Interruptor({
+  etiqueta,
+  checked,
+  onChange,
+}: {
+  etiqueta: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <label className="flex items-center justify-between py-1.5 text-sm text-gray-700 cursor-pointer">
       {etiqueta}
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4" />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-4 h-4"
+      />
     </label>
   );
 }
@@ -50,14 +64,27 @@ export default function ConstructorPlanningPage() {
   const navigate = useNavigate();
   const [config, setConfig] = useState<ConfigPlantillaPlanning>(CONFIG_PLANNING_DEFECTO);
 
-  const { data: empresaConfig, isLoading } = useQuery({
+  const {
+    data: empresaConfig,
+    isLoading,
+    error: errorEmpresaConfig,
+  } = useQuery({
     queryKey: ['empresa_config'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
+      const { data, error } = await supabase
+        .from('empresa_config')
+        .select('*')
+        .eq('id', 1)
+        .single();
       if (error) throw error;
       return data;
     },
   });
+  useEffect(() => {
+    if (errorEmpresaConfig)
+      toast.error(`No se pudo cargar la configuración de empresa: ${errorEmpresaConfig.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorEmpresaConfig]);
 
   // Solo se hidrata una vez — el polling de 'empresa_config' no debe pisar ediciones en curso.
   useHidratarUnaVez(empresaConfig, (empresaConfig) => {
@@ -65,12 +92,18 @@ export default function ConstructorPlanningPage() {
     setConfig(configPlanningDesde(datos.plantilla_planning));
   });
 
-  const datosEmpresa = (empresaConfig?.datos ?? {}) as { logo_url?: string; logo_oficial_url?: string };
+  const datosEmpresa = (empresaConfig?.datos ?? {}) as {
+    logo_url?: string;
+    logo_oficial_url?: string;
+  };
   const logoUrl = datosEmpresa.logo_oficial_url || datosEmpresa.logo_url || '';
 
   const guardarMutation = useMutation({
+    // 'plantilla_planning' es una clave propia, sin otra pantalla que la comparta — releer antes
+    // de fusionar sigue protegiendo contra dos pestañas de esta misma página guardando a la vez
+    // (bug real corregido 2026-08-18, mismo patrón que ConstructorPlantillasPage/PortadaPage).
     mutationFn: async () => {
-      await guardarConfigDatos({ plantilla_planning: config });
+      await guardarConfigDatos(() => ({ plantilla_planning: config }));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
@@ -103,32 +136,18 @@ export default function ConstructorPlanningPage() {
         <div className="flex-1 min-w-0 w-full flex flex-col gap-4">
           <Bloque titulo="Colores">
             <div className="flex items-center gap-3 mb-3">
-              <input
-                type="color"
+              <ColorInput
                 value={config.colorPrimario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPrimario: e.target.value }))}
-                className="w-12 h-9 border border-gray-200 rounded-sm cursor-pointer"
+                onChange={(hex) => setConfig((c) => ({ ...c, colorPrimario: hex }))}
               />
-              <input
-                type="text"
-                value={config.colorPrimario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPrimario: e.target.value }))}
-                className="w-32 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
-              />
-              <p className="text-xs text-gray-400">Cabecera, tabla y fases completadas del cronograma.</p>
+              <p className="text-xs text-gray-400">
+                Cabecera, tabla y fases completadas del cronograma.
+              </p>
             </div>
             <div className="flex items-center gap-3">
-              <input
-                type="color"
+              <ColorInput
                 value={config.colorPendiente}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPendiente: e.target.value }))}
-                className="w-12 h-9 border border-gray-200 rounded-sm cursor-pointer"
-              />
-              <input
-                type="text"
-                value={config.colorPendiente}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPendiente: e.target.value }))}
-                className="w-32 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
+                onChange={(hex) => setConfig((c) => ({ ...c, colorPendiente: hex }))}
               />
               <p className="text-xs text-gray-400">Fases pendientes del cronograma.</p>
             </div>
@@ -142,7 +161,8 @@ export default function ConstructorPlanningPage() {
             />
             {config.mostrarPortada && (
               <p className="text-xs text-gray-400 -mt-1 mb-1.5">
-                La foto, el filtro y la frase se gestionan en Constructor de portadas — se comparten con los presupuestos.
+                La foto, el filtro y la frase se gestionan en Constructor de portadas — se comparten
+                con los presupuestos.
               </p>
             )}
             <Interruptor
@@ -170,7 +190,9 @@ export default function ConstructorPlanningPage() {
                 label="Tamaño del título"
                 options={TAMANOS_TITULO}
                 value={config.tamanoTitulo}
-                onChange={(e) => setConfig((c) => ({ ...c, tamanoTitulo: e.target.value as TamanoTitulo }))}
+                onChange={(e) =>
+                  setConfig((c) => ({ ...c, tamanoTitulo: e.target.value as TamanoTitulo }))
+                }
               />
             </div>
           </Bloque>
@@ -184,12 +206,16 @@ export default function ConstructorPlanningPage() {
             <Interruptor
               etiqueta="Colores intercalados por filas"
               checked={config.tabla.filasIntercaladas}
-              onChange={(v) => setConfig((c) => ({ ...c, tabla: { ...c.tabla, filasIntercaladas: v } }))}
+              onChange={(v) =>
+                setConfig((c) => ({ ...c, tabla: { ...c.tabla, filasIntercaladas: v } }))
+              }
             />
             <Interruptor
               etiqueta="Encabezado de tabla coloreado"
               checked={config.tabla.encabezadoColoreado}
-              onChange={(v) => setConfig((c) => ({ ...c, tabla: { ...c.tabla, encabezadoColoreado: v } }))}
+              onChange={(v) =>
+                setConfig((c) => ({ ...c, tabla: { ...c.tabla, encabezadoColoreado: v } }))
+              }
             />
           </Bloque>
 
@@ -204,13 +230,16 @@ export default function ConstructorPlanningPage() {
         </div>
 
         <div className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Vista previa en vivo</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+            Vista previa en vivo
+          </p>
           <PlanningPreview
             config={config}
             entidad={ENTIDAD_EJEMPLO}
             logoUrl={logoUrl || undefined}
             clienteNombre={PROYECTO_EJEMPLO.clienteNombre}
             clienteTelefono={PROYECTO_EJEMPLO.clienteTelefono}
+            clienteEmail={PROYECTO_EJEMPLO.clienteEmail}
             clienteDir={PROYECTO_EJEMPLO.clienteDir}
             nombreObra={PROYECTO_EJEMPLO.nombreObra}
             estado={PROYECTO_EJEMPLO.estado}
@@ -218,6 +247,7 @@ export default function ConstructorPlanningPage() {
             presupuestoNumero={PROYECTO_EJEMPLO.presupuestoNumero}
             presupuestoFecha={PROYECTO_EJEMPLO.presupuestoFecha}
             presupuestoTotal={PROYECTO_EJEMPLO.presupuestoTotal}
+            planPago={PROYECTO_EJEMPLO.planPago}
             fases={FASES_EJEMPLO}
           />
         </div>

@@ -68,10 +68,10 @@ Antes se usaba Google Identity Services (`initTokenClient`) con el access_token 
 `localStorage` — caducaba a los 60 minutos y pedía volver a iniciar sesión constantemente a
 los 3 usuarios. Sustituido por un flujo de código de autorización con `refresh_token`
 persistente en Supabase, compartido por los 3 usuarios (ver
-`modificaciones/reparación de inicio de sesion de google.txt`).
+`negocio/modificaciones/reparación de inicio de sesion de google.txt`).
 
 **Piezas:**
-- Tabla `google_config` (fila única, `id = 1`) — guarda el `refresh_token`. Ver `docs/supabase-schema.md`.
+- Tabla `google_config` (fila única, `id = 1`) — guarda el `refresh_token`. Ver `docs/tecnico/supabase-schema.md`.
 - Edge Function `supabase/functions/google-oauth-callback` — recibe el `code` del consentimiento
   de Google, lo intercambia por tokens (`access_type=offline&prompt=consent` es obligatorio para
   que Google entregue `refresh_token`) y lo guarda en `google_config`.

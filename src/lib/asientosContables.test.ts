@@ -61,6 +61,40 @@ describe('construirAsientosGasto', () => {
     expect(asientos.find((a) => a.cuenta === '2801')?.haber).toBe(400);
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
   });
+
+  it('gasto intracomunitario: sin IVA soportado, pero autoliquida TVA due/déductible intracom, cuadrado', () => {
+    const asientos = construirAsientosGasto({
+      id: 'g4',
+      fecha: '2026-03-10',
+      descripcion: 'Material UE',
+      proveedor: 'Proveedor Francia',
+      cuenta_contable: '606',
+      importe_base: 100,
+      importe_iva: 0,
+      tipo_iva: 'INTRACOM',
+    });
+    expect(asientos.some((a) => a.cuenta === '44566')).toBe(false);
+    expect(asientos.find((a) => a.cuenta === '445662')?.debe).toBe(20);
+    expect(asientos.find((a) => a.cuenta === '4452')?.haber).toBe(20);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('gasto de importación (fuera de UE): autoliquida TVA due/déductible sobre importaciones, cuadrado', () => {
+    const asientos = construirAsientosGasto({
+      id: 'g5',
+      fecha: '2026-03-10',
+      descripcion: 'Material fuera de UE',
+      proveedor: 'Proveedor China',
+      cuenta_contable: '606',
+      importe_base: 100,
+      importe_iva: 0,
+      tipo_iva: 'IMPORTACION',
+    });
+    expect(asientos.some((a) => a.cuenta === '44566')).toBe(false);
+    expect(asientos.find((a) => a.cuenta === '445661')?.debe).toBe(20);
+    expect(asientos.find((a) => a.cuenta === '4452')?.haber).toBe(20);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
 });
 
 describe('construirAsientosFacturaEmision', () => {

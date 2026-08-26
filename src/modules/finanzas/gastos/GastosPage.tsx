@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Eye, Copy } from 'lucide-react';
+import { Search, Eye, Copy, Check, X } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
 import { useConfirmar } from '../../../hooks/useConfirm';
@@ -9,17 +9,21 @@ import { Table } from '../../../components/ui/Table';
 import { Select } from '../../../components/ui/Select';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
+import { Badge } from '../../../components/ui/Badge';
 import { KpiRow } from '../../../components/ui/Kpi';
 import { BotonExportar } from '../../../components/ui/BotonExportar';
 import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
-import { AccionesFila } from '../../../components/ui/AccionesFila';
+import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import { fechaCorta } from '../../../lib/fechas';
+import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
 import type { Gasto } from './types';
 import { GastoForm } from './GastoForm';
 import { GastoResumen } from './GastoResumen';
 import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
 
 const PAISES_FILTRO = ['Todos', 'España', 'Francia'];
+const SIN_CATEGORIZAR = '__sin_categorizar__';
+const ESTADOS_FILTRO = ['Todos', 'Pendientes de revisar', 'Pagados'];
 
 function totalConIva(g: Gasto) {
   return (g.importe_base ?? 0) + (g.importe_iva ?? 0);
@@ -32,6 +36,7 @@ export default function GastosPage() {
   const [busqueda, setBusqueda] = useState('');
   const [filtroPais, setFiltroPais] = useState('Todos');
   const [filtroCategoria, setFiltroCategoria] = useState('Todas');
+  const [filtroEstado, setFiltroEstado] = useState('Todos');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [gastoSeleccionado, setGastoSeleccionado] = useState<Gasto | null>(null);
@@ -44,40 +49,102 @@ export default function GastosPage() {
   const { data: gastos, isLoading } = useQuery({
     queryKey: ['gastos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
+      const { data, error } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return data as Gasto[];
     },
   });
 
+  // Antes de borrar un gasto ya contabilizado (Francia) hay que rectificar su asiento — si no, el
+  // gasto desaparece del CRM pero el asiento se queda huérfano para siempre en el libro diario
+  // (asientos_contables es insert-only, sin política de update/delete; bug real corregido
+  // 2026-08-18). rectificarAsientos no hace nada si el gasto nunca tuvo asiento (p. ej. seguía
+  // pendiente de revisar), así que es seguro llamarla siempre que sea de Francia.
+  async function rectificarSiHaceFalta(g: Gasto) {
+    if (g.pais !== 'Francia') return;
+    await rectificarAsientos('gasto', g.id, 'creacion', g.fecha ?? new Date().toISOString().slice(0, 10));
+  }
+
   const eliminarMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('gastos').delete().eq('id', id);
+    mutationFn: async (g: Gasto) => {
+      await rectificarSiHaceFalta(g);
+      const { error } = await supabase.from('gastos').delete().eq('id', g.id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success('Gasto eliminado');
     },
     onError: (error) => toast.error(error.message),
   });
 
   const eliminarVariosMutation = useMutation({
-    mutationFn: async (ids: (string | number)[]) => {
-      const { error } = await supabase.from('gastos').delete().in('id', ids as string[]);
+    mutationFn: async (seleccionados: Gasto[]) => {
+      for (const g of seleccionados) {
+        await rectificarSiHaceFalta(g);
+      }
+      const { error } = await supabase
+        .from('gastos')
+        .delete()
+        .in('id', seleccionados.map((g) => g.id));
       if (error) throw error;
     },
-    onSuccess: (_data, ids) => {
+    onSuccess: (_data, seleccionados) => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      toast.success(`${ids.length} gasto(s) eliminado(s)`);
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      toast.success(`${seleccionados.length} gasto(s) eliminado(s)`);
       limpiar();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  // Confirma un gasto de kilometraje automático como real: pasa a 'pagado' y, si es de Francia,
+  // genera su asiento contable ahora — nunca antes, para que un gasto rechazado no deje rastro en
+  // el libro diario (ver crearGastoKilometricoPendiente.ts).
+  const registrarPagoMutation = useMutation({
+    mutationFn: async (g: Gasto) => {
+      const { error } = await supabase.from('gastos').update({ estado_gasto: 'pagado' }).eq('id', g.id);
+      if (error) throw error;
+      if (g.pais === 'Francia') {
+        await registrarAsientoGasto({
+          id: g.id,
+          fecha: g.fecha,
+          descripcion: g.descripcion,
+          proveedor: g.proveedor,
+          cuenta_contable: g.cuenta_contable,
+          importe_base: g.importe_base ?? 0,
+          importe_iva: g.importe_iva ?? 0,
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos', 'kilometrico-pendiente'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      toast.success('Gasto registrado como pagado');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  // Rechazar borra la fila sin dejar rastro (p.ej. porque la visita fue con la furgoneta, no con
+  // el vehículo del cálculo) — nunca llegó a generar asiento, así que no hay nada que rectificar.
+  const rechazarPendienteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('gastos').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos', 'kilometrico-pendiente'] });
+      toast.success('Gasto rechazado');
     },
     onError: (error) => toast.error(error.message),
   });
 
   const categoriasDisponibles = useMemo(() => {
     const set = new Set((gastos ?? []).map((g) => g.categoria).filter((c): c is string => !!c));
-    return ['Todas', ...Array.from(set).sort()];
+    return ['Todas', SIN_CATEGORIZAR, ...Array.from(set).sort()];
   }, [gastos]);
 
   const filtrados = useMemo(() => {
@@ -85,13 +152,19 @@ export default function GastosPage() {
     const q = busqueda.trim().toLowerCase();
     return gastos.filter((g) => {
       if (filtroPais !== 'Todos' && g.pais !== filtroPais) return false;
-      if (filtroCategoria !== 'Todas' && g.categoria !== filtroCategoria) return false;
+      if (filtroCategoria === SIN_CATEGORIZAR) {
+        if (g.cuenta_contable) return false;
+      } else if (filtroCategoria !== 'Todas' && g.categoria !== filtroCategoria) {
+        return false;
+      }
+      if (filtroEstado === 'Pendientes de revisar' && g.estado_gasto !== 'pendiente') return false;
+      if (filtroEstado === 'Pagados' && g.estado_gasto !== 'pagado') return false;
       if (desde && (!g.fecha || g.fecha < desde)) return false;
       if (hasta && (!g.fecha || g.fecha > hasta)) return false;
       if (q && !`${g.descripcion ?? ''} ${g.proveedor ?? ''}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [gastos, busqueda, filtroPais, filtroCategoria, desde, hasta]);
+  }, [gastos, busqueda, filtroPais, filtroCategoria, filtroEstado, desde, hasta]);
 
   const kpis = useMemo(() => {
     const todos = gastos ?? [];
@@ -101,17 +174,23 @@ export default function GastosPage() {
       .reduce((s, g) => s + totalConIva(g), 0);
     const totalBase = todos.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const totalIvaDeducible = todos.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+    // Gastos sin cuenta contable asignada caen en la cuenta de espera 471 en el libro diario y
+    // desajustan el compte de résultat — este contador ayuda a que no se acumulen sin revisar.
+    const sinCategorizar = todos.filter((g) => !g.cuenta_contable).length;
+    const pendientesRevisar = todos.filter((g) => g.estado_gasto === 'pendiente').length;
     return [
       { label: 'Total gastos', valor: todos.length },
       { label: 'Total este mes', valor: `${totalEsteMes.toFixed(0)} €` },
       { label: 'Base deducible', valor: `${totalBase.toFixed(0)} €` },
       { label: 'IVA deducible', valor: `${totalIvaDeducible.toFixed(0)} €`, acento: true },
+      { label: 'Sin categorizar', valor: sinCategorizar, acento: sinCategorizar > 0 },
+      { label: 'Pendientes de revisar', valor: pendientesRevisar, acento: pendientesRevisar > 0 },
     ];
   }, [gastos]);
 
   const handleEliminar = async (g: Gasto) => {
     if (!(await confirmar(`¿Eliminar el gasto "${g.descripcion ?? g.proveedor ?? ''}"?`))) return;
-    eliminarMutation.mutate(g.id);
+    eliminarMutation.mutate(g);
   };
 
   if (creandoNuevo) {
@@ -167,8 +246,15 @@ export default function GastosPage() {
           className="w-36"
         />
         <Select
+          label="Estado"
+          options={ESTADOS_FILTRO.map((e) => ({ value: e, label: e }))}
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          className="w-44"
+        />
+        <Select
           label="Categoría"
-          options={categoriasDisponibles.map((c) => ({ value: c, label: c }))}
+          options={categoriasDisponibles.map((c) => ({ value: c, label: c === SIN_CATEGORIZAR ? '— Sin categorizar —' : c }))}
           value={filtroCategoria}
           onChange={(e) => setFiltroCategoria(e.target.value)}
           className="w-56"
@@ -188,7 +274,8 @@ export default function GastosPage() {
             variant: 'danger',
             onClick: async () => {
               if (!(await confirmar(`¿Eliminar ${seleccion.size} gasto(s)?`))) return;
-              eliminarVariosMutation.mutate(Array.from(seleccion));
+              const seleccionados = (gastos ?? []).filter((g) => seleccion.has(g.id));
+              eliminarVariosMutation.mutate(seleccionados);
             },
             disabled: eliminarVariosMutation.isPending,
           },
@@ -219,6 +306,11 @@ export default function GastosPage() {
             { key: 'categoria', label: 'Categoría' },
             { key: 'pais', label: 'País' },
             { key: 'cuenta_contable', label: 'Cuenta' },
+            {
+              key: 'estado_gasto',
+              label: 'Estado',
+              render: (g) => (g.estado_gasto === 'pendiente' ? <Badge variant="pendiente">Pendiente de revisar</Badge> : null),
+            },
             {
               key: 'base',
               label: 'Base (sin IVA)',
@@ -260,16 +352,31 @@ export default function GastosPage() {
               key: 'acciones',
               label: '',
               sortable: false,
-              render: (g) => (
-                <AccionesFila
-                  rapidas={[{ icon: Copy, label: 'Duplicar', tono: 'neutro', onClick: () => setDuplicandoDesde(g) }]}
-                  menu={[
-                    { label: 'Editar', onClick: () => setGastoSeleccionado(g) },
-                    { label: 'Duplicar', onClick: () => setDuplicandoDesde(g) },
-                    { label: 'Eliminar', onClick: () => handleEliminar(g), destructivo: true },
-                  ]}
-                />
-              ),
+              render: (g) => {
+                const rapidas: AccionRapida[] =
+                  g.estado_gasto === 'pendiente'
+                    ? [
+                        { icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => registrarPagoMutation.mutate(g) },
+                        { icon: X, label: 'Rechazar', tono: 'peligro', onClick: () => rechazarPendienteMutation.mutate(g.id) },
+                      ]
+                    : [{ icon: Copy, label: 'Duplicar', tono: 'neutro', onClick: () => setDuplicandoDesde(g) }];
+                return (
+                  <AccionesFila
+                    rapidas={rapidas}
+                    menu={[
+                      ...(g.estado_gasto === 'pendiente'
+                        ? [
+                            { label: 'Registrar pago', onClick: () => registrarPagoMutation.mutate(g) },
+                            { label: 'Rechazar', onClick: () => rechazarPendienteMutation.mutate(g.id), destructivo: true },
+                          ]
+                        : []),
+                      { label: 'Editar', onClick: () => setGastoSeleccionado(g) },
+                      { label: 'Duplicar', onClick: () => setDuplicandoDesde(g) },
+                      { label: 'Eliminar', onClick: () => handleEliminar(g), destructivo: true },
+                    ]}
+                  />
+                );
+              },
             },
           ]}
         />

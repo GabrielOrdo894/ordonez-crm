@@ -66,7 +66,9 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       toast.success('Pago registrado');
       // Solo facturas de Francia van al libro diario (PCG) — ver plan de Contabilidad francesa.
-      if (factura && factura.pais === 'Francia') {
+      // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL, no es ingreso
+      // real de la EURL — no genera apunte.
+      if (factura && factura.pais === 'Francia' && !factura.estructura_anterior) {
         registrarAsientoFacturaCobro(
           { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
           monto,

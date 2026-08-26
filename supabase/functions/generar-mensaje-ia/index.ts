@@ -9,7 +9,7 @@
 // Body esperado: { "tipo": "solicitud" | "seguimiento", "id": "<uuid>", "modelo"?: string }
 // "modelo" es opcional — "claude-haiku-4-5" (por defecto, económico) o "claude-sonnet-5"
 // (más preciso, más caro). Cualquier otro valor cae al modelo por defecto.
-// Ver docs/bloque6-solicitudes-seguimiento.md y docs/directrices-respuesta-clientes.md.
+// Ver docs/producto/bloque6-solicitudes-seguimiento.md y docs/negocio/directrices-respuesta-clientes.md.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -61,7 +61,7 @@ function precioModelo(modelo: string): { input: number; output: number } {
   return { input: 1, output: 5 }; // claude-haiku-4-5
 }
 
-// --- Algoritmo de horarios por defecto (idéntico al de docs/directrices-respuesta-clientes.md) ---
+// --- Algoritmo de horarios por defecto (idéntico al de docs/negocio/directrices-respuesta-clientes.md) ---
 
 function addDays(d: Date, n: number): Date {
   const r = new Date(d);
@@ -206,7 +206,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: empresaRow } = await supabase
       .from('empresa_config')
-      .select('datos, visitas_disponibles_desde')
+      .select('datos, visitas_disponibles_desde, ia_presupuesto_mensual_usd')
       .eq('id', 1)
       .maybeSingle();
     const empresa = (empresaRow?.datos ?? {}) as Record<string, unknown>;
@@ -302,6 +302,26 @@ Responde SIEMPRE llamando a la herramienta entregar_mensaje.`;
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) return jsonResponse({ error: 'Falta el secreto ANTHROPIC_API_KEY en la Edge Function' }, 500);
 
+    // El gauge de uso mensual en SolicitudDetalle.tsx era solo informativo — nunca impedía llamar
+    // a Anthropic aunque ya se hubiera superado el presupuesto (bug real corregido 2026-08-18).
+    // Mismo criterio de "primer día del mes" y mismo default (10 USD) que el frontend.
+    const presupuestoMensual = (empresaRow?.ia_presupuesto_mensual_usd as number | undefined) ?? 10;
+    const primerDiaMes = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+    const { data: llamadasMes, error: errorUso } = await supabase
+      .from('llamadas_ia')
+      .select('costo_usd')
+      .gte('created_at', primerDiaMes);
+    if (errorUso) return jsonResponse({ error: `No se pudo comprobar el uso de IA: ${errorUso.message}` }, 500);
+    const usoIaMes = (llamadasMes ?? []).reduce((s, r) => s + Number(r.costo_usd), 0);
+    if (presupuestoMensual > 0 && usoIaMes >= presupuestoMensual) {
+      return jsonResponse(
+        {
+          error: `Presupuesto mensual de IA agotado (${usoIaMes.toFixed(2)} $ de ${presupuestoMensual.toFixed(2)} $). Amplíalo en Configuración si hace falta seguir generando mensajes este mes.`,
+        },
+        429,
+      );
+    }
+
     const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -355,7 +375,11 @@ Responde SIEMPRE llamando a la herramienta entregar_mensaje.`;
     const precio = precioModelo(modelo);
     const costoUsd = (inputTokens / 1_000_000) * precio.input + (outputTokens / 1_000_000) * precio.output;
 
-    await supabase.from('llamadas_ia').insert({
+    // No comprobar estos errores hacía que la función devolviera {ok:true} aunque el mensaje
+    // generado nunca se guardara (bug real corregido 2026-08-18, contradice CLAUDE.md §1). El
+    // registro de consumo (llamadas_ia) no es crítico para el usuario — si falla, se loguea pero
+    // no se aborta la respuesta. El guardado del mensaje sí lo es: si falla, se informa como error.
+    const { error: errorLlamadaIa } = await supabase.from('llamadas_ia').insert({
       tipo,
       referencia_id: id,
       modelo,
@@ -363,14 +387,17 @@ Responde SIEMPRE llamando a la herramienta entregar_mensaje.`;
       output_tokens: outputTokens,
       costo_usd: costoUsd,
     });
+    if (errorLlamadaIa) console.error('No se pudo registrar el consumo de IA:', errorLlamadaIa.message);
 
-    if (tipo === 'solicitud') {
-      await supabase
-        .from('solicitudes')
-        .update({ mensaje_generado: JSON.stringify(mensaje), mensaje_generado_en: new Date().toISOString(), estado: 'Borrador' })
-        .eq('id', id);
-    } else {
-      await supabase.from('presupuestos').update({ mensaje_seguimiento_generado: JSON.stringify(mensaje) }).eq('id', id);
+    const { error: errorGuardar } =
+      tipo === 'solicitud'
+        ? await supabase
+            .from('solicitudes')
+            .update({ mensaje_generado: JSON.stringify(mensaje), mensaje_generado_en: new Date().toISOString() })
+            .eq('id', id)
+        : await supabase.from('presupuestos').update({ mensaje_seguimiento_generado: JSON.stringify(mensaje) }).eq('id', id);
+    if (errorGuardar) {
+      return jsonResponse({ error: `El mensaje se generó pero no se pudo guardar: ${errorGuardar.message}` }, 500);
     }
 
     return jsonResponse({ ok: true, mensaje, slots, modelo, costoUsd });

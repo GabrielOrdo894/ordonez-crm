@@ -13,7 +13,7 @@ Code APE:       4399C
 ```
 
 > Corregido 2026-08-12 tras verificar contra los estatutos, el extrait Kbis y el registre des
-> bénéficiaires effectifs reales (`documentos legales/` en el proyecto, fuera de git): el SIRET/TVA
+> bénéficiaires effectifs reales (`negocio/documentos legales/` en el proyecto, fuera de git): el SIRET/TVA
 > que había aquí antes (994 426 286 00013 / FR 26994426286) no coincidía con el SIREN real de la
 > sociedad (106 842 925) — ya estaba mal también en `empresa_config` de Supabase, corregido ahí
 > también. Falta el SIRET completo de 14 dígitos (SIREN + código NIC del establecimiento) — el
@@ -37,7 +37,7 @@ Teléfono: +34 697 29 41 38 · Web: ordonezrenov.com
 
 **Límite de zona (Gabriel, 2026-08-02):** el límite real por el lado francés es Biarritz (pasando por Hendaya,
 Urrugne, Biriatu); por el lado español, Donostia/San Sebastián. Si llega un cliente con dirección de obra fuera de
-estos límites, ver directriz en `docs/directrices-respuesta-clientes.md`.
+estos límites, ver directriz en `docs/negocio/directrices-respuesta-clientes.md`.
 
 ## Regla fiscal automática
 

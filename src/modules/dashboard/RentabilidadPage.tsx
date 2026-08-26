@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
-import { formatearPrecio } from '../finanzas/lineas';
+import { formatearPrecio, calcularTotales } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
@@ -11,6 +11,7 @@ type FilaProyecto = {
   id: string;
   cliente: string;
   facturado: number;
+  cobrado: number;
   gastos: number;
   margen: number;
   margenPct: number | null;
@@ -51,16 +52,25 @@ export default function RentabilidadPage() {
   const cargando = cargandoVisitas || cargandoFacturas || cargandoGastos;
 
   const { filas, gastosSinProyecto } = useMemo(() => {
-    const porVisita = new Map<string, { facturado: number; gastos: number }>();
+    const porVisita = new Map<string, { facturado: number; cobrado: number; gastos: number }>();
     const asegurar = (id: string) => {
-      if (!porVisita.has(id)) porVisita.set(id, { facturado: 0, gastos: 0 });
+      if (!porVisita.has(id)) porVisita.set(id, { facturado: 0, cobrado: 0, gastos: 0 });
       return porVisita.get(id)!;
     };
 
+    // estructura_anterior (2026-08-22): cobros de una empresa anterior a la EURL actual, se
+    // registran en el CRM para las acomptes pero no son ingreso/margen real de esta EURL.
     for (const f of facturas ?? []) {
-      if (!f.visita_id) continue;
-      const total = (f.lineas ?? []).reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
-      asegurar(f.visita_id).facturado += total;
+      if (!f.visita_id || f.estructura_anterior) continue;
+      const { totalConIva } = calcularTotales(f.lineas ?? []);
+      const fila = asegurar(f.visita_id);
+      fila.facturado += totalConIva;
+      // monto_pagado es el cobro real acumulado de esa factura (RegistrarPagoModal/
+      // VincularFacturaModal lo mantienen exacto, incluye cobros parciales) — el margen se basa en
+      // esto, no en "facturado", para no contar como beneficio una factura Vencida o pendiente de
+      // cobro todavía (bug real corregido 2026-08-18: "Margen real" podía incluir dinero que el
+      // cliente nunca llegó a pagar).
+      fila.cobrado += f.monto_pagado ?? 0;
     }
 
     let gastosSinProyecto = 0;
@@ -79,14 +89,15 @@ export default function RentabilidadPage() {
       .filter(([, v]) => v.facturado !== 0 || v.gastos !== 0)
       .map(([visitaId, v]) => {
         const visita = visitasPorId.get(visitaId);
-        const margen = v.facturado - v.gastos;
+        const margen = v.cobrado - v.gastos;
         return {
           id: visitaId,
           cliente: visita ? nombreVisita(visita) : 'Cliente eliminado',
           facturado: v.facturado,
+          cobrado: v.cobrado,
           gastos: v.gastos,
           margen,
-          margenPct: v.facturado !== 0 ? (margen / v.facturado) * 100 : null,
+          margenPct: v.cobrado !== 0 ? (margen / v.cobrado) * 100 : null,
         };
       })
       .sort((a, b) => a.margen - b.margen);
@@ -97,6 +108,7 @@ export default function RentabilidadPage() {
   const totales = useMemo(
     () => ({
       facturado: filas.reduce((s, f) => s + f.facturado, 0),
+      cobrado: filas.reduce((s, f) => s + f.cobrado, 0),
       gastos: filas.reduce((s, f) => s + f.gastos, 0),
       margen: filas.reduce((s, f) => s + f.margen, 0),
     }),
@@ -111,24 +123,27 @@ export default function RentabilidadPage() {
           <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(totales.facturado)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Cobrado (proyectos)</p>
+          <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(totales.cobrado)}</p>
+        </div>
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos (proyectos)</p>
           <p className="text-2xl font-semibold text-red-600">{formatearPrecio(totales.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Margen real</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Margen real (cobrado)</p>
           <p className={`text-2xl font-semibold ${totales.margen >= 0 ? 'text-brand' : 'text-red-600'}`}>
             {formatearPrecio(totales.margen)}
           </p>
         </div>
-        <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos sin proyecto</p>
-          <p className="text-2xl font-semibold text-gray-500">{formatearPrecio(gastosSinProyecto)}</p>
-        </div>
       </div>
+      {gastosSinProyecto > 0 && (
+        <p className="text-xs text-gray-500">Gastos sin proyecto vinculado: {formatearPrecio(gastosSinProyecto)}</p>
+      )}
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
-          Rentabilidad por proyecto — facturado real vs. gastos reales
+          Rentabilidad por proyecto — cobrado real vs. gastos reales
         </p>
         <Table<FilaProyecto>
           loading={cargando}
@@ -141,6 +156,16 @@ export default function RentabilidadPage() {
               render: (f) => formatearPrecio(f.facturado),
             },
             {
+              key: 'cobrado',
+              label: 'Cobrado',
+              render: (f) =>
+                f.cobrado < f.facturado ? (
+                  <span className="text-amber-700">{formatearPrecio(f.cobrado)}</span>
+                ) : (
+                  formatearPrecio(f.cobrado)
+                ),
+            },
+            {
               key: 'gastos',
               label: 'Gastos',
               render: (f) => formatearPrecio(f.gastos),
@@ -149,8 +174,8 @@ export default function RentabilidadPage() {
               key: 'margen',
               label: 'Margen',
               render: (f) =>
-                f.facturado === 0 ? (
-                  <span className="text-amber-700 font-medium">Sin facturar — {formatearPrecio(f.margen)} en gastos</span>
+                f.cobrado === 0 ? (
+                  <span className="text-amber-700 font-medium">Sin cobrar — {formatearPrecio(f.margen)} en gastos</span>
                 ) : (
                   <span className={f.margen >= 0 ? 'text-gray-900' : 'text-red-600 font-medium'}>{formatearPrecio(f.margen)}</span>
                 ),
@@ -167,12 +192,13 @@ export default function RentabilidadPage() {
             },
           ]}
           data={filas}
-          rowClassName={(f) => (f.facturado === 0 ? 'bg-amber-50' : f.margen < 0 ? 'bg-red-50' : '')}
+          rowClassName={(f) => (f.cobrado === 0 ? 'bg-amber-50' : f.margen < 0 ? 'bg-red-50' : '')}
         />
         <p className="text-xs text-gray-400 mt-2">
-          Filas en ámbar: proyectos con gastos ya registrados pero sin ninguna factura todavía — no son una pérdida
-          real, solo obra en curso pendiente de facturar. Solo se marca en rojo un margen negativo cuando ya hay
-          facturación de por medio.
+          El margen se calcula sobre lo realmente <strong>cobrado</strong>, no sobre lo facturado — una factura
+          emitida pero todavía pendiente o vencida no cuenta como beneficio hasta que se cobra (columna "Cobrado" en
+          ámbar cuando queda por debajo de lo facturado). Filas en ámbar: proyectos con gastos ya registrados pero
+          sin ningún cobro todavía — no son una pérdida real, solo obra en curso o facturación pendiente de cobro.
         </p>
       </div>
     </div>

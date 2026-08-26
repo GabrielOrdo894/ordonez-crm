@@ -71,6 +71,11 @@ export default function PerfilPage() {
     try {
       const url = await subirAvatarPersonal(user.id, blob);
       setAvatarUrl(url);
+      // Persistir de inmediato con la URL recién subida (no depender de que el usuario pulse
+      // "Guardar" después) — subirAvatarPersonal ya borró el avatar antiguo de Storage, así que
+      // salir sin guardar dejaba la cuenta apuntando a un archivo que ya no existe (bug real
+      // corregido 2026-08-18, avatar roto de forma irreversible).
+      await guardarMutation.mutateAsync(url);
     } catch (error) {
       toast.error(mensajeError(error));
     } finally {
@@ -79,9 +84,9 @@ export default function PerfilPage() {
   };
 
   const guardarMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (avatarUrlAGuardar: string) => {
       const { error } = await supabase.auth.updateUser({
-        data: { ...metadata, nombre, telefono, avatar_url: avatarUrl },
+        data: { ...metadata, nombre, telefono, avatar_url: avatarUrlAGuardar },
       });
       if (error) throw error;
     },
@@ -109,7 +114,7 @@ export default function PerfilPage() {
       <section className="bg-surface border border-gray-200 rounded-sm p-4">
         <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Mi perfil</p>
-          <Button size="sm" onClick={() => guardarMutation.mutate()} disabled={guardarMutation.isPending}>
+          <Button size="sm" onClick={() => guardarMutation.mutate(avatarUrl)} disabled={guardarMutation.isPending}>
             {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </div>

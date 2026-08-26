@@ -17,7 +17,7 @@ const SCOPE_GMAIL = 'https://www.googleapis.com/auth/gmail.readonly https://www.
 
 // Token de acceso compartido, renovado en segundo plano vía la Edge Function
 // `google-token` a partir del refresh_token guardado en la tabla `google_config`.
-// Ver docs/google-apis.md — flujo de autorización persistente.
+// Ver docs/tecnico/google-apis.md — flujo de autorización persistente.
 let tokenEnMemoria: { access_token: string; expires_at: number } | null = null;
 
 function iniciarConexionGoogle(purpose: 'calendar' | 'gmail', scope: string, volverA: string) {
@@ -48,7 +48,13 @@ async function obtenerAccessToken(forzarRenovacion = false): Promise<string> {
     return tokenEnMemoria.access_token;
   }
   const { data, error } = await supabase.functions.invoke('google-token');
-  if (error) throw new Error('No se pudo contactar con Google Calendar');
+  if (error) {
+    // google-token ahora devuelve status codes reales (401/409/500/502) en vez de siempre 200
+    // (bug real corregido 2026-08-18, arregla la observabilidad en el dashboard de Supabase) —
+    // supabase-js deja error.message genérico en ese caso, hay que leer el mensaje real del body.
+    const cuerpo = await (error as { context?: Response }).context?.json?.().catch(() => null);
+    throw new Error(cuerpo?.error ?? 'No se pudo contactar con Google Calendar');
+  }
   if (!data?.access_token) {
     throw new Error(data?.error ?? 'Google Calendar no está conectado. Pide a un administrador que lo conecte desde Configuración.');
   }
@@ -120,9 +126,10 @@ type EventoVisita = {
   estado: string | null;
   fecha_visita: string | null;
   hora_visita: string | null;
+  hora_fin_visita?: string | null;
 };
 
-function horaFin(hora: string) {
+function horaFinDefecto(hora: string) {
   const [h, m] = hora.split(':').map(Number);
   const fin = new Date(2000, 0, 1, h, m);
   fin.setHours(fin.getHours() + 1);
@@ -141,15 +148,12 @@ function recordatoriosVisita(hora: string) {
   return { useDefault: false, overrides };
 }
 
-export async function crearEventoVisita(v: EventoVisita): Promise<string | null> {
-  if (!v.fecha_visita || !v.hora_visita) return null;
-  const token = await obtenerAccessToken();
-
-  // Supabase/PostgREST devuelve las columnas `time` como "HH:MM:SS" — hay que recortar
-  // los segundos antes de componer el dateTime ISO, si no la API de Google la rechaza.
-  const hora = v.hora_visita.slice(0, 5);
-
-  const evento = {
+// Payload compartido entre crear y actualizar — antes solo existía para crear, así que reprogramar
+// una visita que ya tenía evento (fecha, hora o dirección distintas) dejaba el Calendar con los
+// datos viejos y el equipo podía llegar al sitio o a la hora equivocada (mejora real, auditoría de
+// Visitas 2026-08-18).
+function construirEventoPayload(v: EventoVisita, hora: string) {
+  return {
     summary: `Visita Tecnica - ${v.tipo ?? 'Sin especificar'}`,
     location: v.direccion ?? '',
     description: [
@@ -168,10 +172,20 @@ export async function crearEventoVisita(v: EventoVisita): Promise<string | null>
       `Asignado: ${v.empleado ?? 'Sin asignar'}`,
     ].join('\n'),
     start: { dateTime: `${v.fecha_visita}T${hora}:00`, timeZone: 'Europe/Paris' },
-    end: { dateTime: `${v.fecha_visita}T${horaFin(hora)}:00`, timeZone: 'Europe/Paris' },
+    end: { dateTime: `${v.fecha_visita}T${(v.hora_fin_visita?.slice(0, 5)) || horaFinDefecto(hora)}:00`, timeZone: 'Europe/Paris' },
     colorId: v.estado === 'Realizada' ? '10' : v.estado === 'Cancelada' ? '8' : '5',
     reminders: recordatoriosVisita(hora),
   };
+}
+
+export async function crearEventoVisita(v: EventoVisita): Promise<string | null> {
+  if (!v.fecha_visita || !v.hora_visita) return null;
+  const token = await obtenerAccessToken();
+
+  // Supabase/PostgREST devuelve las columnas `time` como "HH:MM:SS" — hay que recortar
+  // los segundos antes de componer el dateTime ISO, si no la API de Google la rechaza.
+  const hora = v.hora_visita.slice(0, 5);
+  const evento = construirEventoPayload(v, hora);
 
   const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
@@ -185,6 +199,33 @@ export async function crearEventoVisita(v: EventoVisita): Promise<string | null>
   }
   const data = await res.json();
   return data.id ?? null;
+}
+
+// Actualiza un evento ya existente (reprogramación) — mismo payload que crearEventoVisita, PATCH
+// en vez de POST. Si el evento ya no existe en Google (borrado a mano), 404/410 se trata como
+// "no hay nada que actualizar", no como error — igual que ya hace eliminarEventoVisita.
+export async function actualizarEventoVisita(eventId: string, v: EventoVisita): Promise<void> {
+  if (!v.fecha_visita || !v.hora_visita) return;
+  let token = await obtenerAccessToken();
+  const hora = v.hora_visita.slice(0, 5);
+  const evento = construirEventoPayload(v, hora);
+
+  const hacerPatch = (t: string) =>
+    fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(evento),
+    });
+
+  let res = await hacerPatch(token);
+  if (res.status === 401) {
+    token = await obtenerAccessToken(true);
+    res = await hacerPatch(token);
+  }
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    const detalle = await res.text().catch(() => '');
+    throw new Error(`No se pudo actualizar el evento en Google Calendar (${res.status}): ${detalle}`);
+  }
 }
 
 // Borra el evento de una visita cancelada — 404/410 significan que ya no existe (borrado a mano

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Search, UserPlus } from 'lucide-react';
+import { ArrowLeft, UserPlus } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
-import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { ClienteForm } from '../../clientes/ClienteForm';
-import { agruparClientes } from '../../clientes/types';
+import { SelectorClienteInline } from '../../clientes/SelectorClienteInline';
+import { usePotencialesCliente } from '../../clientes/usePotencialesCliente';
+import { agruparClientes, ETIQUETA_ORIGEN_POTENCIAL } from '../../clientes/types';
+import type { Cliente, ClientePotencial } from '../../clientes/types';
 import type { Visita } from '../../visitas/types';
 import { FORMATOS_PRESUPUESTO } from './types';
 import type { TipoPresupuesto, FormatoPresupuesto } from './types';
@@ -14,6 +16,9 @@ export type InicioPresupuesto = {
   formato: FormatoPresupuesto;
   tipo: TipoPresupuesto;
   clienteId: string;
+  // Solo se usa cuando clienteId queda vacío (presupuesto orientativo sin cliente real todavía) —
+  // rellena de entrada los campos de texto libre del propio presupuesto (cliente_nombre/tel/email).
+  clientePotencialPrefill?: { nombre: string; telefono: string; email: string; idioma?: string };
   idioma: string;
 };
 
@@ -26,10 +31,10 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
   const [formato, setFormato] = useState<FormatoPresupuesto>('rapido');
   const [tipo, setTipo] = useState<TipoPresupuesto>('normal');
   const [idioma, setIdioma] = useState('Español');
-  const [busqueda, setBusqueda] = useState('');
   const [clienteId, setClienteId] = useState('');
-  const [listaAbierta, setListaAbierta] = useState(false);
+  const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
   const [creandoCliente, setCreandoCliente] = useState(false);
+  const [prefillClienteForm, setPrefillClienteForm] = useState<{ nombre?: string; telefono?: string; email?: string; idioma?: string } | undefined>();
 
   const { data: visitas } = useQuery({
     queryKey: ['visitas'],
@@ -45,15 +50,32 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
   });
 
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
-
-  const sugerencias = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return clientes.slice(0, 8);
-    return clientes.filter((c) => `${c.nombre} ${c.apellidos} ${c.telefono}`.toLowerCase().includes(q)).slice(0, 8);
-  }, [clientes, busqueda]);
-
-  const sinCoincidencias = busqueda.trim().length > 0 && sugerencias.length === 0;
+  const potenciales = usePotencialesCliente(clientes);
   const clienteElegido = clientes.find((c) => c.id === clienteId);
+
+  const handleCambiarTipo = (nuevoTipo: TipoPresupuesto) => {
+    setTipo(nuevoTipo);
+    if (nuevoTipo === 'normal') setPotencialElegido(null);
+  };
+
+  const handleSeleccionarCliente = (cliente: Cliente) => {
+    setClienteId(cliente.id);
+    setPotencialElegido(null);
+  };
+
+  const handleSeleccionarPotencial = (potencial: ClientePotencial) => {
+    if (tipo === 'orientativo') {
+      setPotencialElegido(potencial);
+      setClienteId('');
+      return;
+    }
+    // Un presupuesto normal sigue exigiendo un cliente real — abrimos el alta ya rellenada
+    // con los datos del potencial en vez de forzar a retipearlos.
+    setPrefillClienteForm({ nombre: potencial.nombre, telefono: potencial.telefono, email: potencial.email ?? undefined, idioma: potencial.idioma ?? undefined });
+    setCreandoCliente(true);
+  };
+
+  const puedeContinuar = tipo === 'orientativo' || !!clienteId;
 
   return (
     <div className="max-w-2xl mx-auto animate-[scale-in_180ms_ease-out]">
@@ -87,25 +109,25 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">2. Tipo de presupuesto</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
-            onClick={() => setTipo('normal')}
+            onClick={() => handleCambiarTipo('normal')}
             className={`text-left border rounded-sm p-3.5 transition-colors ${
               tipo === 'normal' ? 'border-brand bg-brand-light' : 'border-gray-200 bg-surface hover:border-gray-300'
             }`}
           >
             <p className="font-semibold text-gray-900 mb-1">Normal</p>
             <p className="text-xs text-gray-500">
-              Presupuesto detallado con precios cerrados, plan de pago y firma del cliente.
+              Presupuesto detallado con precios cerrados, plan de pago y firma del cliente. Exige un cliente registrado.
             </p>
           </button>
           <button
-            onClick={() => setTipo('orientativo')}
+            onClick={() => handleCambiarTipo('orientativo')}
             className={`text-left border rounded-sm p-3.5 transition-colors ${
               tipo === 'orientativo' ? 'border-brand bg-brand-light' : 'border-gray-200 bg-surface hover:border-gray-300'
             }`}
           >
             <p className="font-semibold text-gray-900 mb-1">Orientativo</p>
             <p className="text-xs text-gray-500">
-              Estimación rápida con precios en rango, sin plan de pago ni firma — para una primera idea de precio.
+              Estimación rápida con precios en rango, sin plan de pago ni firma — no hace falta registrar cliente.
             </p>
           </button>
         </div>
@@ -121,13 +143,19 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
               </p>
               <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
             </div>
-            <button
-              onClick={() => {
-                setClienteId('');
-                setBusqueda('');
-              }}
-              className="text-xs text-gray-500 hover:text-red-600"
-            >
+            <button onClick={() => setClienteId('')} className="text-xs text-gray-500 hover:text-red-600">
+              Cambiar
+            </button>
+          </div>
+        ) : potencialElegido ? (
+          <div className="flex items-center justify-between border border-amber-200 rounded-sm px-3 py-2.5 bg-amber-50">
+            <div>
+              <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
+              <p className="text-xs text-amber-700">
+                {[potencialElegido.telefono, ETIQUETA_ORIGEN_POTENCIAL[potencialElegido.origen]].filter(Boolean).join(' · ')}
+              </p>
+            </div>
+            <button onClick={() => setPotencialElegido(null)} className="text-xs text-gray-500 hover:text-red-600">
               Cambiar
             </button>
           </div>
@@ -137,64 +165,33 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
               Se registra como cliente nuevo de verdad (igual que desde Clientes) y luego se usa para este presupuesto.
             </p>
             <ClienteForm
-              onClose={() => setCreandoCliente(false)}
+              onClose={() => {
+                setCreandoCliente(false);
+                setPrefillClienteForm(undefined);
+              }}
               onCreado={(cliente) => {
                 setClienteId(cliente.id);
                 setCreandoCliente(false);
+                setPrefillClienteForm(undefined);
               }}
+              prefill={prefillClienteForm}
             />
           </div>
         ) : (
-          <div className="relative">
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <Input
-                className="pl-8"
-                placeholder="Buscar cliente por nombre o teléfono..."
-                value={busqueda}
-                onChange={(e) => {
-                  setBusqueda(e.target.value);
-                  setListaAbierta(true);
-                }}
-                onFocus={() => setListaAbierta(true)}
-                onBlur={() => setTimeout(() => setListaAbierta(false), 150)}
-              />
-            </div>
-            {listaAbierta && (
-              <div className="absolute z-10 mt-1 w-full bg-surface border border-gray-200 rounded-sm shadow-sm max-h-64 overflow-y-auto">
-                {!busqueda.trim() && (
-                  <p className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                    Clientes recientes
-                  </p>
-                )}
-                {sugerencias.map((c) => (
-                  <button
-                    key={c.id}
-                    onMouseDown={() => {
-                      setClienteId(c.id);
-                      setListaAbierta(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                  >
-                    <p className="text-gray-900">
-                      {c.nombre} {c.apellidos}
-                    </p>
-                    <p className="text-xs text-gray-400">{c.telefono}</p>
-                  </button>
-                ))}
-                {sinCoincidencias && (
-                  <button
-                    onMouseDown={() => {
-                      setCreandoCliente(true);
-                      setListaAbierta(false);
-                    }}
-                    className="w-full flex items-center gap-1.5 text-left px-3 py-2.5 text-sm text-brand hover:bg-brand-light"
-                  >
-                    <UserPlus size={14} className="shrink-0" />
-                    Crear cliente nuevo: "{busqueda}"
-                  </button>
-                )}
-              </div>
+          <div>
+            <SelectorClienteInline
+              clientes={clientes}
+              potenciales={potenciales}
+              onSeleccionarCliente={handleSeleccionarCliente}
+              onSeleccionarPotencial={handleSeleccionarPotencial}
+              onCrearNuevo={() => setCreandoCliente(true)}
+              placeholder="Buscar cliente por nombre o teléfono..."
+            />
+            {tipo === 'orientativo' && (
+              <p className="text-xs text-gray-400 mt-1.5">
+                Para un orientativo no hace falta cliente registrado — puedes continuar sin elegir ninguno y
+                escribir sus datos directamente en el presupuesto.
+              </p>
             )}
             <button
               onClick={() => setCreandoCliente(true)}
@@ -230,7 +227,25 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
       </section>
 
       {!creandoCliente && (
-        <Button onClick={() => onContinuar({ formato, tipo, clienteId, idioma })} disabled={!clienteId}>
+        <Button
+          onClick={() =>
+            onContinuar({
+              formato,
+              tipo,
+              clienteId,
+              clientePotencialPrefill: potencialElegido
+                ? {
+                    nombre: potencialElegido.nombre,
+                    telefono: potencialElegido.telefono,
+                    email: potencialElegido.email ?? '',
+                    idioma: potencialElegido.idioma ?? undefined,
+                  }
+                : undefined,
+              idioma,
+            })
+          }
+          disabled={!puedeContinuar}
+        >
           Continuar
         </Button>
       )}

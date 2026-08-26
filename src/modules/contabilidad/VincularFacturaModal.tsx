@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import type { Factura } from '../finanzas/facturas/types';
 import type { MovimientoBanco } from './types';
 import { registrarEvento } from '../../lib/eventos';
+import { registrarAsientoFacturaCobro } from '../../lib/asientosContables';
 
 function totalFactura(f: Factura) {
   return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
@@ -80,11 +81,28 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
         factura.id,
         `Pago de ${movimiento.importe.toFixed(2)} € vinculado automáticamente desde movimiento bancario importado (OFX)`,
       );
+
+      return factura;
     },
-    onSuccess: () => {
+    onSuccess: (factura) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
       toast.success('Factura marcada como cobrada y movimiento vinculado');
+      // Solo facturas de Francia van al libro diario (PCG). Sin esto, un cobro conciliado por
+      // banco quedaba invisible para el Libro Diario/Mayor y la Liasse Fiscale, sin que el KPI de
+      // "Descuadre" pudiera detectarlo — cada grupo de asiento cuadra por construcción, así que un
+      // cobro que nunca se registró no descuadra nada, solo falta (bug real corregido 2026-08-18).
+      // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL, no es ingreso
+      // real de la EURL — no genera apunte.
+      if (factura && movimiento && factura.pais === 'Francia' && !factura.estructura_anterior) {
+        registrarAsientoFacturaCobro(
+          { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
+          movimiento.importe,
+          movimiento.fecha,
+        )
+          .then(() => queryClient.invalidateQueries({ queryKey: ['asientos_contables'] }))
+          .catch((error) => toast.warning(`Pago vinculado, pero no se pudo registrar en el libro diario: ${error.message}`));
+      }
       onClose();
     },
     onError: (error: Error) => toast.error(error.message),

@@ -9,9 +9,9 @@ Eres el revisor SEO y de calidad editorial del blog de Reformas Ordoñez. Audita
 
 ## Entrada
 
-- El artículo en `equipo-marketing/articulos/[keyword-slug].md`
+- El artículo en `negocio/equipo-marketing/articulos/[keyword-slug].md`
 - El brief de Gabriel (keyword principal, secundarias, enfoque)
-- El dossier del investigador en `equipo-marketing/dossiers/[keyword-slug].md` (para verificar datos)
+- El dossier del investigador en `negocio/equipo-marketing/dossiers/[keyword-slug].md` (para verificar datos)
 
 ## Qué auditas — en este orden
 

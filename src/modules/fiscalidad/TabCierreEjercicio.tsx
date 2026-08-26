@@ -10,21 +10,14 @@ import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
 import { generarPdfLiasseFiscale } from '../../lib/generarPdfLiasseFiscale';
 import { registrarDecision } from '../../lib/registroDecisiones';
-import { useFiscalConfig } from './useFiscalConfig';
-import { useGerantConfig } from './useGerantConfig';
-import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useComptaFrancia } from './useComptaFrancia';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularReservaLegal, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { useEjercicioFiscal } from './useEjercicioFiscal';
+import { useFiscalConfig } from './useFiscalConfig';
+import { calcularBilanPasivo } from './calculos';
+import { fmt, fmtFecha } from './format';
 import { Faq } from './Faq';
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
-
-function fmtFecha(f: string) {
-  return new Date(`${f}T00:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+import { ResumenTitular } from './ResumenTitular';
 
 const ANIO_ACTUAL = new Date().getFullYear();
 const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
@@ -59,33 +52,12 @@ export function TabCierreEjercicio() {
   const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
   const [generandoLiasse, setGenerandoLiasse] = useState(false);
 
-  const ejercicio = limitesEjercicio(anio);
-  const { config } = useFiscalConfig();
-  const { gerantConfig } = useGerantConfig();
-  const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const { is, resultadoNeto, capitalSocial, reservaLegal } = useEjercicioFiscal(anio);
   const { compteResultat, bilanActivo, activos, cargando } = useComptaFrancia(anio);
   const { echeances, marcarCompletada } = useEcheances();
+  const { guardar: guardarFiscal } = useFiscalConfig();
 
-  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
-  const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
-  const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
-  const is = calcularIS(beneficioNeto, ejercicio.meses, config);
-  const resultadoNeto = Math.max(0, beneficioNeto - is.total);
-  const capitalSocial = gerantConfig?.capital_social ?? 1000;
-  const reservaLegal = calcularReservaLegal(resultadoNeto, capitalSocial, config);
-  const bilanPasivo = useMemo(() => {
-    const reservas = reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion;
-    return {
-      capitalSocial,
-      reservas,
-      resultadoEjercicio: resultadoNeto,
-      dettesFiscales: is.total,
-      dettesFournisseurs: 0,
-      total: capitalSocial + reservas + resultadoNeto + is.total,
-    };
-  }, [capitalSocial, reservaLegal, resultadoNeto, is.total]);
+  const bilanPasivo = calcularBilanPasivo(resultadoNeto, reservaLegal, is, capitalSocial);
 
   const echeancesDelEjercicio = useMemo(
     () => echeances.filter((e) => e.titulo.includes(`ejercicio ${anio}`)),
@@ -113,6 +85,10 @@ export function TabCierreEjercicio() {
   const pasoDepositoHecho = !!echeanceDeposito?.completada;
 
   const handleAprobacionCuentas = async () => {
+    // Se captura antes de disparar nada: si ya se había aprobado este ejercicio, repetir el botón
+    // (permitido, ver FAQ) no debe volver a sumar la dotación a reserva_legal_acumulada — la
+    // sumaría dos veces y corrompería el cálculo real de los próximos ejercicios.
+    const primeraAprobacion = !aprobacionGenerada;
     setGenerandoAprobacion(true);
     try {
       await conAvisoDescarga(() => generarPdfDecisionAprobacionCuentas(anio, { resultadoNeto, reservaLegal, capitalSocial }), toast);
@@ -124,6 +100,21 @@ export function TabCierreEjercicio() {
       }
       if (echeanceAsamblea && !echeanceAsamblea.completada) {
         marcarCompletada({ id: echeanceAsamblea.id, completada: true });
+      }
+      if (primeraAprobacion && reservaLegal.dotacion > 0) {
+        guardarFiscal(
+          [
+            {
+              clave: 'reserva_legal_acumulada',
+              valor: bilanPasivo.reservas,
+              descripcion: `Actualizado automáticamente al aprobar las cuentas del ejercicio ${anio}`,
+            },
+          ],
+          {
+            onSuccess: () => toast.success(`Reserva legal acumulada actualizada a ${fmt(bilanPasivo.reservas)} para el próximo ejercicio.`),
+            onError: (err) => toast.error(`No se pudo actualizar la reserva legal acumulada: ${mensajeError(err)}`),
+          },
+        );
       }
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));
@@ -149,20 +140,20 @@ export function TabCierreEjercicio() {
     }
   };
 
+  const pasosCompletados = [pasoAprobacionHecho, pasoLiasseHecho, pasoDepositoHecho].filter(Boolean).length;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-2">
-          <Gavel size={14} className="text-brand" /> Asistente de cierre de ejercicio
-        </p>
-        <p className="text-xs text-gray-600 leading-relaxed">
-          Encadena los 3 trámites del cierre, en el orden real: aprobar las cuentas del ejercicio, preparar la liasse
-          fiscale y depositar las cuentas en el Greffe. Cada paso reutiliza los mismos cálculos y generadores ya
-          disponibles en "Impôt sur les Sociétés" y "Liasse fiscale" — esto solo los agrupa en un único recorrido
-          guiado. Los pasos 1 y 2 generan un PDF y marcan su échéance como hecha automáticamente; el paso 3 es un
-          trámite externo (Greffe), así que se marca a mano una vez completado.
-        </p>
-      </div>
+      <ResumenTitular icono={Gavel}>
+        {pasosCompletados} de 3 pasos completados para cerrar el ejercicio {anio}
+        {pasosCompletados === 3 ? ' — cierre terminado.' : '.'}
+      </ResumenTitular>
+      <p className="text-xs text-gray-500 leading-relaxed px-1">
+        Encadena, en el orden real, los 3 trámites del cierre: aprobar las cuentas del ejercicio, preparar la liasse
+        fiscale y depositar las cuentas en el Greffe — reutilizando los mismos cálculos y generadores de "Impôt sur
+        les Sociétés" y "Liasse fiscale". Los pasos 1 y 2 generan un PDF y marcan su échéance como hecha
+        automáticamente; el paso 3 es un trámite externo (Greffe), así que se marca a mano una vez completado.
+      </p>
 
       <Select
         label="Ejercicio a cerrar"
@@ -181,7 +172,9 @@ export function TabCierreEjercicio() {
           <Paso numero={1} titulo="Aprobación de cuentas del socio único" hecho={pasoAprobacionHecho}>
             <p className="text-xs text-gray-500 leading-relaxed mb-3">
               Décision de l'associé unique aprobando el resultado neto estimado ({fmt(resultadoNeto)}) y la dotación a
-              la réserve légale — paso previo obligatorio al dépôt des comptes.
+              la réserve légale — paso previo obligatorio al dépôt des comptes. La primera vez que se aprueba un
+              ejercicio, la dotación ({fmt(reservaLegal.dotacion)}) se suma automáticamente a la reserva legal
+              acumulada para que el ejercicio siguiente ya parta del valor correcto.
             </p>
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>

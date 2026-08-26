@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, Languages, Eye } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Download, Pencil, Languages, Eye, ClipboardCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { fechaVisitaCorta, fechaCorta } from '../../lib/fechas';
 import { cargarEventos } from '../../lib/eventos';
 import { generarPdfPlanning } from '../../lib/generarPdfPlanning';
-import { generarPdfPlanningTraducido, verPdfPlanningTraducido } from '../../lib/generarPdfPlanningTraducido';
+import {
+  generarPdfPlanningTraducido,
+  verPdfPlanningTraducido,
+} from '../../lib/generarPdfPlanningTraducido';
+import { generarPdfPVReception } from '../../lib/generarPdfPVReception';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { agruparPorSeccion, rangoProyecto } from '../../lib/planningCronograma';
@@ -14,13 +18,17 @@ import { agruparClientes, normalizarTelefono } from '../clientes/types';
 import { ClienteFicha } from '../clientes/ClienteFicha';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { Input } from '../../components/ui/Input';
 import { PlanningPreview } from './PlanningPreview';
 import { usePlanningPdfData } from './usePlanningPdfData';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto } from './PlanningObraPage';
 
-const VARIANTE_ESTADO_PROYECTO: Record<string, 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'default'> = {
+const VARIANTE_ESTADO_PROYECTO: Record<
+  string,
+  'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'default'
+> = {
   Planificado: 'default',
   'En curso': 'confirmada',
   Pausado: 'pendiente',
@@ -34,22 +42,35 @@ type PlanningVistaPreviaProps = {
   onEditar: () => void;
 };
 
-export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, onVolver, onEditar }: PlanningVistaPreviaProps) {
+export function PlanningVistaPrevia({
+  proyecto: proyectoInicial,
+  presupuesto,
+  onVolver,
+  onEditar,
+}: PlanningVistaPreviaProps) {
   const toast = useToast();
-  const queryClient = useQueryClient();
   const [clienteAbierto, setClienteAbierto] = useState(false);
+  const [fechaReception, setFechaReception] = useState(() => new Date().toISOString().slice(0, 10));
+  const [conReservas, setConReservas] = useState(false);
+  const [reservas, setReservas] = useState('');
+  const [generandoPV, setGenerandoPV] = useState(false);
 
   const { data: proyecto } = useQuery({
     queryKey: ['proyecto', proyectoInicial.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('proyectos').select('*').eq('id', proyectoInicial.id).single();
+      const { data, error } = await supabase
+        .from('proyectos')
+        .select('*')
+        .eq('id', proyectoInicial.id)
+        .single();
       if (error) throw error;
       return data as Proyecto;
     },
     initialData: proyectoInicial,
   });
 
-  const { pais, idioma, entidadInfo, configPlanning, presupuestoTotal } = usePlanningPdfData(presupuesto);
+  const { pais, idioma, entidadInfo, configPlanning, presupuestoTotal } =
+    usePlanningPdfData(presupuesto);
 
   const { data: eventos } = useQuery({
     queryKey: ['documento_eventos', 'proyecto', proyecto.id],
@@ -59,7 +80,11 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
   const { data: visitas } = useQuery({
     queryKey: ['visitas'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('visitas').select('*').is('eliminado_en', null).order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('visitas')
+        .select('*')
+        .is('eliminado_en', null)
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Visita[];
     },
@@ -73,21 +98,10 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
   }, [clientes, presupuesto?.cliente_tel]);
 
   const { fin: finProyecto, dias: totalDias } = rangoProyecto(proyecto.fases);
-  const secciones = useMemo(() => agruparPorSeccion(proyecto.fases).filter((s) => s.nombre), [proyecto.fases]);
-
-  const traducirMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('traducir-planning', { body: { id: proyecto.id } });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['proyecto', proyecto.id] });
-      toast.success('Traducción generada — uso interno, revisa el PDF antes de compartirlo');
-    },
-    onError: (error) => toast.error(mensajeError(error, 'No se pudo generar la traducción')),
-  });
+  const secciones = useMemo(
+    () => agruparPorSeccion(proyecto.fases).filter((s) => s.nombre),
+    [proyecto.fases],
+  );
 
   const handleDescargarPdf = async () => {
     try {
@@ -96,6 +110,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
           generarPdfPlanning({
             clienteNombre: presupuesto?.cliente_nombre ?? '',
             clienteTelefono: presupuesto?.cliente_tel ?? '',
+            clienteEmail: presupuesto?.cliente_email ?? '',
             clienteDir: presupuesto?.cliente_dir ?? '',
             pais,
             idioma,
@@ -105,6 +120,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
             presupuestoNumero: presupuesto?.numero ?? null,
             presupuestoFecha: presupuesto?.fecha_emision ?? null,
             presupuestoTotal,
+            planPago: presupuesto?.plan_pago ?? [],
             fases: proyecto.fases,
           }),
         toast,
@@ -117,6 +133,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
   const datosTraduccion = () => ({
     clienteNombre: presupuesto?.cliente_nombre ?? '',
     clienteTelefono: presupuesto?.cliente_tel ?? '',
+    clienteEmail: presupuesto?.cliente_email ?? '',
     clienteDir: presupuesto?.cliente_dir ?? '',
     pais,
     estado: proyecto.estado,
@@ -124,6 +141,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
     presupuestoNumero: presupuesto?.numero ?? null,
     presupuestoFecha: presupuesto?.fecha_emision ?? null,
     presupuestoTotal,
+    planPago: presupuesto?.plan_pago ?? [],
     traduccion: proyecto.traduccion!,
   });
 
@@ -143,20 +161,54 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
     }
   };
 
+  const handleGenerarPV = async () => {
+    setGenerandoPV(true);
+    try {
+      await conAvisoDescarga(
+        () =>
+          generarPdfPVReception({
+            nombreObra: proyecto.nombre_obra,
+            clienteNombre: presupuesto?.cliente_nombre ?? '',
+            clienteDir: presupuesto?.cliente_dir ?? '',
+            fechaReception,
+            conReservas,
+            reservas,
+            presupuestoNumero: presupuesto?.numero ?? null,
+          }),
+        toast,
+      );
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoPV(false);
+    }
+  };
+
   return (
     <div className="animate-[scale-in_180ms_ease-out]">
-      <button onClick={onVolver} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3">
+      <button
+        onClick={onVolver}
+        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3"
+      >
         <ArrowLeft size={15} />
         Volver a planning de obra
       </button>
 
       <div className="flex items-start justify-between gap-3 flex-wrap mb-5">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Planning de obra</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
+            Planning de obra
+          </p>
           <h1 className="text-lg font-semibold text-gray-900">{proyecto.nombre_obra}</h1>
           <div className="flex items-center gap-2 mt-1.5">
-            <Badge variant={VARIANTE_ESTADO_PROYECTO[proyecto.estado] ?? 'default'}>{proyecto.estado}</Badge>
-            {proyecto.fecha_inicio && <span className="text-xs text-gray-400">Inicio: {fechaVisitaCorta(proyecto.fecha_inicio)}</span>}
+            <Badge variant={VARIANTE_ESTADO_PROYECTO[proyecto.estado] ?? 'default'}>
+              {proyecto.estado}
+            </Badge>
+            {proyecto.fecha_inicio && (
+              <span className="text-xs text-gray-400">
+                Inicio: {fechaVisitaCorta(proyecto.fecha_inicio)}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -185,6 +237,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
               logoUrl={entidadInfo.logoUrl || undefined}
               clienteNombre={presupuesto?.cliente_nombre ?? ''}
               clienteTelefono={presupuesto?.cliente_tel ?? ''}
+              clienteEmail={presupuesto?.cliente_email ?? ''}
               clienteDir={presupuesto?.cliente_dir ?? ''}
               nombreObra={proyecto.nombre_obra}
               estado={proyecto.estado}
@@ -192,6 +245,7 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
               presupuestoNumero={presupuesto?.numero ?? null}
               presupuestoFecha={presupuesto?.fecha_emision ?? null}
               presupuestoTotal={presupuestoTotal}
+              planPago={presupuesto?.plan_pago ?? []}
               fases={proyecto.fases}
             />
           )}
@@ -199,7 +253,9 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
 
         <div className="flex flex-col gap-4">
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Presupuesto vinculado</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              Presupuesto vinculado
+            </p>
             {presupuesto ? (
               <div className="border border-gray-200 rounded-sm px-3 py-2.5">
                 <p className="text-sm font-semibold text-gray-900">{presupuesto.numero}</p>
@@ -213,13 +269,17 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
           </section>
 
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Duración</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              Duración
+            </p>
             {finProyecto ? (
               <>
                 <p className="text-sm text-gray-800">
                   Fin previsto: <span className="font-medium">{fechaVisitaCorta(finProyecto)}</span>
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">{totalDias} días en total · {proyecto.fases.length} fases</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {totalDias} días en total · {proyecto.fases.length} fases
+                </p>
                 {secciones.length > 0 && (
                   <div className="flex flex-wrap gap-x-2 mt-2 text-xs text-gray-500">
                     {secciones.map((s) => (
@@ -236,7 +296,9 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
           </section>
 
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Eventos</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">
+              Eventos
+            </p>
             {!eventos || eventos.length === 0 ? (
               <p className="text-sm text-gray-400">Sin eventos registrados.</p>
             ) : (
@@ -250,7 +312,13 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
                     <div className="pb-1">
                       <p className="text-sm text-gray-800">{e.evento}</p>
                       <p className="text-xs text-gray-400">
-                        {new Date(e.created_at).toLocaleString('es', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(e.created_at).toLocaleString('es', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </p>
                     </div>
                   </li>
@@ -260,23 +328,37 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
           </section>
 
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Cliente</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              Cliente
+            </p>
             {presupuesto ? (
               cliente ? (
                 <button
                   onClick={() => setClienteAbierto(true)}
                   className="w-full text-left border border-gray-200 rounded-sm px-3 py-2.5 hover:border-brand transition-colors"
                 >
-                  <p className="text-sm font-semibold text-gray-900">{presupuesto.cliente_nombre}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {presupuesto.cliente_nombre}
+                  </p>
                   <p className="text-xs text-gray-500 mt-0.5">{presupuesto.cliente_dir || '—'}</p>
-                  <p className="text-xs text-gray-500">{[presupuesto.cliente_tel, presupuesto.cliente_email].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-gray-500">
+                    {[presupuesto.cliente_tel, presupuesto.cliente_email]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
                   <p className="text-xs text-brand mt-1.5">Ver ficha completa del cliente</p>
                 </button>
               ) : (
                 <div className="border border-gray-200 rounded-sm px-3 py-2.5">
-                  <p className="text-sm font-semibold text-gray-900">{presupuesto.cliente_nombre || '—'}</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {presupuesto.cliente_nombre || '—'}
+                  </p>
                   <p className="text-xs text-gray-500 mt-0.5">{presupuesto.cliente_dir || '—'}</p>
-                  <p className="text-xs text-gray-500">{[presupuesto.cliente_tel, presupuesto.cliente_email].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-gray-500">
+                    {[presupuesto.cliente_tel, presupuesto.cliente_email]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
                 </div>
               )
             ) : (
@@ -292,7 +374,8 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
             {proyecto.traduccion ? (
               <div className="flex flex-col gap-2">
                 <p className="text-xs text-gray-500">
-                  {proyecto.traduccion.idioma} · generada {fechaCorta(proyecto.traduccion.generado_en?.slice(0, 10))}
+                  {proyecto.traduccion.idioma} · generada{' '}
+                  {fechaCorta(proyecto.traduccion.generado_en?.slice(0, 10))}
                 </p>
                 <div className="flex gap-2 flex-wrap">
                   <Button size="sm" variant="secondary" onClick={handleVerPdfTraducido}>
@@ -308,27 +391,65 @@ export function PlanningVistaPrevia({ proyecto: proyectoInicial, presupuesto, on
                     </span>
                   </Button>
                 </div>
-                <button
-                  onClick={() => traducirMutation.mutate()}
-                  disabled={traducirMutation.isPending}
-                  className="text-xs text-gray-400 hover:text-brand text-left"
-                >
-                  {traducirMutation.isPending ? 'Generando…' : 'Volver a traducir'}
-                </button>
               </div>
             ) : (
-              <div className="flex flex-col gap-2">
-                <p className="text-sm text-gray-400">Sin traducción generada.</p>
-                <Button size="sm" variant="secondary" onClick={() => traducirMutation.mutate()} disabled={traducirMutation.isPending}>
-                  {traducirMutation.isPending ? 'Generando…' : `Traducir a ${idioma === 'fr' ? 'español' : 'francés'}`}
-                </Button>
-              </div>
+              <p className="text-sm text-gray-400">
+                Sin traducción todavía — pídesela al agente creador de presupuestos, la genera él
+                mismo sin coste.
+              </p>
             )}
           </section>
+
+          {pais === 'Francia' && (
+            <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2 flex items-center gap-1.5">
+                <ClipboardCheck size={13} />
+                Réception des travaux
+              </p>
+              <p className="text-xs text-gray-500 mb-3">
+                Al terminar la obra, genera el Procès-Verbal de Réception — marca el inicio legal de
+                las garantías (parfait achèvement, bon fonctionnement, décennale).
+              </p>
+              <div className="flex flex-col gap-2">
+                <Input
+                  label="Fecha de réception"
+                  type="date"
+                  value={fechaReception}
+                  onChange={(e) => setFechaReception(e.target.value)}
+                />
+                <label className="flex items-center gap-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={conReservas}
+                    onChange={(e) => setConReservas(e.target.checked)}
+                  />
+                  Con reservas
+                </label>
+                {conReservas && (
+                  <textarea
+                    value={reservas}
+                    onChange={(e) => setReservas(e.target.value)}
+                    placeholder={
+                      'Una reserva por línea, ej.:\nJoint de silicone à reprendre salle de bain\nPeinture à retoucher couloir'
+                    }
+                    className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
+                    rows={3}
+                  />
+                )}
+                <Button size="sm" onClick={handleGenerarPV} disabled={generandoPV}>
+                  {generandoPV ? 'Generando...' : 'Generar PV de réception (PDF)'}
+                </Button>
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
-      <ClienteFicha cliente={cliente} open={clienteAbierto} onClose={() => setClienteAbierto(false)} />
+      <ClienteFicha
+        cliente={cliente}
+        open={clienteAbierto}
+        onClose={() => setClienteAbierto(false)}
+      />
     </div>
   );
 }

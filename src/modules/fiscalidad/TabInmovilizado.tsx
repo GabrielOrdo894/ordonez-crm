@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Plus, Sparkles, Trash2, Boxes } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -19,6 +19,7 @@ import {
   valorNetoContable,
   type ActivoInmovilizado,
 } from '../../lib/inmovilizado';
+import { ResumenTitular } from './ResumenTitular';
 
 const CUENTAS_INMOVILIZADO = CUENTAS_FR.filter((c) => c.value.startsWith('20') || c.value.startsWith('21') || c.value === '231');
 
@@ -139,7 +140,7 @@ export function TabInmovilizado() {
   const { data: activos, isLoading } = useQuery({
     queryKey: ['inmovilizado'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('inmovilizado').select('*').order('fecha_adquisicion', { ascending: true });
+      const { data, error } = await supabase.from('inmovilizado').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return data as ActivoInmovilizado[];
     },
@@ -195,6 +196,18 @@ export function TabInmovilizado() {
 
   return (
     <div className="flex flex-col gap-4">
+      <ResumenTitular icono={Boxes}>
+        {filas.length === 0 ? (
+          'Sin activos registrados todavía — da de alta el primero abajo.'
+        ) : (
+          <>
+            <strong className="text-brand">{filas.length}</strong> activo{filas.length === 1 ? '' : 's'} registrado
+            {filas.length === 1 ? '' : 's'}, con un valor neto contable total de{' '}
+            <strong className="text-brand">{totales.vnc.toFixed(2)} €</strong>.
+          </>
+        )}
+      </ResumenTitular>
+
       <div className="flex items-start justify-between gap-2 flex-wrap">
         <p className="text-xs text-gray-500 leading-relaxed max-w-2xl">
           Registro de inmovilizado (activos amortizables) — alimenta directamente los tableaux 2054/2055 de la liasse

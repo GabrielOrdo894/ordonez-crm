@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -15,9 +15,15 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila } from '../../components/ui/AccionesFila';
-import { agruparClientes } from './types';
+import { agruparClientes, normalizarTelefono, ETAPAS_PIPELINE } from './types';
+import { useEtiquetasClientes } from './useEtiquetasClientes';
+import { ETIQUETAS_DISPONIBLES, COLOR_ETIQUETA, type EtiquetaCliente } from './etiquetas';
+import { usePotencialesCliente } from './usePotencialesCliente';
+import { ETIQUETA_ORIGEN_POTENCIAL } from './types';
 import { fechaVisitaCorta } from '../../lib/fechas';
+import { calcularTotales } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
+import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 
 export default function ClientesPage() {
@@ -30,9 +36,13 @@ export default function ClientesPage() {
   const queryClient = useQueryClient();
   const [busqueda, setBusqueda] = useState('');
   const [filtroPais, setFiltroPais] = useState('Todos');
+  const [filtroPipeline, setFiltroPipeline] = useState('Todos');
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState('Todos');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const { seleccion, toggleFila, toggleTodas, limpiar } = useSeleccionMultiple();
+  const { etiquetasDe } = useEtiquetasClientes();
+  const [potencialesAbiertos, setPotencialesAbiertos] = useState(false);
 
   const { data: visitas, isLoading } = useQuery({
     queryKey: ['visitas'],
@@ -48,6 +58,36 @@ export default function ClientesPage() {
   });
 
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
+  // Antes quien preguntó pero nunca llegó a visita solo se veía indirectamente en el embudo de
+  // Marketing, no en ninguna vista de cartera — misma fuente de datos que ya usaba el aviso de
+  // "cliente conocido" al crear una visita/presupuesto (mejora real, auditoría de Clientes
+  // 2026-08-18).
+  const potenciales = usePotencialesCliente(clientes);
+
+  // El cálculo ya existía en la ficha individual de cliente (ClienteDetalleContenido.tsx) — se
+  // trae aquí para poder ordenar/consultar por valor de cartera de un vistazo, sin abrir ficha
+  // por ficha (mejora real, auditoría de Clientes 2026-08-18).
+  const { data: presupuestos } = useQuery({
+    queryKey: ['presupuestos'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select('*')
+        .is('eliminado_en', null);
+      if (error) throw error;
+      return data as Presupuesto[];
+    },
+  });
+
+  const totalFacturadoPorTelefono = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of presupuestos ?? []) {
+      if (p.estado !== 'Aceptado' || !p.cliente_tel) continue;
+      const tel = normalizarTelefono(p.cliente_tel);
+      map.set(tel, (map.get(tel) ?? 0) + calcularTotales(p.lineas).totalConIva);
+    }
+    return map;
+  }, [presupuestos]);
 
   const eliminarVariosMutation = useMutation({
     mutationFn: async (clienteIds: (string | number)[]) => {
@@ -72,13 +112,23 @@ export default function ClientesPage() {
     const q = busqueda.trim().toLowerCase();
     return clientes.filter((c) => {
       if (filtroPais !== 'Todos' && c.pais !== filtroPais) return false;
+      if (
+        filtroPipeline !== 'Todos' &&
+        (c.visitas[0]?.estado_pipeline ?? 'Contacto') !== filtroPipeline
+      )
+        return false;
+      if (
+        filtroEtiqueta !== 'Todos' &&
+        !etiquetasDe(c.id).includes(filtroEtiqueta as EtiquetaCliente)
+      )
+        return false;
       const ultima = c.visitas[0]?.fecha_visita ?? '';
       if (desde && (!ultima || ultima < desde)) return false;
       if (hasta && (!ultima || ultima > hasta)) return false;
       if (q && !`${c.nombre} ${c.apellidos} ${c.telefono}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [clientes, busqueda, filtroPais, desde, hasta]);
+  }, [clientes, busqueda, filtroPais, filtroPipeline, filtroEtiqueta, etiquetasDe, desde, hasta]);
 
   const kpis = useMemo(() => {
     const hoy = new Date();
@@ -88,9 +138,13 @@ export default function ClientesPage() {
       return primera?.created_at?.slice(0, 7) === mesActual;
     }).length;
     const pipelineActivo = clientes.filter(
-      (c) => c.visitas[0]?.estado_pipeline !== 'Finalizado' && c.visitas[0]?.estado_pipeline !== 'Perdido',
+      (c) =>
+        c.visitas[0]?.estado_pipeline !== 'Finalizado' &&
+        c.visitas[0]?.estado_pipeline !== 'Perdido',
     ).length;
-    const pendienteConfirmar = clientes.filter((c) => c.visitas.some((v) => v.estado === 'Pendiente')).length;
+    const pendienteConfirmar = clientes.filter((c) =>
+      c.visitas.some((v) => v.estado === 'Pendiente'),
+    ).length;
     return [
       { label: 'Total clientes', valor: clientes.length },
       { label: 'Nuevos este mes', valor: nuevosEsteMes },
@@ -123,8 +177,23 @@ export default function ClientesPage() {
             { key: 'zona', label: 'Zona' },
             { key: 'pais', label: 'País' },
             { key: 'visitas', label: 'Nº visitas', valor: (c) => c.visitas.length },
-            { key: 'ultima', label: 'Última visita', valor: (c) => c.visitas[0]?.fecha_visita ?? '' },
-            { key: 'pipeline', label: 'Pipeline', valor: (c) => c.visitas[0]?.estado_pipeline ?? '' },
+            {
+              key: 'ultima',
+              label: 'Última visita',
+              valor: (c) => c.visitas[0]?.fecha_visita ?? '',
+            },
+            {
+              key: 'pipeline',
+              label: 'Pipeline',
+              valor: (c) => c.visitas[0]?.estado_pipeline ?? '',
+            },
+            { key: 'etiquetas', label: 'Etiquetas', valor: (c) => etiquetasDe(c.id).join(', ') },
+            {
+              key: 'facturado',
+              label: 'Total facturado',
+              valor: (c) =>
+                (totalFacturadoPorTelefono.get(normalizarTelefono(c.telefono)) ?? 0).toFixed(2),
+            },
           ]}
         />
         <Button onClick={() => abrirNuevoCliente()} className="px-4 py-2 text-sm">
@@ -140,11 +209,87 @@ export default function ClientesPage() {
           onChange={(e) => setFiltroPais(e.target.value)}
           className="w-40"
         />
-        <Input label="Última visita desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
-        <Input label="Última visita hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
+        <Select
+          label="Etapa pipeline"
+          options={['Todos', ...ETAPAS_PIPELINE, 'Perdido'].map((p) => ({ value: p, label: p }))}
+          value={filtroPipeline}
+          onChange={(e) => setFiltroPipeline(e.target.value)}
+          className="w-48"
+        />
+        <Select
+          label="Etiqueta"
+          options={['Todos', ...ETIQUETAS_DISPONIBLES].map((e) => ({ value: e, label: e }))}
+          value={filtroEtiqueta}
+          onChange={(e) => setFiltroEtiqueta(e.target.value)}
+          className="w-44"
+        />
+        <Input
+          label="Última visita desde"
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="w-40"
+        />
+        <Input
+          label="Última visita hasta"
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="w-40"
+        />
       </div>
 
       <KpiRow items={kpis} />
+
+      {potenciales.length > 0 && (
+        <div className="bg-surface border border-gray-200 rounded-sm mb-4">
+          <button
+            onClick={() => setPotencialesAbiertos((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm"
+          >
+            <span className="font-medium text-gray-700">
+              Clientes potenciales <span className="text-gray-400">({potenciales.length})</span>
+            </span>
+            {potencialesAbiertos ? (
+              <ChevronUp size={15} className="text-gray-400" />
+            ) : (
+              <ChevronDown size={15} className="text-gray-400" />
+            )}
+          </button>
+          {potencialesAbiertos && (
+            <div className="border-t border-gray-200 px-4 py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {potenciales.map((p) => (
+                <div
+                  key={`${p.origen}-${p.id}`}
+                  className="border border-gray-200 rounded-sm p-2.5 flex items-start justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{p.nombre}</p>
+                    <p className="text-xs text-gray-500 truncate">{p.telefono || p.email || '—'}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      {ETIQUETA_ORIGEN_POTENCIAL[p.origen]}
+                    </p>
+                  </div>
+                  <button
+                    title="Convertir en cliente"
+                    onClick={() =>
+                      abrirNuevoCliente({
+                        nombre: p.nombre,
+                        telefono: p.telefono,
+                        email: p.email ?? undefined,
+                        idioma: p.idioma ?? undefined,
+                      })
+                    }
+                    className="text-brand hover:text-brand-dark shrink-0 mt-0.5"
+                  >
+                    <UserPlus size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <BulkActionsBar
         count={seleccion.size}
@@ -154,7 +299,12 @@ export default function ClientesPage() {
             label: 'Eliminar',
             variant: 'danger',
             onClick: async () => {
-              if (!(await confirmar(`¿Eliminar ${seleccion.size} cliente(s)? Su historial de visitas se moverá a la Papelera.`))) return;
+              if (
+                !(await confirmar(
+                  `¿Eliminar ${seleccion.size} cliente(s)? Su historial de visitas se moverá a la Papelera.`,
+                ))
+              )
+                return;
               eliminarVariosMutation.mutate(Array.from(seleccion));
             },
             disabled: eliminarVariosMutation.isPending,
@@ -185,6 +335,23 @@ export default function ClientesPage() {
             },
             { key: 'telefono', label: 'Teléfono' },
             {
+              key: 'etiquetas',
+              label: 'Etiquetas',
+              sortValue: (c) => etiquetasDe(c.id).join(','),
+              render: (c) => (
+                <div className="flex flex-wrap gap-1">
+                  {etiquetasDe(c.id).map((e) => (
+                    <span
+                      key={e}
+                      className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 border ${COLOR_ETIQUETA[e]}`}
+                    >
+                      {e}
+                    </span>
+                  ))}
+                </div>
+              ),
+            },
+            {
               key: 'zona',
               label: 'Zona / País',
               sortValue: (c) => `${c.zona ?? ''} ${c.pais ?? ''}`,
@@ -209,6 +376,15 @@ export default function ClientesPage() {
               render: (c) => c.visitas[0]?.estado_pipeline ?? '—',
             },
             {
+              key: 'facturado',
+              label: 'Total facturado',
+              sortValue: (c) => totalFacturadoPorTelefono.get(normalizarTelefono(c.telefono)) ?? 0,
+              render: (c) => {
+                const total = totalFacturadoPorTelefono.get(normalizarTelefono(c.telefono)) ?? 0;
+                return total > 0 ? `${total.toFixed(2)} €` : '—';
+              },
+            },
+            {
               key: 'acciones',
               label: '',
               sortable: false,
@@ -219,7 +395,12 @@ export default function ClientesPage() {
                       label: 'Eliminar',
                       destructivo: true,
                       onClick: async () => {
-                        if (!(await confirmar(`¿Eliminar a ${c.nombre} ${c.apellidos}? Su historial de visitas se moverá a la Papelera.`))) return;
+                        if (
+                          !(await confirmar(
+                            `¿Eliminar a ${c.nombre} ${c.apellidos}? Su historial de visitas se moverá a la Papelera.`,
+                          ))
+                        )
+                          return;
                         eliminarVariosMutation.mutate([c.id]);
                       },
                     },

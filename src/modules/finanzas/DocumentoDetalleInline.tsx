@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, FileSignature, Copy, Languages, Eye, StickyNote } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, FileSignature, Copy, Languages, Eye, StickyNote, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { camposContactoFaltantes } from '../../lib/datosContacto';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -250,21 +251,6 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       toast.success('Nota interna guardada');
     },
     onError: (error) => toast.error(error.message),
-  });
-
-  const traducirMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id } });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['presupuesto', id] });
-      refetchPresupuesto();
-      toast.success('Traducción generada — uso interno, revisa el PDF antes de compartirlo');
-    },
-    onError: (error) => toast.error(mensajeError(error, 'No se pudo generar la traducción')),
   });
 
   const handleVerPdfTraducido = async () => {
@@ -623,6 +609,22 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                 <p className="text-xs text-gray-500">{[doc.cliente_tel, doc.cliente_email].filter(Boolean).join(' · ')}</p>
               </div>
             )}
+            {tipo === 'presupuesto' &&
+              (() => {
+                const faltantes = camposContactoFaltantes({
+                  nombre: doc.cliente_nombre,
+                  telefono: doc.cliente_tel,
+                  direccion: doc.cliente_dir,
+                  email: doc.cliente_email,
+                });
+                if (faltantes.length === 0) return null;
+                return (
+                  <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 mt-2 flex items-center gap-2">
+                    <AlertTriangle size={13} className="shrink-0" />
+                    Faltan datos de contacto: {faltantes.join(', ')}.
+                  </p>
+                );
+              })()}
           </section>
 
           {tipo === 'presupuesto' && presupuesto && (
@@ -650,21 +652,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                       </span>
                     </Button>
                   </div>
-                  <button
-                    onClick={() => traducirMutation.mutate()}
-                    disabled={traducirMutation.isPending}
-                    className="text-xs text-gray-400 hover:text-brand text-left"
-                  >
-                    {traducirMutation.isPending ? 'Generando…' : 'Volver a traducir'}
-                  </button>
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  <p className="text-sm text-gray-400">Sin traducción generada.</p>
-                  <Button size="sm" variant="secondary" onClick={() => traducirMutation.mutate()} disabled={traducirMutation.isPending}>
-                    {traducirMutation.isPending ? 'Generando…' : `Traducir a ${presupuesto.idioma === 'Français' ? 'español' : 'francés'}`}
-                  </Button>
-                </div>
+                <p className="text-sm text-gray-400">
+                  Sin traducción todavía — pídesela al agente creador de presupuestos, la genera él mismo sin coste.
+                </p>
               )}
             </section>
           )}

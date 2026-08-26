@@ -1,6 +1,6 @@
 # Esquema de presupuestos — referencia para el equipo de agentes
 
-Generado directamente desde el código del CRM (`docs/supabase-schema.md`, `src/modules/finanzas/presupuestos/types.ts`,
+Generado directamente desde el código del CRM (`docs/tecnico/supabase-schema.md`, `src/modules/finanzas/presupuestos/types.ts`,
 `src/modules/finanzas/lineas.ts`, `src/lib/numeracion.ts`), no desde una lectura en vivo de Supabase — es la misma
 verdad que usa la aplicación. Revísalo tú y corrígelo si algo ha cambiado desde entonces.
 
@@ -106,7 +106,7 @@ cambia el estado — lo hace Gabriel desde el CRM, o el webhook de Documenso aut
 | `descripcion` | text | |
 | `unidad` | text | por defecto `'ud'` |
 | `tipo_servicio` | text | |
-| `precio_unit` | numeric | por defecto `0` — **precio de ejemplo, no la tarifa real de la empresa**, ver `docs/tarifas-referencia.md` |
+| `precio_unit` | numeric | por defecto `0` — **precio de ejemplo, no la tarifa real de la empresa**, ver `docs/negocio/tarifas-referencia.md` |
 | `idioma` | text | `'es'` \| `'fr'` — en qué idioma de documento se sugiere esta línea |
 
 Antes de fijar un código de referencia nuevo, consulta esta tabla para no duplicar familias/números ya usados.

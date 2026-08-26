@@ -1,6 +1,7 @@
 import { totalPaginasPdf } from './pdfEmpresa';
 import { FUENTE_PDF } from './fuentePdf';
 import { construirPdfPlanning } from './generarPdfPlanning';
+import type { PlanPagoPlanning } from './generarPdfPlanning';
 import type { FaseObraCronograma } from './planningCronograma';
 
 /** Traducción interna de un planning (Edge Function `traducir-planning`), guardada en
@@ -16,6 +17,7 @@ export type TraduccionPlanning = {
 type DatosPlanningTraducido = {
   clienteNombre: string;
   clienteTelefono: string;
+  clienteEmail: string;
   clienteDir: string;
   pais: string;
   estado: string;
@@ -23,6 +25,7 @@ type DatosPlanningTraducido = {
   presupuestoNumero: string | null;
   presupuestoFecha: string | null;
   presupuestoTotal: number | null;
+  planPago: PlanPagoPlanning[];
   traduccion: TraduccionPlanning;
 };
 
@@ -31,6 +34,7 @@ async function construirPdfPlanningTraducido(datos: DatosPlanningTraducido) {
   const doc = await construirPdfPlanning({
     clienteNombre: datos.clienteNombre,
     clienteTelefono: datos.clienteTelefono,
+    clienteEmail: datos.clienteEmail,
     clienteDir: datos.clienteDir,
     pais: datos.pais,
     idioma,
@@ -40,10 +44,12 @@ async function construirPdfPlanningTraducido(datos: DatosPlanningTraducido) {
     presupuestoNumero: datos.presupuestoNumero,
     presupuestoFecha: datos.presupuestoFecha,
     presupuestoTotal: datos.presupuestoTotal,
+    planPago: datos.planPago,
     fases: datos.traduccion.fases,
   });
 
-  const AVISO = 'TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO OFICIAL  ·  TRADUCTION INTERNE — NON VALABLE COMME DOCUMENT OFFICIEL';
+  const AVISO =
+    'TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO OFICIAL  ·  TRADUCTION INTERNE — NON VALABLE COMME DOCUMENT OFFICIEL';
   const totalPaginas = totalPaginasPdf(doc);
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i);
@@ -61,7 +67,9 @@ async function construirPdfPlanningTraducido(datos: DatosPlanningTraducido) {
 export async function generarPdfPlanningTraducido(datos: DatosPlanningTraducido) {
   const doc = await construirPdfPlanningTraducido(datos);
   const sufijoIdioma = datos.traduccion.idioma === 'Français' ? 'fr' : 'es';
-  doc.save(`planning_${datos.traduccion.nombre_obra.replace(/\s+/g, '_')}_traduccion_${sufijoIdioma}.pdf`);
+  doc.save(
+    `planning_${datos.traduccion.nombre_obra.replace(/\s+/g, '_')}_traduccion_${sufijoIdioma}.pdf`,
+  );
 }
 
 /** Igual que `generarPdfPlanningTraducido` pero abre el PDF en una pestaña nueva en vez de

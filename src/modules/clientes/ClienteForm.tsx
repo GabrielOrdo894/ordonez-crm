@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, Star, User } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
@@ -9,10 +10,9 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
+import { normalizarTelefono } from './types';
+import { useCatalogosVisitas } from '../visitas/useCatalogosVisitas';
 import type { NuevaVisita, Visita } from '../visitas/types';
-
-const ZONAS_ES = ['Irún', 'Hondarribia', 'Donostia/San Sebastián', 'Rentería', 'Bera de Bidasoa', 'Otro ES'];
-const ZONAS_FR = ['Hendaye', 'Urrugne', 'Saint-Jean-de-Luz', 'Bayonne', 'Autre FR'];
 
 type FormState = {
   nombre: string;
@@ -29,28 +29,64 @@ type FormState = {
   esEmpresa: boolean;
   empresaNombre: string;
   empresaCif: string;
+  referidoPor: string;
 };
 
 const EMPTY: FormState = {
-  nombre: '', apellidos: '', telefono: '', email: '', idioma: 'Español',
-  direccion: '', direccion_extra: '', lat: null, lng: null, pais: 'España', zona: 'Irún',
-  esEmpresa: false, empresaNombre: '', empresaCif: '',
+  nombre: '',
+  apellidos: '',
+  telefono: '',
+  email: '',
+  idioma: 'Español',
+  direccion: '',
+  direccion_extra: '',
+  lat: null,
+  lng: null,
+  pais: 'España',
+  zona: 'Irún',
+  esEmpresa: false,
+  empresaNombre: '',
+  empresaCif: '',
+  referidoPor: '',
 };
 
 function zonaDefault(pais: string) {
   return pais === 'España' ? 'Irún' : pais === 'Francia' ? 'Hendaye' : '';
 }
 
-type ClienteFormProps = { onClose: () => void; onCreado?: (cliente: Visita) => void };
+export type ClienteFormPrefill = {
+  nombre?: string;
+  telefono?: string;
+  email?: string;
+  idioma?: string;
+};
 
-export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
+type ClienteFormProps = {
+  onClose: () => void;
+  onCreado?: (cliente: Visita) => void;
+  prefill?: ClienteFormPrefill;
+};
+
+export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
   const { user } = useAuth();
   const toast = useToast();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const catalogos = useCatalogosVisitas();
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm] = useState<FormState>(() => ({
+    ...EMPTY,
+    nombre: prefill?.nombre ?? EMPTY.nombre,
+    telefono: prefill?.telefono ?? EMPTY.telefono,
+    email: prefill?.email ?? EMPTY.email,
+    idioma: prefill?.idioma === 'Français' ? 'Français' : EMPTY.idioma,
+  }));
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-  const [clienteRepetidor, setClienteRepetidor] = useState<{ nombre: string; totalObras: number } | null>(null);
+  const [clienteRepetidor, setClienteRepetidor] = useState<{
+    id: string;
+    nombre: string;
+    totalObras: number;
+  } | null>(null);
 
   const handlePaisChange = (pais: string) => {
     setForm((f) => ({ ...f, pais, zona: zonaDefault(pais) }));
@@ -64,11 +100,12 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
       return;
     }
 
-    let previas: { nombre: string; apellidos: string }[] = [];
+    let previas: { nombre: string; apellidos: string; telefono: string; email: string | null }[] =
+      [];
     if (telefono) {
       const { data, error } = await supabase
         .from('visitas')
-        .select('nombre, apellidos')
+        .select('nombre, apellidos, telefono, email')
         .eq('telefono', telefono)
         .is('eliminado_en', null)
         .order('created_at', { ascending: true });
@@ -81,7 +118,7 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
     if (previas.length === 0 && email) {
       const { data, error } = await supabase
         .from('visitas')
-        .select('nombre, apellidos')
+        .select('nombre, apellidos, telefono, email')
         .eq('email', email)
         .is('eliminado_en', null)
         .order('created_at', { ascending: true });
@@ -92,7 +129,25 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
       previas = data ?? [];
     }
 
-    setClienteRepetidor(previas.length > 0 ? { nombre: `${previas[0].nombre} ${previas[0].apellidos}`, totalObras: previas.length } : null);
+    if (previas.length === 0) {
+      setClienteRepetidor(null);
+      return;
+    }
+    // Misma clave que agruparClientes() en types.ts, para poder enlazar directamente a la ficha
+    // ya existente en vez de solo avisar de que existe (mejora real, auditoría de Clientes
+    // 2026-08-18 — reduce la creación accidental de fichas duplicadas).
+    const primera = previas[0];
+    const clave =
+      (primera.telefono ? normalizarTelefono(primera.telefono) : '') || primera.email || '';
+    setClienteRepetidor(
+      clave
+        ? {
+            id: clave,
+            nombre: `${primera.nombre} ${primera.apellidos}`,
+            totalObras: previas.length,
+          }
+        : null,
+    );
   };
 
   const validar = (): boolean => {
@@ -126,6 +181,7 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
         descripcion: null,
         fecha_visita: null,
         hora_visita: null,
+        hora_fin_visita: null,
         empleado: null,
         estado: null,
         estado_pipeline: 'Contacto',
@@ -135,6 +191,7 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
         es_empresa: form.esEmpresa,
         empresa_nombre: form.esEmpresa ? form.empresaNombre : null,
         empresa_cif: form.esEmpresa ? form.empresaCif : null,
+        referido_por: form.referidoPor || null,
       };
       const { data, error } = await supabase.from('visitas').insert(nueva).select().single();
       if (error) throw error;
@@ -158,7 +215,10 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
   return (
     <div className="max-w-2xl mx-auto animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-5">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a clientes
         </button>
@@ -180,8 +240,20 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
             <p className="text-sm font-semibold text-gray-900">Datos del cliente</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Nombre" required value={form.nombre} error={errors.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
-            <Input label="Apellidos" required value={form.apellidos} error={errors.apellidos} onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))} />
+            <Input
+              label="Nombre"
+              required
+              value={form.nombre}
+              error={errors.nombre}
+              onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+            />
+            <Input
+              label="Apellidos"
+              required
+              value={form.apellidos}
+              error={errors.apellidos}
+              onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+            />
             <Input
               label="Teléfono"
               type="tel"
@@ -202,13 +274,27 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
               <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
                 <Star size={14} className="shrink-0" />
                 <span>
-                  Cliente conocido — {clienteRepetidor.nombre} ya tiene {clienteRepetidor.totalObras} obra(s) registrada(s).
+                  Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
+                  {clienteRepetidor.totalObras} obra(s) registrada(s).
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    navigate(`/clientes/${encodeURIComponent(clienteRepetidor.id)}`);
+                  }}
+                  className="ml-auto font-semibold underline hover:no-underline shrink-0"
+                >
+                  Ver ficha existente
+                </button>
               </div>
             )}
             <Select
               label="Idioma"
-              options={[{ value: 'Español', label: 'Español' }, { value: 'Français', label: 'Français' }]}
+              options={[
+                { value: 'Español', label: 'Español' },
+                { value: 'Français', label: 'Français' },
+              ]}
               value={form.idioma}
               onChange={(e) => setForm((f) => ({ ...f, idioma: e.target.value }))}
             />
@@ -252,13 +338,18 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
             <Select
               label="País"
               required
-              options={[{ value: 'España', label: 'España' }, { value: 'Francia', label: 'Francia' }]}
+              options={[
+                { value: 'España', label: 'España' },
+                { value: 'Francia', label: 'Francia' },
+              ]}
               value={form.pais}
               onChange={(e) => handlePaisChange(e.target.value)}
             />
             <Select
               label="Zona"
-              options={(form.pais === 'España' ? ZONAS_ES : ZONAS_FR).map((v) => ({ value: v, label: v }))}
+              options={(form.pais === 'España' ? catalogos.zonasEs : catalogos.zonasFr).map(
+                (v) => ({ value: v, label: v }),
+              )}
               value={form.zona}
               onChange={(e) => setForm((f) => ({ ...f, zona: e.target.value }))}
             />
@@ -299,11 +390,22 @@ export function ClienteForm({ onClose, onCreado }: ClienteFormProps) {
               />
             </div>
           )}
+          <div className="mt-4">
+            <Input
+              label="Cómo nos conoció / Referido por (opcional)"
+              placeholder="Recomendación de un cliente, redes sociales, Google…"
+              value={form.referidoPor}
+              onChange={(e) => setForm((f) => ({ ...f, referidoPor: e.target.value }))}
+            />
+          </div>
         </section>
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap mt-5">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a clientes
         </button>

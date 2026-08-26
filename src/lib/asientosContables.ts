@@ -13,6 +13,9 @@ const ETIQUETAS_CUENTA_EXTRA: Record<string, string> = {
   '44566': '44566 · TVA déductible sur autres biens et services',
   '471': '471 · Compte d’attente (sin clasificar)',
   '2801': '2801 · Amortissements des immobilisations (compte global)',
+  '4452': '4452 · TVA due intracommunautaire',
+  '445662': '445662 · TVA déductible intracommunautaire',
+  '445661': '445661 · TVA déductible sur importations',
 };
 
 export function etiquetaCuenta(codigo: string): string {
@@ -47,6 +50,19 @@ const CUENTA_AMORTIZACIONES_ACUMULADAS = '2801';
 const CUENTA_CLIENTES = '411';
 const CUENTA_VENTAS = '706';
 const CUENTA_IVA_COLECTADA = '44571';
+const CUENTA_TVA_DUE_INTRACOM = '4452';
+const CUENTA_TVA_DEDUCIBLE_INTRACOM = '445662';
+const CUENTA_TVA_DEDUCIBLE_IMPORTACION = '445661';
+// Mismo valor que TASA_ESTANDAR en AsistenteIvaPage.tsx (duplicado a propósito — ese fichero
+// calcula la casilla 17 de la CA3 de forma independiente a partir de importe_base, no lee estos
+// asientos; mantener los dos en sync es responsabilidad de quien toque cualquiera de las dos tasas).
+// Autoliquidación (adquisición intracomunitaria UE o importación fuera de UE, art. 283-2 CGI):
+// el proveedor no cobra IVA, pero la empresa se autoliquida el IVA que le correspondería a tipo
+// general francés — se registra a la vez como "debido" (4452) y "deducible" (445662/445661), con
+// efecto neto en caja de 0 € pero visible en el libro mayor (hallazgo real, auditoría 2026-08-21:
+// antes esta autoliquidación no generaba ningún asiento, dejando esas cuentas del libro mayor
+// siempre a 0 aunque hubiera compras intracomunitarias reales).
+const TASA_TVA_AUTOLIQUIDACION = 0.2;
 
 // --- Lógica pura (sin Supabase) — testeable sin mocks, ver asientosContables.test.ts. Cada
 // función solo calcula QUÉ asientos harían falta; las funciones exportadas más abajo son
@@ -60,6 +76,9 @@ export function construirAsientosGasto(gasto: {
   cuenta_contable: string | null;
   importe_base: number | null;
   importe_iva: number | null;
+  // 'INTRACOM' | 'IMPORTACION' | cualquier otro valor de tipo_iva (nacional, exento...) — ver
+  // GastoForm.tsx. Solo estos dos valores disparan la autoliquidación de más abajo.
+  tipo_iva?: string | null;
 }): NuevoAsiento[] {
   const fecha = gasto.fecha ?? new Date().toISOString().slice(0, 10);
   const cuenta = gasto.cuenta_contable ?? CUENTA_SIN_CLASIFICAR;
@@ -84,6 +103,32 @@ export function construirAsientosGasto(gasto: {
       documento_id: gasto.id,
       tipo_evento: 'creacion',
     });
+  }
+  if (gasto.tipo_iva === 'INTRACOM' || gasto.tipo_iva === 'IMPORTACION') {
+    const tvaAutoliquidada = Math.round(base * TASA_TVA_AUTOLIQUIDACION * 100) / 100;
+    const cuentaDeducible = gasto.tipo_iva === 'INTRACOM' ? CUENTA_TVA_DEDUCIBLE_INTRACOM : CUENTA_TVA_DEDUCIBLE_IMPORTACION;
+    asientos.push(
+      {
+        fecha,
+        cuenta: cuentaDeducible,
+        debe: tvaAutoliquidada,
+        haber: 0,
+        concepto,
+        documento_tipo: 'gasto',
+        documento_id: gasto.id,
+        tipo_evento: 'creacion',
+      },
+      {
+        fecha,
+        cuenta: CUENTA_TVA_DUE_INTRACOM,
+        debe: 0,
+        haber: tvaAutoliquidada,
+        concepto,
+        documento_tipo: 'gasto',
+        documento_id: gasto.id,
+        tipo_evento: 'creacion',
+      },
+    );
   }
   asientos.push({
     fecha,
@@ -143,15 +188,16 @@ export function construirAsientosFacturaCobro(
   ];
 }
 
-// Reversa (debe/haber invertidos) de asientos ya existentes — misma fecha de hoy, mismo
-// documento/tipo_evento, concepto marcado como rectificación. `previos` son filas ya leídas de
-// asientos_contables (solo necesita cuenta/debe/haber/concepto de cada una).
+// Reversa (debe/haber invertidos) de asientos ya existentes — misma fecha que el asiento
+// original que anulan (nunca "hoy"), para que la reversa cuadre en el mismo ejercicio que lo que
+// está anulando y no deje un movimiento huérfano en el ejercicio en el que se hizo la corrección.
+// `previos` son filas ya leídas de asientos_contables (solo necesita cuenta/debe/haber/concepto).
 export function construirAsientosRectificacion(
   previos: { cuenta: string; debe: number; haber: number; concepto: string }[],
   documentoTipo: 'factura' | 'gasto',
   documentoId: string,
   tipoEvento: TipoEvento,
-  fecha: string = new Date().toISOString().slice(0, 10),
+  fecha: string,
 ): NuevoAsiento[] {
   return previos.map((a) => ({
     fecha,
@@ -194,7 +240,13 @@ export async function registrarAsientoFacturaCobro(
 // sin política de update/delete). Se usa antes de volver a registrar el asiento correcto cuando
 // se edita una Factura/Gasto ya contabilizado, para que el libro diario conserve el rastro
 // completo (original + reversa + corregido) y el libro mayor quede con el saldo neto correcto.
-export async function rectificarAsientos(documentoTipo: 'factura' | 'gasto', documentoId: string, tipoEvento: TipoEvento = 'creacion') {
+//
+// `fecha` debe ser la fecha ORIGINAL del asiento que se está rectificando (no la fecha de hoy ni
+// la fecha nueva del documento corregido) — así la reversa cuadra en el mismo ejercicio que el
+// asiento que anula. Bug real corregido 2026-08-18: usar `new Date()` por defecto podía dejar un
+// ejercicio ya cerrado con el importe erróneo para siempre y contaminar el ejercicio en curso con
+// un movimiento que no le correspondía.
+export async function rectificarAsientos(documentoTipo: 'factura' | 'gasto', documentoId: string, tipoEvento: TipoEvento = 'creacion', fecha: string) {
   const { data: previos, error } = await supabase
     .from('asientos_contables')
     .select('cuenta, debe, haber, concepto')
@@ -204,5 +256,5 @@ export async function rectificarAsientos(documentoTipo: 'factura' | 'gasto', doc
   if (error) throw error;
   if (!previos || previos.length === 0) return;
 
-  await insertarAsientos(construirAsientosRectificacion(previos, documentoTipo, documentoId, tipoEvento));
+  await insertarAsientos(construirAsientosRectificacion(previos, documentoTipo, documentoId, tipoEvento, fecha));
 }

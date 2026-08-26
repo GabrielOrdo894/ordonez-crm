@@ -184,20 +184,6 @@ export default function PresupuestosPage() {
     onError: (error) => toast.error(error.message),
   });
 
-  const traducirMutation = useMutation({
-    mutationFn: async (p: Presupuesto) => {
-      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id: p.id } });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
-      toast.success('Traducción generada — uso interno, revisa el PDF antes de compartirlo');
-    },
-    onError: (error) => toast.error(mensajeError(error, 'No se pudo generar la traducción')),
-  });
-
   const cambiarEstadoVariosMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
@@ -366,6 +352,7 @@ export default function PresupuestosPage() {
         tipoInicial={inicioPresupuesto.tipo}
         formatoInicial={inicioPresupuesto.formato}
         clienteInicialId={inicioPresupuesto.clienteId}
+        clientePotencialPrefill={inicioPresupuesto.clientePotencialPrefill}
         idiomaInicial={inicioPresupuesto.idioma}
       />
     );
@@ -538,14 +525,9 @@ export default function PresupuestosPage() {
                 // Los orientativos solo sirven para dar una idea al cliente y llevarlo a un
                 // presupuesto real — nunca se firman ni se facturan, solo cambian de estado
                 // (Aceptado/Rechazado/Pendiente).
-                const idiomaTraduccion = p.idioma === 'Français' ? 'español' : 'francés';
                 const menu: AccionMenu[] = [
                   { label: 'Editar / Firmar', onClick: () => setPresupuestoSeleccionado(p) },
                   { label: 'Descargar PDF', onClick: () => handleDescargarPdf(p) },
-                  {
-                    label: p.traduccion ? `Volver a traducir a ${idiomaTraduccion}` : `Traducir a ${idiomaTraduccion} (uso interno)`,
-                    onClick: () => traducirMutation.mutate(p),
-                  },
                   {
                     label: 'Descargar PDF traducido (uso interno)',
                     onClick: () => handleDescargarPdfTraducido(p),

@@ -19,6 +19,7 @@ import { DescargarZipModal } from '../../../components/ui/DescargarZipModal';
 import { generarPdfListadoProveedores } from '../../../lib/generarPdfListadoProveedores';
 import type { Proveedor } from './types';
 import { ProveedorForm } from './ProveedorForm';
+import { ProveedorPreview } from './ProveedorPreview';
 
 const PAISES_FILTRO = [
   { value: 'Todos', label: 'Todos' },
@@ -31,7 +32,8 @@ export default function ProveedoresPage() {
   const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [busqueda, setBusqueda] = useState('');
-  const [proveedorSeleccionado, setProveedorSeleccionado] = useState<Proveedor | null>(null);
+  const [proveedorEnPreview, setProveedorEnPreview] = useState<Proveedor | null>(null);
+  const [proveedorEditando, setProveedorEditando] = useState<Proveedor | null>(null);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   const { seleccion, toggleFila, toggleTodas, limpiar } = useSeleccionMultiple();
 
@@ -43,7 +45,7 @@ export default function ProveedoresPage() {
   const { data: proveedores, isLoading } = useQuery({
     queryKey: ['proveedores'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('proveedores').select('*').order('razon_social', { ascending: true });
+      const { data, error } = await supabase.from('proveedores').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return data as Proveedor[];
     },
@@ -148,6 +150,25 @@ export default function ProveedoresPage() {
     }
   };
 
+  if (creandoNuevo) {
+    return <ProveedorForm open onClose={() => setCreandoNuevo(false)} proveedor={null} />;
+  }
+  if (proveedorEditando) {
+    return <ProveedorForm open onClose={() => setProveedorEditando(null)} proveedor={proveedorEditando} />;
+  }
+  if (proveedorEnPreview) {
+    return (
+      <ProveedorPreview
+        proveedor={proveedorEnPreview}
+        onVolver={() => setProveedorEnPreview(null)}
+        onEditar={() => {
+          setProveedorEditando(proveedorEnPreview);
+          setProveedorEnPreview(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -208,7 +229,7 @@ export default function ProveedoresPage() {
           loading={isLoading}
           data={filtrados}
           emptyMessage="No hay proveedores registrados"
-          onRowClick={(p) => setProveedorSeleccionado(p)}
+          onRowClick={(p) => setProveedorEnPreview(p)}
           seleccion={seleccion}
           onToggleFila={toggleFila}
           onToggleTodas={toggleTodas}
@@ -225,7 +246,7 @@ export default function ProveedoresPage() {
               render: (p) => (
                 <AccionesFila
                   menu={[
-                    { label: 'Editar', onClick: () => setProveedorSeleccionado(p) },
+                    { label: 'Editar', onClick: () => setProveedorEditando(p) },
                     { label: 'Eliminar', onClick: () => handleEliminar(p), destructivo: true },
                   ]}
                 />
@@ -234,9 +255,6 @@ export default function ProveedoresPage() {
           ]}
         />
       </div>
-
-      <ProveedorForm open={!!proveedorSeleccionado} onClose={() => setProveedorSeleccionado(null)} proveedor={proveedorSeleccionado} />
-      <ProveedorForm open={creandoNuevo} onClose={() => setCreandoNuevo(false)} proveedor={null} />
 
       <DescargarZipModal
         open={zipAbierto}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, FileText, PiggyBank } from 'lucide-react';
+import { AlertTriangle, FileText, PiggyBank, Landmark } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
@@ -8,33 +8,27 @@ import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionRemuneracion, generarPdfResumenTNS } from '../../lib/generarPdfRemuneracion';
+import { generarPdfAttestationRemuneracion } from '../../lib/generarPdfAttestationRemuneracion';
+import { generarPdfCompteCourant } from '../../lib/generarPdfCompteCourant';
 import { registrarDecision } from '../../lib/registroDecisiones';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { calcularTNS } from './calculos';
+import { fmt } from './format';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
+import { ResumenTitular } from './ResumenTitular';
+import { DESGLOSE_REFERENCIA } from './desgloseReferencia';
 
 const MESES_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 
-const DESGLOSE_REFERENCIA = [
-  { concepto: 'Maladie', taux: '0 – 7,2% (progresivo)', cubre: 'Seguro de enfermedad — consultas, hospitalización, medicamentos' },
-  { concepto: 'Indemnités journalières (IJ)', taux: '0,85%', cubre: 'Pago diario si el gérant está de baja por enfermedad' },
-  { concepto: 'Retraite de base', taux: '17,75% hasta PASS', cubre: 'Pensión de jubilación del régimen general' },
-  { concepto: 'Retraite complémentaire', taux: '7 – 8%', cubre: 'Pensión de jubilación complementaria (encima de la de base)' },
-  { concepto: 'Invalidité-décès', taux: '1,3%', cubre: 'Pensión si el gérant queda incapacitado, o para la familia en caso de fallecimiento' },
-  { concepto: 'CSG-CRDS', taux: '9,7%', cubre: 'Contribución social generalizada — financia la Sécurité Sociale en general' },
-  { concepto: 'CFP', taux: 'forfait', cubre: 'Formation Professionnelle — da derecho a formación continua' },
-];
-
-export function TabCotisations() {
+export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
   const queryClient = useQueryClient();
   const { config, fuente } = useFiscalConfig();
   const { gerantConfig, guardar, guardando } = useGerantConfig();
@@ -42,6 +36,11 @@ export function TabCotisations() {
   const [mesResumen, setMesResumen] = useState(new Date().getMonth() + 1);
   const [generandoDecision, setGenerandoDecision] = useState(false);
   const [generandoResumen, setGenerandoResumen] = useState(false);
+  const [generandoAttestation, setGenerandoAttestation] = useState(false);
+  const [tipoCC, setTipoCC] = useState<'aportacion' | 'devolucion'>('aportacion');
+  const [importeCC, setImporteCC] = useState(0);
+  const [fechaCC, setFechaCC] = useState(() => new Date().toISOString().slice(0, 10));
+  const [generandoCC, setGenerandoCC] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -50,7 +49,6 @@ export function TabCotisations() {
 
   const tns = calcularTNS(remuneracion, config);
   const pass = config('pass_2026', 47100);
-  const anio = new Date().getFullYear();
 
   const handleDecision = async () => {
     setGenerandoDecision(true);
@@ -60,7 +58,7 @@ export function TabCotisations() {
         await registrarDecision({ tipo: 'remuneracion', titulo: `Rémunération du gérant — exercice ${anio}`, anio_ejercicio: anio });
         queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
       } catch (err) {
-        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${(err as { message?: string }).message ?? err}`);
+        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${mensajeError(err)}`);
       }
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));
@@ -80,15 +78,47 @@ export function TabCotisations() {
     }
   };
 
+  const handleAttestation = async () => {
+    setGenerandoAttestation(true);
+    try {
+      await conAvisoDescarga(() => generarPdfAttestationRemuneracion(anio, remuneracion, config), toast);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoAttestation(false);
+    }
+  };
+
+  const handleCompteCourant = async () => {
+    setGenerandoCC(true);
+    try {
+      await conAvisoDescarga(() => generarPdfCompteCourant({ tipo: tipoCC, importe: importeCC, fecha: fechaCC }), toast);
+      try {
+        await registrarDecision({
+          tipo: `compte_courant_${tipoCC}`,
+          titulo: `Compte courant d'associé — ${tipoCC === 'aportacion' ? 'apport' : 'remboursement'} de ${fmt(importeCC)}`,
+          anio_ejercicio: new Date(fechaCC).getFullYear(),
+        });
+        queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
+      } catch (err) {
+        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${mensajeError(err)}`);
+      }
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoCC(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-brand-light border border-gray-200 rounded-sm px-3 py-2 text-xs text-brand leading-relaxed">
-        <strong>Reforma 2026:</strong> las cotisations TNS del gérant ya no se calculan sobre el revenu bruto, sino sobre una{' '}
-        <strong>assiette única con abatimiento del 26%</strong> (assiette = rémunération × 0,74), salvo en la fracción de
-        rémunération que supera el 130% del PASS ({fmt(pass * 1.3)}), donde no se aplica el abatimiento.
-        <div className="mt-1.5">
-          <Fuente url={fuente('tns_abattement')} />
-        </div>
+      <ResumenTitular icono={PiggyBank}>
+        Con la rémunération actual de <strong className="text-brand">{fmt(remuneracion)}</strong>/año, el gérant paga{' '}
+        <strong className="text-brand">{fmt(tns.total)}</strong> de cotisations TNS al año ({fmt(tns.mensual)}/mes).
+      </ResumenTitular>
+      <div className="flex items-center justify-between text-xs text-gray-400 -mt-2 px-1">
+        <span>Por qué la assiette no es igual a la rémunération: preguntas frecuentes al final de la página.</span>
+        <Fuente url={fuente('tns_abattement')} />
       </div>
 
       {anio === 2026 && (
@@ -154,6 +184,13 @@ export function TabCotisations() {
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 flex items-end gap-2 flex-wrap">
+            <Select
+              label="Año"
+              options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))}
+              value={String(anio)}
+              onChange={(e) => onAnioChange(Number(e.target.value))}
+              className="w-24"
+            />
             <Button onClick={handleDecision} disabled={generandoDecision || remuneracion === 0}>
               {generandoDecision ? 'Generando...' : `Décision de rémunération ${anio} (PDF)`}
             </Button>
@@ -167,13 +204,56 @@ export function TabCotisations() {
               className="w-36"
             />
             <Button onClick={handleResumenMensual} disabled={generandoResumen || remuneracion === 0}>
-              {generandoResumen ? 'Generando...' : 'Resumen mensual (PDF)'}
+              {generandoResumen ? 'Generando...' : `Resumen mensual ${anio} (PDF)`}
             </Button>
           </div>
+        </div>
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <p className="text-xs text-gray-500 mb-2">
+            Certificado de ingresos anuales — para bancos, alquileres o cualquier trámite que pida justificar cuánto ganas.
+          </p>
+          <Button variant="secondary" onClick={handleAttestation} disabled={generandoAttestation || remuneracion === 0}>
+            {generandoAttestation ? 'Generando...' : `Attestation de rémunération ${anio} (PDF)`}
+          </Button>
         </div>
         {remuneracion === 0 && (
           <p className="text-xs text-gray-400 mt-2">Configura una rémunération mayor que 0 € arriba para poder generarlos.</p>
         )}
+      </div>
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+          <Landmark size={14} className="text-brand" /> Compte courant d'associé
+        </p>
+        <p className="text-xs text-gray-500 leading-relaxed mb-3">
+          Plantilla reutilizable para cuando prestes dinero personal a la société (aportación) o la société te lo
+          devuelva (devolución) — sin intereses, remboursement libre según tesorería. Genera el PDF con la fecha e
+          importe de ese movimiento y queda anotado en el "Registre des décisions" (Fiscalidad → Documentos).
+        </p>
+        <div className="flex items-end gap-2 flex-wrap">
+          <Select
+            label="Tipo de movimiento"
+            options={[
+              { value: 'aportacion', label: 'Aportación (yo presto a la société)' },
+              { value: 'devolucion', label: 'Devolución (la société me devuelve)' },
+            ]}
+            value={tipoCC}
+            onChange={(e) => setTipoCC(e.target.value as 'aportacion' | 'devolucion')}
+            className="w-72"
+          />
+          <Input
+            label="Importe"
+            type="number"
+            min={0}
+            value={importeCC}
+            onChange={(e) => setImporteCC(Number(e.target.value))}
+            className="w-32"
+          />
+          <Input label="Fecha" type="date" value={fechaCC} onChange={(e) => setFechaCC(e.target.value)} className="w-40" />
+          <Button onClick={handleCompteCourant} disabled={generandoCC || importeCC <= 0}>
+            {generandoCC ? 'Generando...' : 'Generar convención (PDF)'}
+          </Button>
+        </div>
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
@@ -218,7 +298,7 @@ export function TabCotisations() {
           },
           {
             q: '¿Qué es el PASS y por qué importa aquí?',
-            a: 'El PASS (Plafond Annuel de la Sécurité Sociale) es una cifra de referencia que fija el Estado francés cada año y que se usa como tope o base de cálculo en muchas prestaciones y cotizaciones sociales. Aquí se usa solo para saber a partir de qué rémunération deja de aplicarse el abatimiento del 26% (el 130% del PASS). Las fuentes oficiales para 2026 varían entre 46.368 € y 48.060 €; el valor usado (configurable en fiscal_config, clave pass_2026) está marcado como "a verificar" hasta que se confirme en urssaf.fr.',
+            a: `El PASS (Plafond Annuel de la Sécurité Sociale) es una cifra de referencia que fija el Estado francés cada año y que se usa como tope o base de cálculo en muchas prestaciones y cotizaciones sociales. Aquí se usa solo para saber a partir de qué rémunération deja de aplicarse el abatimiento del 26%: el 130% del PASS configurado (${fmt(pass)}) son ${fmt(pass * 1.3)}. El valor usado (configurable en fiscal_config, clave pass_2026) está marcado como "a verificar" hasta que se confirme en urssaf.fr.`,
           },
           {
             q: '¿Por qué hay cotisations aunque no me pague nada (rémunération = 0)?',

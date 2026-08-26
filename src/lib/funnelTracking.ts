@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { normalizarTelefono } from '../modules/clientes/types';
 
 export type EtapaFunnel =
   | 'solicitud_entrada'
@@ -67,10 +68,23 @@ export function contarUnicosEnFunnel<T extends FunnelEventoBase>(eventos: T[], e
 // No lanza si falla el insert — es un registro secundario para analítica, no debe tumbar la
 // acción principal (que ya tiene su propio toast de éxito/error). Mismo criterio que registrarEvento
 // en src/lib/eventos.ts.
+//
+// Idempotente por (etapa, solicitud_id|presupuesto_id): comprueba si ya existe un evento igual
+// antes de insertar. Sin esto, dos disparadores distintos del mismo cambio de estado (p. ej. la
+// acción manual "Marcar como Enviada" y la detección automática de revisar-gmail) podían insertar
+// el mismo evento dos veces — confirmado con duplicados reales en producción, auditoría
+// 2026-08-18. `funnelTracking.ts` no lo evita del todo por sí solo porque `revisar-gmail` corre en
+// Deno y no puede importar este fichero — tiene su propia comprobación gemela, ver su código.
 export async function registrarEventoFunnel(
   etapa: EtapaFunnel,
   opts: { solicitudId?: string | null; presupuestoId?: string | null; fuente?: string | null } = {},
 ) {
+  const idRelevante = opts.presupuestoId ?? opts.solicitudId;
+  if (idRelevante) {
+    const campo = opts.presupuestoId ? 'presupuesto_id' : 'solicitud_id';
+    const { data: existente } = await supabase.from('funnel_eventos').select('id').eq('etapa', etapa).eq(campo, idRelevante).limit(1);
+    if (existente && existente.length > 0) return;
+  }
   const { error } = await supabase.from('funnel_eventos').insert({
     etapa,
     solicitud_id: opts.solicitudId ?? null,
@@ -78,4 +92,61 @@ export async function registrarEventoFunnel(
     fuente: opts.fuente ?? null,
   });
   if (error) console.warn('No se pudo registrar el evento de funnel:', error.message);
+}
+
+// Auto-vinculación al crear un presupuesto: cruza por teléfono/email normalizado contra
+// solicitudes sin vincular todavía, mismo criterio que datosContactoCliente() en
+// ClientePrivacidadTab.tsx/pipelineSync.ts. Antes esto solo se hacía a mano desde el desplegable
+// "Vincular a presupuesto" de SolicitudDetalle.tsx, y casi nunca se hacía — la inmensa mayoría de
+// presupuestos se quedaban sin vincular y el escalón "Vinculadas a presupuesto" del embudo salía
+// vacío aunque los escalones de después (enviado, firmado...) tuvieran números normales (hallazgo
+// real, auditoría 2026-08-19). Si hay varias solicitudes candidatas, se vincula la más reciente.
+// Best-effort, no bloqueante — igual que sincronizarPipelineCliente: un fallo aquí no debe tumbar
+// la creación del presupuesto, que ya tiene su propio toast de éxito/error.
+export async function vincularSolicitudPorContacto(
+  presupuestoId: string,
+  contacto: { telefono?: string | null; email?: string | null },
+) {
+  const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
+  const email = contacto.email ? contacto.email.toLowerCase() : null;
+  if (!tel && !email) return;
+
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id, telefono, email, fuente')
+    .is('presupuesto_vinculado_id', null)
+    .neq('estado', 'Descartada')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('vincularSolicitudPorContacto: no se pudieron leer solicitudes:', error.message);
+    return;
+  }
+
+  const match = (solicitudes ?? []).find((s) => {
+    const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
+    const sEmail = s.email ? String(s.email).toLowerCase() : null;
+    return (tel && sTel === tel) || (email && sEmail === email);
+  });
+  if (!match) return;
+
+  const { error: errorUpdate } = await supabase
+    .from('solicitudes')
+    .update({ presupuesto_vinculado_id: presupuestoId })
+    .eq('id', match.id);
+  if (errorUpdate) {
+    console.warn('vincularSolicitudPorContacto: no se pudo vincular la solicitud:', errorUpdate.message);
+    return;
+  }
+  // El embudo espera que "Respondidas" nunca sea menor que "Vinculadas a presupuesto" (llegar a
+  // un presupuesto implica que hubo contacto antes) — si la solicitud nunca se marcó "Enviada"
+  // desde el CRM (p. ej. el presupuesto se creó directo sin pasar por Solicitudes), regístralo
+  // aquí también. Idempotente (registrarEventoFunnel no duplica si ya existe), así que es seguro
+  // llamarlo aunque el evento ya estuviera. Hallazgo real, auditoría 2026-08-19: 3 solicitudes
+  // vinculadas se quedaron sin este evento y el embudo mostraba más vinculadas que respondidas.
+  await registrarEventoFunnel('solicitud_respondida', { solicitudId: match.id, fuente: match.fuente });
+  await registrarEventoFunnel('solicitud_vinculada_presupuesto', {
+    solicitudId: match.id,
+    presupuestoId,
+    fuente: match.fuente,
+  });
 }

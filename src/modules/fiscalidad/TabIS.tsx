@@ -9,54 +9,43 @@ import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
 import { registrarDecision } from '../../lib/registroDecisiones';
 import { Button } from '../../components/ui/Button';
-import { useFiscalConfig } from './useFiscalConfig';
-import { useGerantConfig } from './useGerantConfig';
-import { useResultadoEjercicio } from './useResultadoEjercicio';
+import { Select } from '../../components/ui/Select';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, calcularReservaLegal, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { useEjercicioFiscal } from './useEjercicioFiscal';
+import { calcularIS } from './calculos';
+import { fmt, fmtPct, fmtFechaCorta } from './format';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
+import { ResumenTitular } from './ResumenTitular';
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 
-function fmtPct(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 1 }).format(n);
-}
-
-function fmtFecha(f: string) {
-  return new Date(`${f}T00:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
-}
-
-export function TabIS() {
+// El ejercicio seleccionado vive en FiscalidadPage (no aquí) para que se recuerde al moverte entre
+// esta pestaña, Cotisations, Salario vs Dividendos y Liasse fiscale — antes cada una tenía su
+// propio estado local y volvía a 2026 cada vez que cambiabas de pestaña.
+export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
-  const anio = new Date().getFullYear();
-  const ejercicio = limitesEjercicio(anio);
-  const { config, fuente } = useFiscalConfig();
-  const { gerantConfig } = useGerantConfig();
-  const { ingresosHT, beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const {
+    ejercicio,
+    mesesTranscurridos,
+    config,
+    fuente,
+    remuneracionAnual,
+    ingresosHT,
+    beneficioNeto,
+    is,
+    resultadoNeto,
+    capitalSocial,
+    reservaLegal,
+  } = useEjercicioFiscal(anio);
   const { echeances, marcarCompletada } = useEcheances();
 
-  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
-
-  const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  // Prorrateado por meses TRANSCURRIDOS, no por la duración total del ejercicio — beneficioBruto
-  // (useResultadoEjercicio) ya solo refleja lo facturado/gastado hasta hoy, así que restarle el
-  // coste de rémunération del ejercicio COMPLETO infla el "beneficio neto" a 0 € casi todo el año
-  // y lo dispara de golpe al final (bug real corregido 2026-08-11).
-  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
-  const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
-  const is = calcularIS(beneficioNeto, ejercicio.meses, config);
   const tipoEfectivo = beneficioNeto > 0 ? is.total / beneficioNeto : 0;
-  const resultadoNeto = Math.max(0, beneficioNeto - is.total);
   const margenNeto = ingresosHT > 0 ? resultadoNeto / ingresosHT : 0;
-  const capitalSocial = gerantConfig?.capital_social ?? 1000;
-  const reservaLegal = calcularReservaLegal(resultadoNeto, capitalSocial, config);
   const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config);
 
   const handleAprobacionCuentas = async () => {
@@ -67,7 +56,7 @@ export function TabIS() {
         await registrarDecision({ tipo: 'aprobacion_cuentas', titulo: `Approbation des comptes — exercice ${anio}`, anio_ejercicio: anio });
         queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
       } catch (err) {
-        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${(err as { message?: string }).message ?? err}`);
+        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${mensajeError(err)}`);
       }
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));
@@ -82,28 +71,31 @@ export function TabIS() {
     return { beneficioProyectado, is: calcularIS(Math.max(0, beneficioProyectado), ejercicio.meses, config) };
   }, [beneficioNeto, mesesTranscurridos, ejercicio.meses, config]);
 
-  const acomptes = (echeances ?? []).filter((e) => e.tipo === 'ACOMPTE_IS' || e.tipo === 'SOLDE_IS');
+  // Acomptes y solde se generan juntos, en el mismo "Generar calendario fiscal {anio}" — filtrar
+  // por si el título incluye ese año evita mezclar los de otros ejercicios ahora que hay selector
+  // (antes se mostraban todos los años a la vez).
+  const acomptes = (echeances ?? []).filter(
+    (e) => (e.tipo === 'ACOMPTE_IS' || e.tipo === 'SOLDE_IS') && e.titulo.includes(String(anio)),
+  );
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-2">
-          <Scale size={14} className="text-brand" /> Impôt sur les Sociétés — dos tramos
-        </p>
-        <p className="text-xs text-gray-600 leading-relaxed">
-          El beneficio imposable tributa al {(config('is_taux_reduit', 0.15) * 100).toFixed(0)}% hasta{' '}
-          {fmt(config('is_plafond_reduit', 42500))} anuales (prorrateado según los meses del ejercicio) siempre que la empresa cumpla
-          las condiciones PME: CA ≤ 10 M€, capital 100% liberado y ≥75% del capital en manos de personas físicas — Reformas Ordoñez
-          cumple las tres. El exceso tributa al {(config('is_taux_normal', 0.25) * 100).toFixed(0)}%.
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mt-2">
-          El <strong>beneficio neto estimado</strong> que ves más abajo no es solo "ingresos − gastos": a los ingresos y gastos
-          registrados en Facturas y Gastos se le resta también la rémunération del gérant y sus cotisations URSSAF del período
-          (configurables en la pestaña "Cotisations URSSAF"), porque ambas reducen el beneficio imposable antes de calcular el IS.
-        </p>
-        <div className="mt-2">
-          <Fuente url={fuente('is_taux_reduit')} />
-        </div>
+      <Select
+        label="Ejercicio"
+        options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))}
+        value={String(anio)}
+        onChange={(e) => onAnioChange(Number(e.target.value))}
+        className="w-32"
+      />
+
+      <ResumenTitular icono={Scale}>
+        Para el ejercicio {anio} te toca pagar aproximadamente <strong className="text-brand">{fmt(is.total)}</strong> de
+        Impôt sur les Sociétés, sobre un beneficio imponible de {fmt(beneficioNeto)} (ya descontados la rémunération del
+        gérant y sus cotisations) — tipo efectivo del {fmtPct(tipoEfectivo)}.
+      </ResumenTitular>
+      <div className="flex items-center justify-between text-xs text-gray-400 -mt-2 px-1">
+        <span>Por qué dos tramos (15%/25%) y cómo se calcula: preguntas frecuentes al final de la página.</span>
+        <Fuente url={fuente('is_taux_reduit')} />
       </div>
 
       {anio === 2026 && (
@@ -212,7 +204,7 @@ export function TabIS() {
                     />
                   </td>
                   <td className="py-1.5 text-gray-900">{e.titulo}</td>
-                  <td className="py-1.5 text-right text-gray-500">{fmtFecha(e.fecha_limite)}</td>
+                  <td className="py-1.5 text-right text-gray-500">{fmtFechaCorta(e.fecha_limite)}</td>
                 </tr>
               ))}
             </tbody>

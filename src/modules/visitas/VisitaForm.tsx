@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
@@ -12,10 +13,31 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
 import { CalendarPicker } from '../google/CalendarPicker';
-import { crearEventoVisita } from '../../lib/googleCalendar';
-import type { Visita, NuevaVisita, EstadoVisita } from './types';
+import { crearEventoVisita, actualizarEventoVisita } from '../../lib/googleCalendar';
+import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
+import { sumarMinutos, minutosEntre } from '../../lib/horas';
+import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
+import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
+import {
+  agruparClientes,
+  normalizarTelefono,
+  type Cliente,
+  type ClientePotencial,
+} from '../clientes/types';
+import { useCatalogosVisitas } from './useCatalogosVisitas';
+import type { Visita, NuevaVisita, EstadoVisita, PrefillVisita } from './types';
 
-function Seccion({ numero, titulo, icono: Icono, children }: { numero: number; titulo: string; icono: typeof User; children: ReactNode }) {
+function Seccion({
+  numero,
+  titulo,
+  icono: Icono,
+  children,
+}: {
+  numero: number;
+  titulo: string;
+  icono: typeof User;
+  children: ReactNode;
+}) {
   return (
     <section className="bg-surface border border-gray-200 rounded-sm p-4">
       <div className="flex items-center gap-2 border-b border-gray-200 pb-2.5 mb-4">
@@ -30,13 +52,7 @@ function Seccion({ numero, titulo, icono: Icono, children }: { numero: number; t
   );
 }
 
-const ZONAS_ES = ['Irún', 'Hondarribia', 'Donostia/San Sebastián', 'Rentería', 'Bera de Bidasoa', 'Otro ES'];
-const ZONAS_FR = ['Hendaye', 'Urrugne', 'Saint-Jean-de-Luz', 'Bayonne', 'Autre FR'];
-const TIPOS_REFORMA = ['Baño', 'Cocina', 'Reforma integral', 'Pintura', 'Suelos', 'Fachada', 'Fontanería', 'Electricidad', 'Otro'];
-const EMPLEADOS = ['Ricardo Ordoñez', 'Ricardo Ordoñez y Gabriel', 'Ricardo Ordoñez y Santiago', 'Gabriel Ordoñez'];
 const ESTADOS: EstadoVisita[] = ['Pendiente', 'Realizada', 'Cancelada'];
-const HORAS_HABITUALES = ['12:00', '12:30', '13:00', '17:00', '17:30', '18:00'];
-const HORAS_SABADO = ['12:00', '12:30', '13:00'];
 const OTRO_HORARIO = 'otro';
 
 function esSabado(fecha: string) {
@@ -45,18 +61,61 @@ function esSabado(fecha: string) {
 }
 
 type FormState = {
-  nombre: string; apellidos: string; telefono: string; email: string; idioma: string; contacto: string;
-  direccion: string; direccion_extra: string; lat: number | null; lng: number | null; pais: string; zona: string;
-  tipo: string; descripcion: string;
-  fecha_visita: string; hora_visita: string; empleado: string; estado: EstadoVisita; notas: string;
+  nombre: string;
+  apellidos: string;
+  telefono: string;
+  email: string;
+  idioma: string;
+  contacto: string;
+  direccion: string;
+  direccion_extra: string;
+  lat: number | null;
+  lng: number | null;
+  pais: string;
+  zona: string;
+  tipo: string;
+  descripcion: string;
+  fecha_visita: string;
+  hora_visita: string;
+  hora_fin_visita: string;
+  empleado: string;
+  estado: EstadoVisita;
+  notas: string;
 };
 
 const EMPTY: FormState = {
-  nombre: '', apellidos: '', telefono: '', email: '', idioma: 'Español', contacto: 'Llamada',
-  direccion: '', direccion_extra: '', lat: null, lng: null, pais: 'España', zona: 'Irún',
-  tipo: 'Baño', descripcion: '',
-  fecha_visita: '', hora_visita: '12:00', empleado: '', estado: 'Pendiente', notas: '',
+  nombre: '',
+  apellidos: '',
+  telefono: '',
+  email: '',
+  idioma: 'Español',
+  contacto: 'Llamada',
+  direccion: '',
+  direccion_extra: '',
+  lat: null,
+  lng: null,
+  pais: 'España',
+  zona: 'Irún',
+  tipo: 'Baño',
+  descripcion: '',
+  fecha_visita: '',
+  hora_visita: '12:00',
+  hora_fin_visita: '13:00',
+  empleado: '',
+  estado: 'Pendiente',
+  notas: '',
 };
+
+// Duraciones ofrecidas para "Duración" — antes las visitas no tenían hora de fin, así que ninguna
+// vista podía dibujar bloques de tiempo proporcionales ni detectar solapamientos (mejora real,
+// auditoría de Calendario 2026-08-18). 60 min es el valor por defecto/histórico.
+const DURACIONES_MIN = [30, 60, 90, 120];
+function etiquetaDuracion(min: number) {
+  if (min < 60) return `${min} min`;
+  const horas = Math.floor(min / 60);
+  const resto = min % 60;
+  return resto ? `${horas} h ${resto} min` : `${horas} h`;
+}
 
 function estadoFiscal(pais: string) {
   if (pais === 'España') return 'Régimen fiscal: IVA 21%';
@@ -90,6 +149,9 @@ function formDesdeVisita(visita: Visita): FormState {
     descripcion: visita.descripcion ?? '',
     fecha_visita: visita.fecha_visita ?? '',
     hora_visita: visita.hora_visita?.slice(0, 5) ?? '12:00',
+    hora_fin_visita:
+      visita.hora_fin_visita?.slice(0, 5) ??
+      sumarMinutos(visita.hora_visita?.slice(0, 5) ?? '12:00', 60),
     empleado: visita.empleado ?? '',
     estado: visita.estado ?? 'Pendiente',
     notas: visita.notas ?? '',
@@ -99,20 +161,96 @@ function formDesdeVisita(visita: Visita): FormState {
 type VisitaFormProps = {
   onClose: () => void;
   visita?: Visita | null;
-  fechaPrefill?: string;
+  prefill?: PrefillVisita;
 };
 
-export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
+export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   const { user } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
+  const catalogos = useCatalogosVisitas();
   const [form, setForm] = useState<FormState>(() => {
     if (visita) return formDesdeVisita(visita);
-    return { ...EMPTY, fecha_visita: fechaPrefill ?? '', empleado: empleadoDefault(EMPTY.pais) };
+    const pais = prefill?.pais ?? EMPTY.pais;
+    return {
+      ...EMPTY,
+      fecha_visita: prefill?.fecha ?? '',
+      nombre: prefill?.nombre ?? EMPTY.nombre,
+      telefono: prefill?.telefono ?? EMPTY.telefono,
+      email: prefill?.email ?? EMPTY.email,
+      idioma: prefill?.idioma ?? EMPTY.idioma,
+      contacto: prefill?.contacto ?? EMPTY.contacto,
+      tipo: prefill?.tipo ?? EMPTY.tipo,
+      descripcion: prefill?.descripcion ?? EMPTY.descripcion,
+      direccion: prefill?.direccion ?? EMPTY.direccion,
+      direccion_extra: prefill?.direccionExtra ?? EMPTY.direccion_extra,
+      pais,
+      zona: pais !== EMPTY.pais ? zonaDefault(pais) : EMPTY.zona,
+      empleado: empleadoDefault(pais),
+    };
   });
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
-  const [clienteRepetidor, setClienteRepetidor] = useState<{ nombre: string; totalObras: number } | null>(null);
+  const [clienteRepetidor, setClienteRepetidor] = useState<{
+    id: string;
+    nombre: string;
+    totalObras: number;
+  } | null>(null);
+
+  const { data: visitasParaClientes } = useQuery({
+    queryKey: ['visitas'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('visitas')
+        .select('*')
+        .is('eliminado_en', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data as Visita[];
+    },
+    enabled: !visita,
+  });
+  const clientesExistentes = useMemo(
+    () => agruparClientes(visitasParaClientes ?? []),
+    [visitasParaClientes],
+  );
+  const potenciales = usePotencialesCliente(clientesExistentes, !visita);
+
+  const handleSeleccionarCliente = (cliente: Cliente) => {
+    const ultima = cliente.visitas[0];
+    setForm((f) => ({
+      ...f,
+      nombre: cliente.nombre,
+      apellidos: cliente.apellidos,
+      telefono: cliente.telefono,
+      email: cliente.email ?? '',
+      idioma: ultima?.idioma ?? f.idioma,
+      direccion: ultima?.direccion ?? f.direccion,
+      direccion_extra: ultima?.direccion_extra ?? f.direccion_extra,
+      lat: ultima?.lat ?? f.lat,
+      lng: ultima?.lng ?? f.lng,
+      pais: ultima?.pais ?? f.pais,
+      zona: ultima?.zona ?? f.zona,
+    }));
+    setClienteRepetidor({
+      id: cliente.id,
+      nombre: `${cliente.nombre} ${cliente.apellidos}`,
+      totalObras: cliente.visitas.length,
+    });
+  };
+
+  const handleSeleccionarPotencial = (potencial: ClientePotencial) => {
+    setForm((f) => ({
+      ...f,
+      nombre: potencial.nombre,
+      telefono: potencial.telefono,
+      email: potencial.email ?? f.email,
+      idioma: potencial.idioma === 'Français' ? 'Français' : f.idioma,
+      contacto: potencial.origen === 'solicitud' ? 'Web' : f.contacto,
+    }));
+    setClienteRepetidor(null);
+  };
 
   const fechaMinima = useMemo(() => {
     const d = new Date();
@@ -120,7 +258,23 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
-  const horasDisponibles = esSabado(form.fecha_visita) ? HORAS_SABADO : HORAS_HABITUALES;
+  const horasDisponibles = esSabado(form.fecha_visita)
+    ? catalogos.horasSabado
+    : catalogos.horasHabituales;
+
+  // Cambiar la hora de inicio mantiene la duración ya elegida (desplaza hora_fin_visita en vez de
+  // dejarla fija) — si no, cambiar la hora de inicio podría dejar una duración negativa o absurda.
+  const cambiarHoraInicio = (nuevaHora: string) =>
+    setForm((f) => ({
+      ...f,
+      hora_visita: nuevaHora,
+      hora_fin_visita: sumarMinutos(nuevaHora, minutosEntre(f.hora_visita, f.hora_fin_visita)),
+    }));
+
+  const duracionActual = minutosEntre(form.hora_visita, form.hora_fin_visita);
+  const opcionesDuracion = DURACIONES_MIN.includes(duracionActual)
+    ? DURACIONES_MIN
+    : [...DURACIONES_MIN, duracionActual].sort((a, b) => a - b);
 
   const handlePaisChange = (pais: string) => {
     setForm((f) => ({ ...f, pais, zona: zonaDefault(pais), empleado: empleadoDefault(pais) }));
@@ -135,11 +289,12 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
       return;
     }
 
-    let previas: { nombre: string; apellidos: string }[] = [];
+    let previas: { nombre: string; apellidos: string; telefono: string; email: string | null }[] =
+      [];
     if (telefono) {
       const { data, error } = await supabase
         .from('visitas')
-        .select('nombre, apellidos')
+        .select('nombre, apellidos, telefono, email')
         .eq('telefono', telefono)
         .is('eliminado_en', null)
         .order('created_at', { ascending: true });
@@ -152,7 +307,7 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
     if (previas.length === 0 && email) {
       const { data, error } = await supabase
         .from('visitas')
-        .select('nombre, apellidos')
+        .select('nombre, apellidos, telefono, email')
         .eq('email', email)
         .is('eliminado_en', null)
         .order('created_at', { ascending: true });
@@ -164,7 +319,21 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
     }
 
     if (previas.length > 0) {
-      setClienteRepetidor({ nombre: `${previas[0].nombre} ${previas[0].apellidos}`, totalObras: previas.length });
+      // Misma clave que agruparClientes() en types.ts, para poder enlazar directamente a la ficha
+      // ya existente en vez de solo avisar de que existe (mejora real, auditoría de Clientes
+      // 2026-08-18 — igual que ya tenía ClienteForm.tsx).
+      const primera = previas[0];
+      const clave =
+        (primera.telefono ? normalizarTelefono(primera.telefono) : '') || primera.email || '';
+      if (clave) {
+        setClienteRepetidor({
+          id: clave,
+          nombre: `${primera.nombre} ${primera.apellidos}`,
+          totalObras: previas.length,
+        });
+      } else {
+        setClienteRepetidor(null);
+      }
     } else {
       setClienteRepetidor(null);
     }
@@ -193,6 +362,7 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
         estado_pipeline: 'Contacto',
         pipeline_etapa_maxima: 'Contacto',
         estado: 'Pendiente',
+        proyecto_id: prefill?.proyectoId ?? null,
       };
       const { data, error } = await supabase.from('visitas').insert(nueva).select().single();
       if (error) throw error;
@@ -202,14 +372,28 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
       crearEventoVisita(data)
         .then(async (eventId) => {
           if (!eventId) return;
-          const { error: errorGuardarEventId } = await supabase.from('visitas').update({ google_event_id: eventId }).eq('id', data.id);
+          const { error: errorGuardarEventId } = await supabase
+            .from('visitas')
+            .update({ google_event_id: eventId })
+            .eq('id', data.id);
           if (errorGuardarEventId) {
-            toast.warning(`Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`);
+            toast.warning(
+              `Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`,
+            );
           }
-          const { data: r, error } = await supabase.functions.invoke('notificar-visita', { body: { visitaId: data.id } });
-          if (error || r?.ok === false) toast.warning(`No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`);
+          const { data: r, error } = await supabase.functions.invoke('notificar-visita', {
+            body: { visitaId: data.id },
+          });
+          if (error || r?.ok === false)
+            toast.warning(
+              `No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`,
+            );
         })
-        .catch((error) => toast.warning(`Visita guardada, pero no se sincronizó con Google Calendar: ${error.message}`));
+        .catch((error) =>
+          toast.warning(
+            `Visita guardada, pero no se sincronizó con Google Calendar: ${error.message}`,
+          ),
+        );
       await notaSistema(data.id, `Visita registrada por ${nombreUsuarioActual}`);
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita registrada correctamente');
@@ -238,16 +422,47 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
         crearEventoVisita({ ...visita, ...form })
           .then(async (eventId) => {
             if (!eventId) return;
-            const { error: errorGuardarEventId } = await supabase.from('visitas').update({ google_event_id: eventId }).eq('id', visita.id);
+            const { error: errorGuardarEventId } = await supabase
+              .from('visitas')
+              .update({ google_event_id: eventId })
+              .eq('id', visita.id);
             if (errorGuardarEventId) {
-              toast.warning(`Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`);
+              toast.warning(
+                `Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`,
+              );
             }
-            const { data: r, error } = await supabase.functions.invoke('notificar-visita', { body: { visitaId: visita.id } });
-            if (error || r?.ok === false) toast.warning(`No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`);
+            const { data: r, error } = await supabase.functions.invoke('notificar-visita', {
+              body: { visitaId: visita.id },
+            });
+            if (error || r?.ok === false)
+              toast.warning(
+                `No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`,
+              );
           })
-          .catch((error) => toast.warning(`Visita actualizada, pero no se sincronizó con Google Calendar: ${error.message}`));
+          .catch((error) =>
+            toast.warning(
+              `Visita actualizada, pero no se sincronizó con Google Calendar: ${error.message}`,
+            ),
+          );
+      } else if (visita && visita.google_event_id) {
+        // Antes solo se creaba el evento la primera vez — reprogramar (fecha, hora o dirección
+        // distintas) dejaba el Calendar con los datos viejos, sin ningún aviso (mejora real,
+        // auditoría de Visitas 2026-08-18).
+        actualizarEventoVisita(visita.google_event_id, { ...visita, ...form }).catch((error) =>
+          toast.warning(
+            `Visita actualizada, pero no se sincronizó el cambio con Google Calendar: ${error.message}`,
+          ),
+        );
       }
       if (visita) await notaSistema(visita.id, `Visita modificada por ${nombreUsuarioActual}`);
+      if (visita && visita.estado !== 'Realizada' && form.estado === 'Realizada') {
+        try {
+          await crearGastoKilometricoPendiente({ ...visita, ...form });
+          queryClient.invalidateQueries({ queryKey: ['gastos'] });
+        } catch (error) {
+          toast.warning(`No se pudo generar el gasto de kilometraje: ${(error as Error).message}`);
+        }
+      }
       await sincronizarPipelineCliente(form.telefono);
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita actualizada correctamente');
@@ -267,7 +482,10 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
   return (
     <div className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-5">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a visitas
         </button>
@@ -276,16 +494,43 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
         </Button>
       </div>
 
-      <h1 className="text-xl font-bold text-gray-900 mb-1">{visita ? 'Editar visita' : 'Nueva visita técnica'}</h1>
+      <h1 className="text-xl font-bold text-gray-900 mb-1">
+        {visita ? 'Editar visita' : 'Nueva visita técnica'}
+      </h1>
       <p className="text-sm text-gray-500 mb-6">
-        {visita ? 'Modifica los datos de la visita.' : 'Registra los datos del cliente y programa la visita técnica.'}
+        {visita
+          ? 'Modifica los datos de la visita.'
+          : 'Registra los datos del cliente y programa la visita técnica.'}
       </p>
 
       <div className="flex flex-col gap-4">
         <Seccion numero={1} titulo="Cliente" icono={User}>
+          {!visita && (clientesExistentes.length > 0 || potenciales.length > 0) && (
+            <div className="mb-3">
+              <SelectorClienteInline
+                clientes={clientesExistentes}
+                potenciales={potenciales}
+                onSeleccionarCliente={handleSeleccionarCliente}
+                onSeleccionarPotencial={handleSeleccionarPotencial}
+                placeholder="¿Ya es cliente o potencial? Busca por nombre o teléfono..."
+              />
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Nombre" required value={form.nombre} error={errors.nombre} onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))} />
-            <Input label="Apellidos" required value={form.apellidos} error={errors.apellidos} onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))} />
+            <Input
+              label="Nombre"
+              required
+              value={form.nombre}
+              error={errors.nombre}
+              onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+            />
+            <Input
+              label="Apellidos"
+              required
+              value={form.apellidos}
+              error={errors.apellidos}
+              onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+            />
             <Input
               label="Teléfono"
               type="tel"
@@ -306,20 +551,37 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
               <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
                 <Star size={14} className="shrink-0" />
                 <span>
-                  Cliente conocido — {clienteRepetidor.nombre} ya tiene {clienteRepetidor.totalObras} obra(s) registrada(s).
-                  Podrás aplicar un descuento de fidelidad al crear su presupuesto.
+                  Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
+                  {clienteRepetidor.totalObras} obra(s) registrada(s). Podrás aplicar un descuento
+                  de fidelidad al crear su presupuesto.
                 </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    navigate(`/clientes/${encodeURIComponent(clienteRepetidor.id)}`);
+                  }}
+                  className="ml-auto font-semibold underline hover:no-underline shrink-0"
+                >
+                  Ver ficha existente
+                </button>
               </div>
             )}
             <Select
               label="Idioma"
-              options={[{ value: 'Español', label: 'Español' }, { value: 'Français', label: 'Français' }]}
+              options={[
+                { value: 'Español', label: 'Español' },
+                { value: 'Français', label: 'Français' },
+              ]}
               value={form.idioma}
               onChange={(e) => setForm((f) => ({ ...f, idioma: e.target.value }))}
             />
             <Select
               label="Cómo nos contactó"
-              options={['Llamada', 'WhatsApp', 'Web', 'Recomendación', 'Otro'].map((v) => ({ value: v, label: v }))}
+              options={['Llamada', 'WhatsApp', 'Web', 'Recomendación', 'Otro'].map((v) => ({
+                value: v,
+                label: v,
+              }))}
               value={form.contacto}
               onChange={(e) => setForm((f) => ({ ...f, contacto: e.target.value }))}
             />
@@ -342,7 +604,10 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
                     lng: lugar.lng,
                     pais: lugar.pais || f.pais,
                     zona: lugar.pais && lugar.pais !== f.pais ? zonaDefault(lugar.pais) : f.zona,
-                    empleado: lugar.pais && lugar.pais !== f.pais ? empleadoDefault(lugar.pais) : f.empleado,
+                    empleado:
+                      lugar.pais && lugar.pais !== f.pais
+                        ? empleadoDefault(lugar.pais)
+                        : f.empleado,
                   }))
                 }
               />
@@ -358,13 +623,18 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
             <Select
               label="País"
               required
-              options={[{ value: 'España', label: 'España' }, { value: 'Francia', label: 'Francia' }]}
+              options={[
+                { value: 'España', label: 'España' },
+                { value: 'Francia', label: 'Francia' },
+              ]}
               value={form.pais}
               onChange={(e) => handlePaisChange(e.target.value)}
             />
             <Select
               label="Zona"
-              options={(form.pais === 'España' ? ZONAS_ES : ZONAS_FR).map((v) => ({ value: v, label: v }))}
+              options={(form.pais === 'España' ? catalogos.zonasEs : catalogos.zonasFr).map(
+                (v) => ({ value: v, label: v }),
+              )}
               value={form.zona}
               onChange={(e) => setForm((f) => ({ ...f, zona: e.target.value }))}
             />
@@ -381,7 +651,7 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
             <Select
               label="Tipo de reforma"
               required
-              options={TIPOS_REFORMA.map((v) => ({ value: v, label: v }))}
+              options={catalogos.tiposReforma.map((v) => ({ value: v, label: v }))}
               value={form.tipo}
               onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
             />
@@ -416,23 +686,42 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
                   ...horasDisponibles.map((h) => ({ value: h, label: h })),
                   { value: OTRO_HORARIO, label: 'Otro horario…' },
                 ]}
-                value={horasDisponibles.includes(form.hora_visita) ? form.hora_visita : OTRO_HORARIO}
+                value={
+                  horasDisponibles.includes(form.hora_visita) ? form.hora_visita : OTRO_HORARIO
+                }
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, hora_visita: e.target.value === OTRO_HORARIO ? '' : e.target.value }))
+                  cambiarHoraInicio(e.target.value === OTRO_HORARIO ? '' : e.target.value)
                 }
               />
               {!horasDisponibles.includes(form.hora_visita) && (
                 <Input
                   type="time"
                   value={form.hora_visita}
-                  onChange={(e) => setForm((f) => ({ ...f, hora_visita: e.target.value }))}
+                  onChange={(e) => cambiarHoraInicio(e.target.value)}
                   className="mt-1.5"
                 />
               )}
             </div>
             <Select
+              label="Duración"
+              options={opcionesDuracion.map((min) => ({
+                value: String(min),
+                label: etiquetaDuracion(min),
+              }))}
+              value={String(duracionActual)}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  hora_fin_visita: sumarMinutos(f.hora_visita, Number(e.target.value)),
+                }))
+              }
+            />
+            <Select
               label="Empleado asignado"
-              options={[{ value: '', label: '— Seleccionar —' }, ...EMPLEADOS.map((v) => ({ value: v, label: v }))]}
+              options={[
+                { value: '', label: '— Seleccionar —' },
+                ...catalogos.empleados.map((v) => ({ value: v, label: v })),
+              ]}
               value={form.empleado}
               onChange={(e) => setForm((f) => ({ ...f, empleado: e.target.value }))}
             />
@@ -459,7 +748,10 @@ export function VisitaForm({ onClose, visita, fechaPrefill }: VisitaFormProps) {
       </div>
 
       <div className="flex items-center justify-between gap-2 flex-wrap mt-5">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a visitas
         </button>

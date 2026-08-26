@@ -32,7 +32,7 @@ Nunca silenciar errores. Siempre mostrar feedback al usuario.
 ## 2. El proyecto
 
 CRM interno para **Reformas Ordoñez** (empresa de reformas, frontera franco-española).
-Para datos de empresa, usuarios, zonas y T&C → leer `docs/empresa.md`.
+Para datos de empresa, usuarios, zonas y T&C → leer `docs/negocio/empresa.md`.
 
 **Stack:**
 - React 18 + Vite — sin Next.js, sin SSR
@@ -69,11 +69,11 @@ VITE_GMAPS_API_KEY=      # console.cloud.google.com → proyecto "ordonez-crm"
 ## 4. Diseño — reglas no negociables
 
 Estética **corporativa pero cercana**, inspirada en el diseño de referencia de la Home
-(`guias/inspiracion de pantalla de home...png`). Tarjetas más redondeadas y tipografía
+(`negocio/guias/inspiracion de pantalla de home...png`). Tarjetas más redondeadas y tipografía
 más suave que la versión inicial — ya no "minimalista seca".
 
 ```
-Fuente:    'Poppins' (Google Fonts, pesos 400/500/600/700) — ver docs/diseno.md
+Fuente:    'Poppins' (Google Fonts, pesos 400/500/600/700) — ver docs/tecnico/diseno.md
 Base:      text-sm (13px) · labels: text-xs uppercase tracking-wide
 Fondo:     bg-[#f4f4f2] página · bg-white cards
 Bordes:    border border-gray-200
@@ -114,7 +114,7 @@ Tabla filas:       odd:bg-gray-50 hover:bg-brand-light
 Sidebar:           bg-brand-dark · items text-white/65 · activo: text-white border-l-2 border-green-400
 ```
 
-Para tokens completos y estados visuales → leer `docs/diseno.md`.
+Para tokens completos y estados visuales → leer `docs/tecnico/diseno.md`.
 
 ---
 
@@ -169,7 +169,7 @@ const { data: { session } } = await supabase.auth.getSession();
 supabase.auth.onAuthStateChange((event, session) => { ... });
 ```
 
-Para esquema completo de tablas y SQL → leer `docs/supabase-schema.md`.
+Para esquema completo de tablas y SQL → leer `docs/tecnico/supabase-schema.md`.
 
 ### Storage (adjuntos de gastos)
 ```typescript
@@ -261,7 +261,7 @@ ordonez-crm/
 │       │                           LibroDiarioPage, LibroMayorPage (libro diario/mayor PCG, solo Francia)
 │       ├── fiscalidad/           ← Bloque 5 — IS, TNS, calendario fiscal, TabInmovilizado, TabLiasseFiscale
 │       ├── solicitudes/          ← Bloque 6 — solicitudes web + seguimiento asistido por IA
-│       ├── mensajeria/           ← hilos de email vinculados a clientes
+│       ├── mensajeria/           ← mensajería interna entre los usuarios del CRM (mensajes_equipo), no con clientes
 │       ├── notificaciones/       ← campana de notificaciones
 │       ├── planning/             ← plan de obra / cronograma imprimible
 │       ├── configuracion/        ← plantillas, portada, directrices, catálogo de líneas
@@ -270,12 +270,14 @@ ordonez-crm/
 │       │
 │       └── dashboard/            ← Solo admin — DashboardHubPage, DashboardGeneralPage, RentabilidadPage
 │
-├── docs/
-│   ├── empresa.md
-│   ├── diseno.md
-│   ├── supabase-schema.md
-│   ├── finanzas.md
-│   └── google-apis.md
+├── docs/                          ← reorganizado en subcarpetas temáticas 2026-08-18
+│   ├── tecnico/                   ← diseno.md, documenso.md, esquema-presupuestos.md, google-apis.md, supabase-schema.md
+│   ├── negocio/                   ← directrices-respuesta-clientes.md, empresa.md, finanzas.md, precios-mercado.md, tarifas-referencia.md, terminos-condiciones-plantilla.md, tc-plantillas/
+│   ├── fiscal/                    ← remuneracion-gerant-contexto.md
+│   └── producto/                  ← bloque6-solicitudes-seguimiento.md
+│
+├── negocio/                       ← datos de negocio, fuera de git (avatares, catalogo, equipo-marketing,
+│                                     equipo-presupuestos, guias, modificaciones, plantillas..., solicitudes-presupuesto)
 │
 └── data/
     └── seed.sql
@@ -291,8 +293,8 @@ ordonez-crm/
 | 2 | Google Maps + Calendar        | ✅ Hecho    | 2–4   | google-apis.md        |
 | 3 | Clientes + Pipeline + Seguimiento (sin PDF, ver §9) | ✅ Hecho — Clientes y Pipeline; el "Plan de seguimiento de obra" (`seguimiento/SeguimientoPage.tsx`, `PlanForm.tsx`) descrito en la estructura de carpetas (§6) nunca se implementó, auditoría 2026-08-05 | 4–6   | supabase-schema.md    |
 | 4 | Finanzas + IVA + Firma        | ✅ Hecho    | 6–12  | finanzas.md           |
-| 5 | Fiscalidad & État (IS, TNS, calendario fiscal) | ✅ Hecho    | —     | guias/Bloque5_Fiscalidad_CRM_Reformas_Ordonez.html |
-| 6 | Solicitudes & Seguimiento: bandeja + generación de mensajes con IA + tracking del embudo solicitud→firma para el dashboard de Marketing | ✅ Hecho — rediseñado 2026-08-11, verificado por Gabriel 2026-08-14 | —     | docs/bloque6-solicitudes-seguimiento.md |
+| 5 | Fiscalidad & État (IS, TNS, calendario fiscal) | ✅ Hecho    | —     | negocio/guias/Bloque5_Fiscalidad_CRM_Reformas_Ordonez.html |
+| 6 | Solicitudes & Seguimiento: bandeja + generación de mensajes con IA + tracking del embudo solicitud→firma para el dashboard de Marketing | ✅ Hecho — rediseñado 2026-08-11, verificado por Gabriel 2026-08-14 | —     | docs/producto/bloque6-solicitudes-seguimiento.md |
 
 Actualizar: ⬜ Pendiente → 🟡 En curso → ✅ Hecho
 
@@ -410,10 +412,13 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
 - **Control de versiones** (2026-08-11): el proyecto vive en git desde esta fecha, repo privado en
   `github.com/GabrielOrdo894/ordonez-crm`, con CI en GitHub Actions (build + test + lint en cada push a
   `main`). Antes de esto no había historial — cualquier referencia a "commits antiguos" antes del
-  2026-08-11 no existe. Las carpetas de negocio (`avatares/`, `catalogos/`, `equipo-marketing/`,
-  `equipo-presupuestos/`, `guias/`, `modificaciones/`, `nueva solicitud de presupuesto/`,
-  `plantilla de presupuesto/`, `plantillas-email/`, `solicitudes-presupuesto/`) están excluidas del repo a
-  propósito (datos de clientes, no son código) — siguen solo en disco local.
+  2026-08-11 no existe. Las carpetas de negocio están excluidas del repo a propósito (datos de
+  clientes, no son código) — siguen solo en disco local, todas agrupadas bajo `negocio/` desde
+  2026-08-18 (`negocio/avatares/`, `negocio/catalogo/` —renombrada desde `catalogos/`—,
+  `negocio/equipo-marketing/`, `negocio/equipo-presupuestos/`, `negocio/guias/`,
+  `negocio/modificaciones/`, `negocio/nueva solicitud de presupuesto/`,
+  `negocio/plantilla de presupuesto/`, `negocio/plantillas-email/`,
+  `negocio/solicitudes-presupuesto/`, `negocio/documentos legales/`).
 - **Vite 8 y React Router 7** (2026-08-11): actualizados desde Vite 5 y React Router 6 para corregir
   vulnerabilidades de `npm audit` (alta en esbuild, moderadas en react-router). El routing sigue siendo
   declarativo clásico (`BrowserRouter`/`Routes`/`Route`/`useNavigate`/`Link`, sin rutas splat ni data
@@ -525,9 +530,74 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   partenaire EDI n° 7500810) como partenaire EDI — 60€ HT por declaración, sin abono anual, y admite
   importar un CSV de la "balance comptable" para auto-rellenar importes. `/contabilidad/mayor` tiene un
   segundo botón "Exportar para Edifiscale (CSV)" que genera ese fichero en su formato exacto (modelo
-  real entregado por Edifiscale en `documentos legales/modele-balance.csv`, no inventado): columnas
+  real entregado por Edifiscale en `negocio/documentos legales/edifiscale/modele-balance.csv`, no inventado): columnas
   `Compte;Libellé;Débit;Crédit`, cuenta PCG rellenada a 6 dígitos con ceros a la derecha (`512`→
   `512000`), libellé sin el código, importes con coma decimal. **Sin probar contra su importador
   real** (no tengo cuenta en Edifiscale) — Gabriel debe confirmarlo con una prueba antes de depender de
   él para la declaración real; si el CSV entrecomillado (así lo genera `exportarCSV.ts` para todo el
   CRM) da problemas, es un ajuste trivial.
+- **Vinculación automática solicitud ↔ presupuesto en el embudo de conversión** (2026-08-19): antes el
+  escalón "Vinculadas a presupuesto" del embudo (`/solicitudes`) dependía por completo de que alguien
+  entrara a la solicitud y eligiera el presupuesto a mano en el desplegable de `SolicitudDetalle.tsx` —
+  casi nunca se hacía, así que ese escalón salía vacío aunque los escalones de después (enviado,
+  firmado...) tuvieran números normales, porque esos se cuentan por `presupuesto_id` sin pasar por la
+  solicitud (hallazgo real de Gabriel, auditoría 2026-08-19). `vincularSolicitudPorContacto()`
+  (`src/lib/funnelTracking.ts`) cruza `cliente_tel`/`cliente_email` del presupuesto recién creado contra
+  `solicitudes` sin vincular por teléfono normalizado o email en minúsculas — mismo criterio que
+  `datosContactoCliente()` en `ClientePrivacidadTab.tsx`/`pipelineSync.ts` — y si hay coincidencia
+  (la solicitud más reciente si hay varias) actualiza `presupuesto_vinculado_id` y registra el evento de
+  funnel, sin intervención manual. Se llama desde `PresupuestoForm.tsx` al crear un presupuesto nuevo
+  (best-effort, no bloqueante, igual que `sincronizarPipelineCliente`) y desde el agente
+  `creador-presupuestos` (paso 7 de su proceso) cuando inserta por SQL directo, que es la vía más
+  habitual. El desplegable manual de `SolicitudDetalle.tsx` sigue existiendo para los casos que no
+  cruzan (contacto distinto al de la visita, presupuesto de un cliente recurrente sin solicitud
+  rastreada). Se hizo también un backfill único sobre datos existentes: 6 solicitudes antiguas
+  vinculadas retroactivamente por este mismo cruce. **Corrección del mismo día**: el cruce vinculaba
+  la solicitud sin exigir que ya tuviera el evento `solicitud_respondida` — si una solicitud llegaba
+  a `solicitud_vinculada_presupuesto` sin haber pasado antes por "Enviada" en el CRM (presupuesto
+  creado directo, sin tocar Solicitudes), el embudo mostraba más "Vinculadas a presupuesto" que
+  "Respondidas" (hallazgo real de Gabriel, 3 casos reales: rosarito.olabe@gmail.com, isabel
+  (holaiza@gmail.com), ludogadois@gmail.com). `vincularSolicitudPorContacto()` ahora registra también
+  `solicitud_respondida` (idempotente, no duplica si ya existía) antes de `solicitud_vinculada_presupuesto`
+  — mismo fix aplicado al paso 7 del agente `creador-presupuestos`. La tabla de "Solicitudes entrantes" y la ficha de
+  la solicitud muestran ahora el número de presupuesto vinculado como enlace directo a su vista previa
+  (`navigate('/finanzas/presupuestos', { state: { verDocId, verDocTipo: 'presupuesto' } })`, mismo
+  patrón que ya usaba `BuscadorGlobal.tsx`).
+- **Corrección puntual del embudo — entradas backdateadas** (2026-08-19): 6 solicitudes creadas antes
+  del 11/08/2026 (fecha en la que arrancó `funnel_eventos`) nunca tuvieron su evento
+  `solicitud_entrada` pero sí llegaron a etapas posteriores después de esa fecha (p. ej. marcadas
+  "Enviada"), lo que producía un embudo sin sentido — más "Respondidas" que "Entradas" (hallazgo real
+  de Gabriel, auditoría 2026-08-19: 5 entradas / 6 respondidas). Se insertó a mano el evento
+  `solicitud_entrada` que faltaba para esas 6, con `created_at` igual a la fecha real de creación de
+  la solicitud — no hace falta ningún cambio de código, es un hueco histórico único de antes de que
+  el tracking existiera.
+- **Estados simplificados en Solicitudes & Seguimiento, y deduplicación real de solicitudes**
+  (2026-08-19): `solicitudes.estado` pierde el valor `Borrador` (quedan solo `Nueva` / `Enviada` /
+  `Descartada`, CHECK constraint actualizado) — antes lo ponía automáticamente
+  `generar-mensaje-ia` al redactar un mensaje con IA y casi nadie lo usaba a mano; ahora redactar
+  un mensaje ya no cambia el estado, la solicitud sigue en `Nueva` hasta marcarse `Enviada` de
+  verdad. El pseudo-estado de "Respuestas a presupuestos" (`estadoSeguimiento()` en
+  `solicitudes/types.ts`) pasa de `Nueva/Borrador/Enviada` a **`Nueva/Enviada/Aceptada`** — columna
+  nueva `presupuestos.seguimiento_concluido` (independiente del estado real
+  Pendiente/Aceptado/Rechazado del presupuesto, que sigue gestionándose aparte y sí afecta al
+  embudo). "Marcar como Aceptada" (bulk action en `SolicitudesPage.tsx` y botón en
+  `SolicitudDetalle.tsx`) es un **cierre definitivo**, no una casilla que se reabre sola: decisión
+  explícita de Gabriel — el objetivo de esta sección es rastrear hasta conseguir la visita (ya sea
+  ofreciéndola directamente o vía presupuesto orientativo); todo lo de después (presupuesto
+  definitivo post-visita, ajustes, facturas) sigue por email pero pertenece a
+  Presupuestos/Facturas, no a este tracking. Por eso `revisarRespuestasPresupuestos` en
+  `revisar-gmail` excluye directamente de su barrido (`eq('seguimiento_concluido', false)`)
+  cualquier presupuesto ya marcado Aceptada — deja de vigilarlo por completo, sin reapertura
+  automática (solo "Volver a Nueva"/"Reabrir conversación" a mano lo reactiva).
+  **Deduplicación real de solicitudes** (mismo hallazgo de Gabriel): el fallback
+  `detectarConversacionesDirectas` de `revisar-gmail` (fuente `email_directo`) dedupeaba solo por
+  `gmail_thread_id` — como la notificación automática del formulario web y la conversación real
+  con el cliente casi siempre viven en hilos de Gmail distintos, un cliente que ya tenía una
+  solicitud (o un presupuesto) y luego respondía por email generaba una segunda solicitud
+  duplicada (casos reales: florent.courally@yahoo.fr, rosarito.olabe@gmail.com — la primera
+  encontrada tras la corrección de 5 entradas/6 respondidas de arriba). Ahora, antes de crear una
+  solicitud nueva, se comprueba por email si ya existe un presupuesto en curso (se ignora, ya lo
+  cubre `revisarRespuestasPresupuestos`) o una solicitud sin descartar (se actualiza esa fila —
+  `gmail_thread_id`, resumen, y si estaba `Enviada` vuelve a `Nueva` — en vez de crear otra). Los 2
+  duplicados históricos ya existentes se marcaron `Descartada` con nota explicativa y se limpió su
+  `funnel_eventos`/`presupuesto_vinculado_id` para no inflar el embudo.

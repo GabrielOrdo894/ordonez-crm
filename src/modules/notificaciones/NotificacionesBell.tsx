@@ -16,6 +16,7 @@ import {
   Star,
   Image as ImageIcon,
   Inbox,
+  Car,
   type LucideIcon,
 } from 'lucide-react';
 import { useNotificaciones, type CategoriaNotificacion, type Notificacion } from './useNotificaciones';
@@ -29,6 +30,7 @@ const ICONOS: Record<CategoriaNotificacion, LucideIcon> = {
   resena: Star,
   galeria: ImageIcon,
   solicitud: Inbox,
+  gasto: Car,
 };
 
 const ETIQUETA_CATEGORIA: Record<CategoriaNotificacion, string> = {
@@ -40,6 +42,7 @@ const ETIQUETA_CATEGORIA: Record<CategoriaNotificacion, string> = {
   resena: 'Reseñas',
   galeria: 'Galería',
   solicitud: 'Solicitudes',
+  gasto: 'Gastos',
 };
 
 function fechaCompleta(iso: string) {
@@ -47,27 +50,24 @@ function fechaCompleta(iso: string) {
 }
 
 export function NotificacionesBell() {
-  const { noLeidas, leidas, urgentes, marcarLeida, eliminarNotificacion } = useNotificaciones();
+  const { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion } = useNotificaciones();
   const [abierto, setAbierto] = useState(false);
   const [detalle, setDetalle] = useState<Notificacion | null>(null);
 
-  const total = noLeidas.length;
+  const total = pendientes.length;
 
   const cerrarPanel = () => {
     setAbierto(false);
     setDetalle(null);
   };
 
-  function Fila({ n, leida }: { n: Notificacion; leida: boolean }) {
+  function Fila({ n, hecha }: { n: Notificacion; hecha: boolean }) {
     const Icon = ICONOS[n.categoria];
     return (
       <div className="border-b border-gray-100 flex items-start">
         <button
           type="button"
-          onClick={() => {
-            setDetalle(n);
-            if (!leida) marcarLeida(n.id);
-          }}
+          onClick={() => setDetalle(n)}
           className="flex-1 min-w-0 flex items-start gap-3 px-4 py-3 text-left hover:bg-gray-50"
         >
           <span
@@ -78,12 +78,12 @@ export function NotificacionesBell() {
             <Icon size={15} />
           </span>
           <span className="flex-1 min-w-0">
-            <span className={`block text-sm ${leida ? 'text-gray-600' : 'font-medium text-gray-900'}`}>{n.titulo}</span>
+            <span className={`block text-sm ${hecha ? 'text-gray-600' : 'font-medium text-gray-900'}`}>{n.titulo}</span>
             <span className="block text-xs text-gray-500 truncate">{n.resumen}</span>
           </span>
           <ChevronRight size={14} className="shrink-0 text-gray-400 mt-1" />
         </button>
-        {leida ? (
+        {hecha ? (
           <button
             type="button"
             onClick={() => eliminarNotificacion(n.id)}
@@ -95,8 +95,8 @@ export function NotificacionesBell() {
         ) : (
           <button
             type="button"
-            onClick={() => marcarLeida(n.id)}
-            title="Marcar como leída"
+            onClick={() => marcarHecha(n.id)}
+            title="Marcar como realizada"
             className="shrink-0 w-7 h-7 mt-3 mr-3 rounded-full flex items-center justify-center text-gray-300 hover:text-brand hover:bg-brand-light"
           >
             <Check size={14} />
@@ -108,7 +108,7 @@ export function NotificacionesBell() {
 
   function VistaDetalle({ n }: { n: Notificacion }) {
     const Icon = ICONOS[n.categoria];
-    const leida = leidas.some((l) => l.id === n.id);
+    const hecha = hechas.some((l) => l.id === n.id);
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-200 shrink-0">
@@ -169,23 +169,23 @@ export function NotificacionesBell() {
         </div>
 
         <div className="flex items-center gap-2 px-4 py-3 border-t border-gray-200 shrink-0">
-          {leida ? (
+          {hecha ? (
             <button
               type="button"
-              onClick={() => marcarLeida(n.id, false)}
+              onClick={() => marcarHecha(n.id, false)}
               className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-sm px-2.5 py-1.5 hover:border-brand hover:text-brand"
             >
               <Check size={13} />
-              Marcar como no leída
+              Marcar como pendiente
             </button>
           ) : (
             <button
               type="button"
-              onClick={() => marcarLeida(n.id)}
+              onClick={() => marcarHecha(n.id)}
               className="flex-1 flex items-center justify-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-sm px-2.5 py-1.5 hover:border-brand hover:text-brand"
             >
               <Check size={13} />
-              Marcar como leída
+              Marcar como realizada
             </button>
           )}
           <button
@@ -240,7 +240,7 @@ export function NotificacionesBell() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto">
-                  {noLeidas.length === 0 && leidas.length === 0 ? (
+                  {pendientes.length === 0 && hechas.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-6">
                       <CheckCircle2 size={22} className="text-brand" />
                       <p className="text-sm text-gray-500">Todo al día. Sin notificaciones pendientes.</p>
@@ -248,21 +248,21 @@ export function NotificacionesBell() {
                   ) : (
                     <div className="flex flex-col">
                       <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                        No leídos {noLeidas.length > 0 && `(${noLeidas.length})`}
+                        Pendientes {pendientes.length > 0 && `(${pendientes.length})`}
                       </p>
-                      {noLeidas.length === 0 ? (
-                        <p className="px-4 pb-3 text-xs text-gray-400">Sin notificaciones nuevas.</p>
+                      {pendientes.length === 0 ? (
+                        <p className="px-4 pb-3 text-xs text-gray-400">Sin notificaciones pendientes.</p>
                       ) : (
-                        noLeidas.map((n) => <Fila key={n.id} n={n} leida={false} />)
+                        pendientes.map((n) => <Fila key={n.id} n={n} hecha={false} />)
                       )}
 
-                      {leidas.length > 0 && (
+                      {hechas.length > 0 && (
                         <>
                           <p className="px-4 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400 border-t border-gray-100">
-                            Leídos ({leidas.length})
+                            Realizadas ({hechas.length})
                           </p>
-                          {leidas.map((n) => (
-                            <Fila key={n.id} n={n} leida />
+                          {hechas.map((n) => (
+                            <Fila key={n.id} n={n} hecha />
                           ))}
                         </>
                       )}

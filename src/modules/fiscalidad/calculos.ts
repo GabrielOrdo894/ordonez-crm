@@ -44,7 +44,7 @@ export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
 export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   const abattement = config('tns_abattement', 0.26);
   const tauxGlobal = config('tns_taux_global', 0.45);
-  const pass = config('pass_2026', 47100);
+  const pass = config('pass_2026', 48060);
   const topeAbatido = pass * 1.3;
   const parteAbatida = Math.min(remuneracionAnual, topeAbatido) * (1 - abattement);
   const parteExceso = Math.max(0, remuneracionAnual - topeAbatido);
@@ -77,7 +77,7 @@ export function calcularDividendos(
   config: ConfigFn,
 ) {
   const seuilPct = config('dividendes_seuil_capital', 0.1);
-  const pfuTotal = config('pfu_total', 0.3);
+  const pfuTotal = config('pfu_total', 0.314);
   const tauxTNS = config('tns_taux_global', 0.45);
   const umbralLibre = Math.max(0, (capitalSocial + compteCourantMedio) * seuilPct);
   const libre = Math.min(dividendos, umbralLibre);
@@ -116,6 +116,123 @@ export function simularEjercicio(
   const totalPrelevements = tns.total + is.total + divCalc.total;
   const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
   return { tns, is, beneficioTrasSalario, reservaLegal, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
+}
+
+// Número de parts del quotient familial del foyer fiscal del gérant — 2 partes de base para un
+// matrimonio (1 si soltero) + 0,5 por cada uno de los dos primeros hijos a cargo + 1 por cada hijo
+// a partir del tercero (art. 194 CGI). No modela otras situaciones (familia monoparental, hijo en
+// garde alternée a 0,25, etc.) — solo el caso real de Reformas Ordoñez, editable en gerant_config.
+export function calcularQuotientFamiliar(casado: boolean, hijosACargo: number, config: ConfigFn) {
+  const partsBase = casado ? config('ir_parts_base_casado', 2) : 1;
+  const primerosHijos = Math.min(hijosACargo, 2);
+  const hijosAdicionales = Math.max(0, hijosACargo - 2);
+  return partsBase + primerosHijos * 0.5 + hijosAdicionales * 1;
+}
+
+// Abattement forfaitario del 10% para frais professionnels sobre "traitements et salaires" (así
+// tributa la rémunération del gérant majoritaire, art. 62 CGI) — con suelo y techo fijados cada año.
+export function calcularAbattementProfesional(revenuAntesAbattement: number, config: ConfigFn) {
+  const pct = config('ir_abattement_pct', 0.1);
+  const minimo = config('ir_abattement_min', 495);
+  const maximo = config('ir_abattement_max', 14171);
+  const base = Math.max(0, revenuAntesAbattement);
+  return Math.min(maximo, Math.max(base > 0 ? minimo : 0, base * pct));
+}
+
+function impuestoPorTramos(revenuParPart: number, config: ConfigFn) {
+  const t1 = config('ir_tramo1_hasta', 11600);
+  const t2 = config('ir_tramo2_hasta', 29579);
+  const t3 = config('ir_tramo3_hasta', 84577);
+  const t4 = config('ir_tramo4_hasta', 181917);
+  const r2 = config('ir_tramo2_tasa', 0.11);
+  const r3 = config('ir_tramo3_tasa', 0.3);
+  const r4 = config('ir_tramo4_tasa', 0.41);
+  const r5 = config('ir_tramo5_tasa', 0.45);
+  let impuesto = 0;
+  if (revenuParPart > t1) impuesto += (Math.min(revenuParPart, t2) - t1) * r2;
+  if (revenuParPart > t2) impuesto += (Math.min(revenuParPart, t3) - t2) * r3;
+  if (revenuParPart > t3) impuesto += (Math.min(revenuParPart, t4) - t3) * r4;
+  if (revenuParPart > t4) impuesto += (revenuParPart - t4) * r5;
+  return impuesto;
+}
+
+// Impôt sur le revenu personal del foyer fiscal, con quotient familial (barème progresivo por
+// parte × número de partes), plafonnement de l'avantage fiscal de las medias partes extra por
+// hijos (art. 197 CGI) y décote para rentas bajas. Todos los umbrales vienen de fiscal_config
+// (barème 2026, revenus 2025 — el barème real de 2026 aún no está fijado por ley, se actualizará
+// aquí cuando se publique). No incluye los dividendos del PFU: por defecto el PFU es una
+// imposición separada que NO entra en el quotient familial (solo entraría si se opta por el
+// barème en vez del PFU, algo que rara vez conviene con estos importes — ver FAQ del Simulador).
+export function calcularIRPersonal(revenuNetImposableFoyer: number, parts: number, config: ConfigFn) {
+  const revenu = Math.max(0, revenuNetImposableFoyer);
+  const revenuParPart = parts > 0 ? revenu / parts : revenu;
+  const impotSinPlafon = impuestoPorTramos(revenuParPart, config) * parts;
+
+  const partsBase = config('ir_parts_base_casado', 2);
+  const revenuParPartBase = partsBase > 0 ? revenu / partsBase : revenu;
+  const impotConPartsBase = impuestoPorTramos(revenuParPartBase, config) * partsBase;
+
+  const demiPartsExtra = Math.max(0, (parts - partsBase) * 2);
+  const plafonDemiPart = config('ir_plafond_demi_part', 1807);
+  const ahorroMaximo = demiPartsExtra * plafonDemiPart;
+  const impotBruto = Math.max(impotSinPlafon, impotConPartsBase - ahorroMaximo);
+
+  const decoteUmbral = config('ir_decote_umbral_couple', 3277);
+  const decoteMontantBase = config('ir_decote_montant_couple', 1483);
+  const decoteTasa = config('ir_decote_tasa', 0.4525);
+  const decote = impotBruto > 0 && impotBruto <= decoteUmbral ? Math.max(0, decoteMontantBase - decoteTasa * impotBruto) : 0;
+
+  const impotFinal = Math.max(0, impotBruto - decote);
+  return { revenuParPart, impotSinPlafon, impotConPartsBase, ahorroMaximo, impotBruto, decote, impotFinal };
+}
+
+// Encadena abattement + quotient familial + barème para calcular el IR del foyer fiscal completo:
+// la rémunération neta del gérant (remuneracion − sus cotisations TNS) MÁS los ingresos propios del
+// cónyuge si los tiene (en una déclaration commune de casados, Hacienda francesa suma TODOS los
+// salaires del hogar en una sola declaración — no se declara cada uno "por su cuenta", ver FAQ).
+// Cada declarante tiene su propio abattement del 10% (art. 83 CGI, con el mismo tope 495-14.171 €
+// aplicado a CADA uno por separado, no al total combinado) antes de sumar ambas bases imponibles.
+// Verificado 2026-08 contra el simulador oficial de la DGFiP (simulateur-ir-ifi.impots.gouv.fr):
+// con 40.020 € + 18.000 € y 2,5 partes, la Administración da exactamente 2.554 € de droits simples,
+// 327 € de décote y 2.227 € de impôt net — esta función reproduce esas tres cifras al euro.
+// No incluye los dividendos (PFU aparte, ver calcularIRPersonal).
+export function calcularIRGerante(
+  remuneracion: number,
+  tnsTotal: number,
+  ingresosConyuge: number,
+  casado: boolean,
+  hijosACargo: number,
+  config: ConfigFn,
+) {
+  const remuneracionNeta = Math.max(0, remuneracion - tnsTotal);
+  const abattement = calcularAbattementProfesional(remuneracionNeta, config);
+  const abattementConyuge = calcularAbattementProfesional(ingresosConyuge, config);
+  const revenuNetImposable =
+    Math.max(0, remuneracionNeta - abattement) + Math.max(0, ingresosConyuge - abattementConyuge);
+  const parts = calcularQuotientFamiliar(casado, hijosACargo, config);
+  const ir = calcularIRPersonal(revenuNetImposable, parts, config);
+  return { remuneracionNeta, abattement, ingresosConyuge, abattementConyuge, revenuNetImposable, parts, ...ir };
+}
+
+// Bilan simplificado (pasivo) del ejercicio — mismo cálculo que antes se repetía byte a byte en
+// TabCierreEjercicio.tsx y TabLiasseFiscale.tsx: capital social + reservas (previas + dotación del
+// ejercicio) + resultado neto + deuda fiscal por IS. "Dettes fournisseurs" siempre a 0 (los Gastos
+// se registran ya pagados, ver CLAUDE.md §10) — se muestra explícito en la UI, no aquí.
+export function calcularBilanPasivo(
+  resultadoNeto: number,
+  reservaLegal: ReturnType<typeof calcularReservaLegal>,
+  is: ReturnType<typeof calcularIS>,
+  capitalSocial: number,
+) {
+  const reservas = reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion;
+  return {
+    capitalSocial,
+    reservas,
+    resultadoEjercicio: resultadoNeto,
+    dettesFiscales: is.total,
+    dettesFournisseurs: 0,
+    total: capitalSocial + reservas + resultadoNeto + is.total,
+  };
 }
 
 export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[] {

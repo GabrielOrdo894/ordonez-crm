@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useToast } from '../../hooks/useToast';
-import { useConfirmar } from '../../hooks/useConfirm';
+import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
 import { VisitaDetalleContenido } from './VisitaDetalleContenido';
 import type { Visita } from './types';
@@ -16,7 +16,7 @@ export default function VisitaDetallePage() {
   const navigate = useNavigate();
   const { abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const toast = useToast();
-  const confirmar = useConfirmar();
+  const confirmarConMotivo = useConfirmarConMotivo();
   const queryClient = useQueryClient();
 
   const { data: visita, isLoading } = useQuery({
@@ -30,16 +30,17 @@ export default function VisitaDetallePage() {
   });
 
   const cancelarVisitaMutation = useMutation({
-    mutationFn: async (v: Visita) => {
+    mutationFn: async ({ v, motivo }: { v: Visita; motivo: string }) => {
       const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', v.id);
       if (error) throw error;
-      await notaSistema(v.id, 'Visita cancelada');
+      await notaSistema(v.id, motivo ? `Visita cancelada — motivo: ${motivo}` : 'Visita cancelada');
       if (v.google_event_id) {
         try {
           await eliminarEventoVisita(v.google_event_id);
         } catch (error) {
           toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
         }
+        await supabase.from('visitas').update({ google_event_id: null }).eq('id', v.id);
       }
     },
     onSuccess: () => {
@@ -68,8 +69,15 @@ export default function VisitaDetallePage() {
         <Button
           variant="danger"
           onClick={async () => {
-            if (!(await confirmar(`¿Cancelar la visita de ${visita.nombre} ${visita.apellidos}?`))) return;
-            cancelarVisitaMutation.mutate(visita);
+            const motivo = await confirmarConMotivo({
+              titulo: `¿Cancelar la visita de ${visita.nombre} ${visita.apellidos}?`,
+              mensaje: 'Esta acción marcará la visita como cancelada.',
+              motivoLabel: 'Motivo (opcional)',
+              motivoPlaceholder: 'Cliente canceló, no contactable, reprogramación…',
+              textoConfirmar: 'Cancelar visita',
+            });
+            if (motivo === null) return;
+            cancelarVisitaMutation.mutate({ v: visita, motivo });
           }}
         >
           Cancelar visita

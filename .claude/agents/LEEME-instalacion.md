@@ -22,16 +22,16 @@ tu-proyecto-crm/
 
 ## Documentos compartidos — ESTADO ACTUAL
 
-En `docs/`:
+En `docs/` (reorganizado en subcarpetas temáticas 2026-08-18 — esquema y precios/tarifas viven en carpetas distintas):
 
-- **`docs/esquema-presupuestos.md`** — hecho, generado directamente del código del CRM (no de una lectura en vivo de
+- **`docs/tecnico/esquema-presupuestos.md`** — hecho, generado directamente del código del CRM (no de una lectura en vivo de
   Supabase — es la misma verdad que usa la app). Revísalo y corrígelo si algo cambia.
-- **`docs/terminos-condiciones-plantilla.md`** — hecho, copiado del texto real ya cargado en `empresa_config` (vía
-  `docs/empresa.md`). Si editas los T&C desde Configuración → Términos y condiciones, actualiza también este fichero.
-- **`docs/tarifas-referencia.md`** — hecho y aprobado (2026-07-25). Cubre demolición/albañilería, fontanería,
+- **`docs/negocio/terminos-condiciones-plantilla.md`** — hecho, copiado del texto real ya cargado en `empresa_config` (vía
+  `docs/negocio/empresa.md`). Si editas los T&C desde Configuración → Términos y condiciones, actualiza también este fichero.
+- **`docs/negocio/tarifas-referencia.md`** — hecho y aprobado (2026-07-25). Cubre demolición/albañilería, fontanería,
   electricidad, alicatado/solado, suelos, fachadas, techos y pintura, en España y Francia. Pendientes de datos:
   carpintería/mobiliario y sanitarios/mampara como partida individual (falta investigación del vigía).
-- **`docs/precios-mercado.md`** — lo genera y mantiene el agente `vigia-precios-mercado` investigando en internet
+- **`docs/negocio/precios-mercado.md`** — lo genera y mantiene el agente `vigia-precios-mercado` investigando en internet
   (fuentes profesionales, barómetros del sector, competidores de zona). Es la referencia de entrada para el
   calibrador. Relánzalo cuando quieras refrescar datos, cubrir carpintería/sanitarios, o un tipo de obra nuevo.
 
@@ -41,8 +41,8 @@ propio → Gabriel aprueba), no hace falta tenerlo "completo" antes de empezar.
 
 ### Flujo completo de calibración de precios
 
-`vigia-precios-mercado` (investiga mercado) → `docs/precios-mercado.md` → `calibrador-tarifas` (aplica margen
-propio) → tu aprobación → `docs/tarifas-referencia.md` → lo usa `revisor-presupuestos` como vara de medir.
+`vigia-precios-mercado` (investiga mercado) → `docs/negocio/precios-mercado.md` → `calibrador-tarifas` (aplica margen
+propio) → tu aprobación → `docs/negocio/tarifas-referencia.md` → lo usa `revisor-presupuestos` como vara de medir.
 
 ## Conexión con Supabase
 
@@ -56,7 +56,7 @@ agente se porte bien, sino que esté bloqueada también a nivel de base de datos
 
 La primera vez que un agente use una herramienta `mcp__supabase-rw__*` o `mcp__supabase-ro__*`, Claude Code abrirá
 el navegador para iniciar sesión con tu cuenta de Supabase (OAuth) — solo hace falta una vez por conexión.
-`vigia-precios-mercado` no necesita Supabase (solo `docs/`, no tiene tools de MCP).
+`vigia-precios-mercado` no necesita Supabase (solo `docs/negocio/`, no tiene tools de MCP).
 
 ## Pendientes marcados en los agentes
 

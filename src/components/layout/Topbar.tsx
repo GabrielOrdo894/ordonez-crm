@@ -38,14 +38,14 @@ type TopbarProps = {
 };
 
 function BotonModo() {
-  const { modo, alternarModo } = useTema();
+  const { modoEfectivo, alternarModo } = useTema();
   return (
     <button
       onClick={alternarModo}
-      title={modo === 'claro' ? 'Activar modo oscuro' : 'Activar modo claro'}
+      title={modoEfectivo === 'claro' ? 'Activar modo oscuro' : 'Activar modo claro'}
       className="ml-auto shrink-0 text-gray-500 hover:text-gray-800"
     >
-      {modo === 'claro' ? <Moon size={17} /> : <Sun size={17} />}
+      {modoEfectivo === 'claro' ? <Moon size={17} /> : <Sun size={17} />}
     </button>
   );
 }

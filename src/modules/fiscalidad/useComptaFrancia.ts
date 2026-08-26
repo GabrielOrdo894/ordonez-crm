@@ -71,7 +71,10 @@ export function useComptaFrancia(anio: number) {
   const { data: asientos, isLoading: cargandoAsientos } = useQuery({
     queryKey: ['asientos_contables'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('asientos_contables').select('cuenta, debe, haber, fecha');
+      // Mismo superconjunto de columnas que LibroDiarioPage/LibroMayorPage — comparten esta
+      // queryKey y Tanstack Query cachea por key, no por select (bug real corregido 2026-08-18,
+      // ver comentario gemelo en LibroMayorPage.tsx).
+      const { data, error } = await supabase.from('asientos_contables').select('id, fecha, cuenta, debe, haber, concepto, documento_tipo');
       if (error) throw error;
       return data as AsientoContable[];
     },

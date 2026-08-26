@@ -76,9 +76,13 @@ export function CalendarioMini({ visitas, onVer, onEditar, ocultarPanelInferior,
         >
           <ChevronLeft size={16} />
         </button>
-        <p className="text-sm font-semibold text-gray-900">
+        <button
+          onClick={() => setMesActual(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
+          className="text-sm font-semibold text-gray-900 hover:text-brand"
+          title="Ir al mes actual"
+        >
           {MESES[mesActual.getMonth()]} {mesActual.getFullYear()}
-        </p>
+        </button>
         <button
           onClick={() => setMesActual(new Date(mesActual.getFullYear(), mesActual.getMonth() + 1, 1))}
           className="text-gray-400 hover:text-gray-700"
@@ -100,9 +104,22 @@ export function CalendarioMini({ visitas, onVer, onEditar, ocultarPanelInferior,
           const dia = visitasPorDia[iso] ?? [];
           const tieneRealizada = dia.some((v) => v.estado === 'Realizada');
           const tienePendiente = dia.some((v) => v.estado === 'Pendiente');
+          // Antes un día con solo una visita Cancelada se veía igual que un día vacío, sin ningún
+          // indicio de que hubo actividad ese día (mejora real, auditoría de Visitas 2026-08-18).
+          const tieneCancelada = dia.some((v) => v.estado === 'Cancelada');
           const tieneEventoExtra = (eventosExtraPorDia[iso] ?? []).length > 0;
           const esHoy = iso === hoyISO;
           const seleccionado = iso === diaSeleccionado;
+          // Borde de color cuando todas las visitas del día son del mismo país — ayuda a planificar
+          // rutas de un vistazo sin abrir cada visita (mejora real, auditoría de Calendario
+          // 2026-08-18). Si el día mezcla España y Francia no se marca, para no inducir a error.
+          const paisesDia = new Set(dia.map((v) => v.pais).filter((p): p is string => !!p));
+          const colorPais =
+            paisesDia.size === 1
+              ? paisesDia.has('Francia')
+                ? 'border-l-2 border-indigo-400'
+                : 'border-l-2 border-red-400'
+              : '';
 
           return (
             <button
@@ -112,14 +129,15 @@ export function CalendarioMini({ visitas, onVer, onEditar, ocultarPanelInferior,
                 !delMes ? 'text-gray-300' : 'text-gray-700'
               } ${esHoy ? 'ring-1 ring-brand bg-brand-light font-semibold text-brand' : ''} ${
                 seleccionado && !esHoy ? 'bg-brand-hover' : ''
-              } hover:bg-gray-50`}
+              } ${colorPais} hover:bg-gray-50`}
             >
               <span>{d.getDate()}</span>
-              {(tieneRealizada || tienePendiente || tieneEventoExtra) && (
+              {(tieneRealizada || tienePendiente || tieneCancelada || tieneEventoExtra) && (
                 <span className="flex items-center gap-0.5 mt-0.5">
                   {(tieneRealizada || tienePendiente) && (
                     <span className={`w-1.5 h-1.5 rounded-full ${tieneRealizada ? 'bg-blue-600' : 'bg-amber-500'}`} />
                   )}
+                  {!tieneRealizada && !tienePendiente && tieneCancelada && <span className="w-1.5 h-1.5 rounded-full bg-gray-300" />}
                   {tieneEventoExtra && <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />}
                 </span>
               )}
@@ -134,6 +152,9 @@ export function CalendarioMini({ visitas, onVer, onEditar, ocultarPanelInferior,
         </span>
         <span className="flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Pendiente
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-gray-300" /> Cancelada
         </span>
         {eventosExtra && eventosExtra.length > 0 && (
           <span className="flex items-center gap-1">

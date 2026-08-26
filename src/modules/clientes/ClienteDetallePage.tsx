@@ -7,6 +7,8 @@ import { iniciales } from '../perfil/avatares';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { ClienteDetalleContenido } from './ClienteDetalleContenido';
 import { agruparClientes } from './types';
+import { useEtiquetasClientes } from './useEtiquetasClientes';
+import { ETIQUETAS_DISPONIBLES, COLOR_ETIQUETA } from './etiquetas';
 import type { Visita } from '../visitas/types';
 
 export default function ClienteDetallePage() {
@@ -27,7 +29,11 @@ export default function ClienteDetallePage() {
   });
 
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
-  const cliente = useMemo(() => clientes.find((c) => c.id === decodeURIComponent(id ?? '')) ?? null, [clientes, id]);
+  const cliente = useMemo(
+    () => clientes.find((c) => c.id === decodeURIComponent(id ?? '')) ?? null,
+    [clientes, id],
+  );
+  const { etiquetasDe, alternar } = useEtiquetasClientes();
 
   if (isLoading) {
     return <div className="h-96 bg-surface border border-gray-200 rounded-sm animate-pulse" />;
@@ -91,7 +97,33 @@ export default function ClienteDetallePage() {
           </div>
 
           <div className="bg-surface border border-gray-200 rounded-sm p-5">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Datos rápidos</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
+              Etiquetas
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {ETIQUETAS_DISPONIBLES.map((etiqueta) => {
+                const activa = etiquetasDe(cliente.id).includes(etiqueta);
+                return (
+                  <button
+                    key={etiqueta}
+                    onClick={() => alternar(cliente.id, etiqueta, activa)}
+                    className={`text-xs font-medium rounded-full px-2.5 py-1 border ${
+                      activa
+                        ? COLOR_ETIQUETA[etiqueta]
+                        : 'bg-surface text-gray-400 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {etiqueta}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-surface border border-gray-200 rounded-sm p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
+              Datos rápidos
+            </p>
             <div className="flex flex-col gap-2.5 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Visitas totales</span>
@@ -99,11 +131,15 @@ export default function ClienteDetallePage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Cliente desde</span>
-                <span className="text-gray-900">{fechaVisitaCorta(primeraVisita.fecha_visita)}</span>
+                <span className="text-gray-900">
+                  {fechaVisitaCorta(primeraVisita.fecha_visita)}
+                </span>
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-gray-500 shrink-0">Etapa pipeline</span>
-                <span className="text-gray-900 text-right truncate">{ultimaVisita.estado_pipeline ?? '—'}</span>
+                <span className="text-gray-900 text-right truncate">
+                  {ultimaVisita.estado_pipeline ?? '—'}
+                </span>
               </div>
             </div>
           </div>

@@ -10,7 +10,9 @@ import { useToast } from '../../hooks/useToast';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useEcheances } from './useEcheances';
 import { generarEcheances } from './calculos';
+import { fmtFecha } from './format';
 import { Faq } from './Faq';
+import { ResumenTitular } from './ResumenTitular';
 
 const TIPO_LABEL: Record<string, string> = {
   CA3: 'Declaración mensual de TVA',
@@ -24,10 +26,6 @@ const TIPO_LABEL: Record<string, string> = {
   DECLARACION_IR_GERANT: 'Declaración de la renta personal del gérant',
   OTRO: 'Otro trámite',
 };
-
-function fmtFecha(f: string) {
-  return new Date(`${f}T00:00:00`).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 
 function diasRestantes(fecha: string) {
   const hoy = new Date();
@@ -122,8 +120,26 @@ export function TabCalendario() {
 
   const delAnio = echeances.filter((e) => e.fecha_limite.startsWith(String(anio)));
 
+  const pendientes = echeances
+    .filter((e) => !e.completada)
+    .map((e) => ({ ...e, dias: diasRestantes(e.fecha_limite) }))
+    .filter((e) => e.dias >= 0)
+    .sort((a, b) => a.dias - b.dias);
+  const proxima = pendientes[0];
+
   return (
     <div className="flex flex-col gap-4">
+      <ResumenTitular icono={CalendarClock}>
+        {pendientes.length === 0 ? (
+          'Sin échéances pendientes generadas — genera el calendario fiscal del año que necesites abajo.'
+        ) : (
+          <>
+            Tienes <strong className="text-brand">{pendientes.length}</strong> échéance{pendientes.length === 1 ? '' : 's'}{' '}
+            pendiente{pendientes.length === 1 ? '' : 's'}; la más próxima es «{proxima.titulo}»,{' '}
+            {proxima.dias === 0 ? <strong className="text-brand">hoy</strong> : <>en <strong className="text-brand">{proxima.dias} día{proxima.dias === 1 ? '' : 's'}</strong></>}.
+          </>
+        )}
+      </ResumenTitular>
       <p className="text-xs text-gray-500 leading-relaxed">
         Genera automáticamente las 12 declaraciones mensuales de TVA (CA3) del año elegido más las échéances anuales (acomptes
         e IS, CFE, liasse fiscale, depósito de cuentas, aprobación de cuentas, régularisation TNS y declaración de la renta del
@@ -152,7 +168,11 @@ export function TabCalendario() {
           <div className="flex flex-col gap-2">
             {delAnio.map((e) => {
               const dias = diasRestantes(e.fecha_limite);
-              const urgente = !e.completada && dias >= 0 && dias < 7;
+              // Mismo umbral que useAlertasFiscales.ts: <7 días para TVA (CA3), <14 para el resto
+              // — antes esta vista marcaba "Urgente" con <7 para cualquier tipo, así que una
+              // échéance podía aparecer urgente aquí sin haber generado aún el aviso del Dashboard,
+              // o viceversa (bug real corregido 2026-08-18).
+              const urgente = !e.completada && dias >= 0 && dias < (e.tipo === 'CA3' ? 7 : 14);
               return (
                 <div key={e.id} className="flex items-center gap-3 border border-gray-100 rounded-sm px-3 py-2">
                   <input
@@ -214,7 +234,7 @@ export function TabCalendario() {
           },
           {
             q: '¿Qué pasa si me salto una fecha límite?',
-            a: 'Depende del trámite: la TVA (CA3) fuera de plazo genera un recargo (majoration) del 10% sobre el importe adeudado, que sube si se repite. El IS fuera de plazo también lleva intereses de demora y recargos. El depósito de cuentas fuera de plazo puede acarrear una multa y, en casos repetidos, sanciones más serias. Por eso el badge "Urgente" (rojo) aparece cuando quedan menos de 7 días y la échéance no está marcada como hecha — para que no se pase la fecha.',
+            a: 'Depende del trámite: la TVA (CA3) fuera de plazo genera un recargo (majoration) del 10% sobre el importe adeudado, que sube si se repite. El IS fuera de plazo también lleva intereses de demora y recargos. El depósito de cuentas fuera de plazo puede acarrear una multa y, en casos repetidos, sanciones más serias. Por eso el badge "Urgente" (rojo) aparece cuando quedan menos de 7 días para una TVA (CA3) o menos de 14 días para el resto de trámites, si la échéance no está marcada como hecha — para que no se pase la fecha.',
           },
           {
             q: '¿De dónde salen exactamente estas fechas?',
@@ -226,7 +246,7 @@ export function TabCalendario() {
           },
           {
             q: '¿Qué pasa si marco algo como hecho por error?',
-            a: 'Puedes desmarcar la casilla en cualquier momento — no borra la échéance, solo cambia su estado. Al desmarcarla, vuelve a contar como pendiente y puede volver a aparecer como urgente (si quedan menos de 7 días) o en las "Próximas échéances" del Dashboard.',
+            a: 'Puedes desmarcar la casilla en cualquier momento — no borra la échéance, solo cambia su estado. Al desmarcarla, vuelve a contar como pendiente y puede volver a aparecer como urgente (si quedan menos de 7 días para una TVA o 14 para el resto) o en las "Próximas échéances" del Dashboard.',
           },
           {
             q: '¿Puedo generar el calendario de más de un año?',

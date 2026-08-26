@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
+import { ArrowLeft, CalendarPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { registrarEvento } from '../../lib/eventos';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { useDebounced } from '../../hooks/useDebounced';
 import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
@@ -16,19 +18,14 @@ import { FechaPicker } from '../../components/ui/FechaPicker';
 import { generarPdfPlanning } from '../../lib/generarPdfPlanning';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
-import { agruparPorSeccion } from '../../lib/planningCronograma';
+import { agruparPorSeccion, diasInclusive } from '../../lib/planningCronograma';
 import { PlanningPreview } from './PlanningPreview';
 import { usePlanningPdfData } from './usePlanningPdfData';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto, FaseObra } from './PlanningObraPage';
+import type { VisitaModalContext } from '../../components/layout/AppLayout';
 
 const ESTADOS_PROYECTO = ['Planificado', 'En curso', 'Pausado', 'Finalizado'];
-
-function diffDias(a: string, b: string) {
-  const d1 = new Date(`${a}T00:00:00`);
-  const d2 = new Date(`${b}T00:00:00`);
-  return Math.round((d2.getTime() - d1.getTime()) / 86_400_000);
-}
 
 type PlanningObraDetalleProps = {
   proyecto: Proyecto;
@@ -36,9 +33,15 @@ type PlanningObraDetalleProps = {
   onVolver: () => void;
 };
 
-export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, onVolver }: PlanningObraDetalleProps) {
+export function PlanningObraDetalle({
+  proyecto: proyectoInicial,
+  presupuesto,
+  onVolver,
+}: PlanningObraDetalleProps) {
   const toast = useToast();
+  const confirmar = useConfirmar();
   const queryClient = useQueryClient();
+  const { abrirNuevaVisita } = useOutletContext<VisitaModalContext>();
   const [nuevaFaseTitulo, setNuevaFaseTitulo] = useState('');
   const [nuevaFaseDescripcion, setNuevaFaseDescripcion] = useState('');
   const [nuevaFaseSeccion, setNuevaFaseSeccion] = useState('');
@@ -48,14 +51,19 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
   const { data: proyecto } = useQuery({
     queryKey: ['proyecto', proyectoInicial.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('proyectos').select('*').eq('id', proyectoInicial.id).single();
+      const { data, error } = await supabase
+        .from('proyectos')
+        .select('*')
+        .eq('id', proyectoInicial.id)
+        .single();
       if (error) throw error;
       return data as Proyecto;
     },
     initialData: proyectoInicial,
   });
 
-  const { pais, idioma, entidadInfo, configPlanning, presupuestoTotal } = usePlanningPdfData(presupuesto);
+  const { pais, idioma, entidadInfo, configPlanning, presupuestoTotal } =
+    usePlanningPdfData(presupuesto);
 
   const actualizarMutation = useMutation({
     mutationFn: async (cambios: Partial<Proyecto>) => {
@@ -92,7 +100,9 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
   // actualiza tanto al enviar un guardado propio (antes de que vuelva la respuesta) como al
   // detectar un cambio externo, para no avisar dos veces del mismo cambio ni confundir el eco de
   // nuestro propio guardado (el refetch tras invalidateQueries) con una edición ajena.
-  const ultimoConocidoServidorRef = useRef(JSON.stringify({ nombre_obra: proyectoInicial.nombre_obra, fases: proyectoInicial.fases }));
+  const ultimoConocidoServidorRef = useRef(
+    JSON.stringify({ nombre_obra: proyectoInicial.nombre_obra, fases: proyectoInicial.fases }),
+  );
   const avisoConflictoMostradoRef = useRef(false);
 
   useEffect(() => {
@@ -118,7 +128,9 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
     if (actual !== ultimoConocidoServidorRef.current) {
       if (!avisoConflictoMostradoRef.current) {
         avisoConflictoMostradoRef.current = true;
-        toast.warning('Este planning se modificó desde otra sesión — recarga la página antes de seguir editando para no sobrescribir esos cambios.');
+        toast.warning(
+          'Este planning se modificó desde otra sesión — recarga la página antes de seguir editando para no sobrescribir esos cambios.',
+        );
       }
       ultimoConocidoServidorRef.current = actual;
     }
@@ -148,14 +160,22 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
     setFasesLocal((fases) => {
       const nuevas = fases.map((f, i) => (i === index ? { ...f, completada: !f.completada } : f));
       const fase = nuevas[index];
-      registrarEvento('proyecto', proyecto.id, `Fase "${fase.nombre}" marcada como ${fase.completada ? 'completada' : 'pendiente'}`).then(() =>
+      registrarEvento(
+        'proyecto',
+        proyecto.id,
+        `Fase "${fase.nombre}" marcada como ${fase.completada ? 'completada' : 'pendiente'}`,
+      ).then(() =>
         queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'proyecto', proyecto.id] }),
       );
       return nuevas;
     });
   };
 
-  const handleCampoFase = (index: number, campo: 'nombre' | 'descripcion' | 'seccion' | 'fecha_inicio' | 'fecha_fin', valor: string) => {
+  const handleCampoFase = (
+    index: number,
+    campo: 'nombre' | 'descripcion' | 'seccion' | 'fecha_inicio' | 'fecha_fin',
+    valor: string,
+  ) => {
     setFasesLocal((fases) =>
       fases.map((f, i) => {
         if (i !== index) return f;
@@ -165,7 +185,10 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
     );
   };
 
-  const handleEliminarFase = (index: number) => {
+  const handleEliminarFase = async (index: number) => {
+    // Antes se quitaba con un solo clic, sin confirmar — inconsistente con eliminar el planning
+    // completo, que sí pide confirmación (bug real corregido 2026-08-18).
+    if (!(await confirmar('¿Quitar esta fase del planning?'))) return;
     setFasesLocal((fases) => fases.filter((_, i) => i !== index));
   };
 
@@ -176,6 +199,7 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
           generarPdfPlanning({
             clienteNombre: presupuesto?.cliente_nombre ?? '',
             clienteTelefono: presupuesto?.cliente_tel ?? '',
+            clienteEmail: presupuesto?.cliente_email ?? '',
             clienteDir: presupuesto?.cliente_dir ?? '',
             pais,
             idioma,
@@ -185,6 +209,7 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
             presupuestoNumero: presupuesto?.numero ?? null,
             presupuestoFecha: presupuesto?.fecha_emision ?? null,
             presupuestoTotal,
+            planPago: presupuesto?.plan_pago ?? [],
             fases: fasesLocal,
           }),
         toast,
@@ -195,15 +220,25 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
   };
 
   const fasesCompletadas = fasesLocal.filter((f) => f.completada).length;
-  const porcentajeCompletado = fasesLocal.length > 0 ? Math.round((fasesCompletadas / fasesLocal.length) * 100) : 0;
+  const porcentajeCompletado =
+    fasesLocal.length > 0 ? Math.round((fasesCompletadas / fasesLocal.length) * 100) : 0;
   const fasesConFechasLocal = fasesLocal.filter((f) => f.fecha_inicio && f.fecha_fin);
   const inicioCalculadoLocal = fasesConFechasLocal.length
-    ? fasesConFechasLocal.reduce((min, f) => (f.fecha_inicio! < min ? f.fecha_inicio! : min), fasesConFechasLocal[0].fecha_inicio!)
+    ? fasesConFechasLocal.reduce(
+        (min, f) => (f.fecha_inicio! < min ? f.fecha_inicio! : min),
+        fasesConFechasLocal[0].fecha_inicio!,
+      )
     : null;
   const finPrevistoLocal = fasesConFechasLocal.length
-    ? fasesConFechasLocal.reduce((max, f) => (f.fecha_fin! > max ? f.fecha_fin! : max), fasesConFechasLocal[0].fecha_fin!)
+    ? fasesConFechasLocal.reduce(
+        (max, f) => (f.fecha_fin! > max ? f.fecha_fin! : max),
+        fasesConFechasLocal[0].fecha_fin!,
+      )
     : null;
-  const duracionTotalLocal = inicioCalculadoLocal && finPrevistoLocal ? diffDias(inicioCalculadoLocal, finPrevistoLocal) : null;
+  const duracionTotalLocal =
+    inicioCalculadoLocal && finPrevistoLocal
+      ? diasInclusive(inicioCalculadoLocal, finPrevistoLocal)
+      : null;
   const seccionesLocal = useMemo(() => agruparPorSeccion(fasesLocal), [fasesLocal]);
   const hoyISO = new Date().toISOString().slice(0, 10);
   const faseAtrasada = (f: FaseObra) => !f.completada && !!f.fecha_fin && f.fecha_fin < hoyISO;
@@ -211,13 +246,45 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
   return (
     <div className="animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
-        <button onClick={onVolver} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onVolver}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a la vista previa
         </button>
-        <Button variant="secondary" onClick={handleDescargarPdf}>
-          Descargar PDF
-        </Button>
+        <div className="flex items-center gap-2">
+          {presupuesto && (proyecto.estado === 'En curso' || proyecto.estado === 'Pausado') && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                abrirNuevaVisita({
+                  nombre: presupuesto.cliente_nombre ?? '',
+                  telefono: presupuesto.cliente_tel ?? '',
+                  email: presupuesto.cliente_email ?? '',
+                  idioma:
+                    presupuesto.idioma === 'fr' || presupuesto.idioma === 'Français'
+                      ? 'Français'
+                      : 'Español',
+                  direccion: presupuesto.cliente_dir ?? '',
+                  direccionExtra: presupuesto.cliente_dir_extra ?? '',
+                  pais: presupuesto.pais ?? 'España',
+                  tipo: 'Seguimiento de obra',
+                  descripcion: `Visita de seguimiento — ${proyecto.nombre_obra}`,
+                  proyectoId: proyecto.id,
+                })
+              }
+            >
+              <span className="flex items-center gap-1.5">
+                <CalendarPlus size={14} />
+                Agendar visita de seguimiento
+              </span>
+            </Button>
+          )}
+          <Button variant="secondary" onClick={handleDescargarPdf}>
+            Descargar PDF
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-5 items-start">
@@ -232,7 +299,9 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                   <p className="text-sm font-medium text-gray-900">{presupuesto.cliente_nombre}</p>
                   <p className="text-xs text-gray-500">{presupuesto.cliente_dir}</p>
                   <p className="text-xs text-gray-500">
-                    {[presupuesto.cliente_tel, presupuesto.cliente_email].filter(Boolean).join(' · ')}
+                    {[presupuesto.cliente_tel, presupuesto.cliente_email]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                 </>
               ) : (
@@ -258,7 +327,7 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
           </div>
 
           <div className="bg-surface border border-gray-200 rounded-sm p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               <Input
                 label="Nombre de la obra"
                 value={nombreObraLocal}
@@ -275,16 +344,26 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                 value={proyecto.fecha_inicio ?? ''}
                 onChange={(fecha) => actualizarMutation.mutate({ fecha_inicio: fecha || null })}
               />
+              <FechaPicker
+                label="Fin de garantía"
+                value={proyecto.fecha_fin_garantia ?? ''}
+                onChange={(fecha) =>
+                  actualizarMutation.mutate({ fecha_fin_garantia: fecha || null })
+                }
+              />
             </div>
           </div>
 
           <div className="bg-surface border border-gray-200 rounded-sm p-4">
             <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Fases de la obra</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
+                  Fases de la obra
+                </p>
                 {finPrevistoLocal && (
                   <p className="text-[11px] text-gray-400 mt-0.5">
-                    Fin previsto: {fechaVisitaCorta(finPrevistoLocal)} · {duracionTotalLocal} días en total
+                    Fin previsto: {fechaVisitaCorta(finPrevistoLocal)} · {duracionTotalLocal} días
+                    en total
                   </p>
                 )}
                 {seccionesLocal.some((s) => s.nombre) && (
@@ -302,7 +381,10 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
               {fasesLocal.length > 0 && (
                 <div className="flex items-center gap-2">
                   <div className="w-28 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-brand rounded-full" style={{ width: `${porcentajeCompletado}%` }} />
+                    <div
+                      className="h-full bg-brand rounded-full"
+                      style={{ width: `${porcentajeCompletado}%` }}
+                    />
                   </div>
                   <span className="text-xs font-medium text-gray-500">
                     {fasesCompletadas}/{fasesLocal.length} · {porcentajeCompletado}%
@@ -333,7 +415,10 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                   </tr>
                 )}
                 {fasesLocal.map((fase, i) => (
-                  <tr key={i} className={`odd:bg-gray-50 ${faseAtrasada(fase) ? 'border-l-2 border-red-400' : ''}`}>
+                  <tr
+                    key={i}
+                    className={`odd:bg-gray-50 ${faseAtrasada(fase) ? 'border-l-2 border-red-400' : ''}`}
+                  >
                     <td className="px-3 py-2">
                       <input
                         value={fase.nombre}
@@ -377,13 +462,22 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                       />
                     </td>
                     <td className="px-3 py-2 text-right text-gray-600">
-                      {fase.fecha_inicio && fase.fecha_fin ? `${diffDias(fase.fecha_inicio, fase.fecha_fin)} días` : '—'}
+                      {fase.fecha_inicio && fase.fecha_fin
+                        ? `${diasInclusive(fase.fecha_inicio, fase.fecha_fin)} días`
+                        : '—'}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <input type="checkbox" checked={fase.completada} onChange={() => handleToggleFase(i)} />
+                      <input
+                        type="checkbox"
+                        checked={fase.completada}
+                        onChange={() => handleToggleFase(i)}
+                      />
                     </td>
                     <td className="px-3 py-2">
-                      <button onClick={() => handleEliminarFase(i)} className="text-gray-300 hover:text-red-600 text-xs">
+                      <button
+                        onClick={() => handleEliminarFase(i)}
+                        className="text-gray-300 hover:text-red-600 text-xs"
+                      >
                         Quitar
                       </button>
                     </td>
@@ -411,7 +505,12 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                 placeholder="Sección (ej. Obra gruesa)"
                 className="w-44 shrink-0"
               />
-              <FechaPicker value={nuevaFaseInicio} onChange={setNuevaFaseInicio} placeholder="Inicio" className="w-36 shrink-0" />
+              <FechaPicker
+                value={nuevaFaseInicio}
+                onChange={setNuevaFaseInicio}
+                placeholder="Inicio"
+                className="w-36 shrink-0"
+              />
               <FechaPicker
                 value={nuevaFaseFin}
                 onChange={setNuevaFaseFin}
@@ -419,7 +518,12 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
                 placeholder="Fin"
                 className="w-36 shrink-0"
               />
-              <Button size="sm" variant="secondary" onClick={handleAgregarFase} disabled={!nuevaFaseTitulo.trim()}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleAgregarFase}
+                disabled={!nuevaFaseTitulo.trim()}
+              >
                 Añadir fase
               </Button>
             </div>
@@ -427,7 +531,9 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
         </div>
 
         <div className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Vista previa en vivo</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+            Vista previa en vivo
+          </p>
           {entidadInfo && (
             <PlanningPreview
               config={configPlanning}
@@ -436,6 +542,7 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
               logoUrl={entidadInfo.logoUrl || undefined}
               clienteNombre={presupuesto?.cliente_nombre ?? ''}
               clienteTelefono={presupuesto?.cliente_tel ?? ''}
+              clienteEmail={presupuesto?.cliente_email ?? ''}
               clienteDir={presupuesto?.cliente_dir ?? ''}
               nombreObra={nombreObraLocal}
               estado={proyecto.estado}
@@ -443,6 +550,7 @@ export function PlanningObraDetalle({ proyecto: proyectoInicial, presupuesto, on
               presupuestoNumero={presupuesto?.numero ?? null}
               presupuestoFecha={presupuesto?.fecha_emision ?? null}
               presupuestoTotal={presupuestoTotal}
+              planPago={presupuesto?.plan_pago ?? []}
               fases={fasesLocal}
             />
           )}

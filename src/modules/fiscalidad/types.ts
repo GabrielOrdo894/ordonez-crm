@@ -38,5 +38,10 @@ export type GerantConfig = {
   remuneracion_anual: number;
   capital_social: number;
   compte_courant_medio: number;
+  casado: boolean;
+  hijos_a_cargo: number;
+  ingresos_conyuge_anual: number;
+  indemnite_locaux_mensual: number;
+  reembolso_telefono_mensual: number;
   updated_at: string;
 };

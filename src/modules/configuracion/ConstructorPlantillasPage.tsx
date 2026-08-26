@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image as ImageIcon, FileImage } from 'lucide-react';
@@ -13,6 +13,7 @@ import { ENTIDAD_EJEMPLO, LINEAS_EJEMPLO, TOTAL_SIN_IVA_EJEMPLO, TOTAL_CON_IVA_E
 import { notificarCambioConfig } from '../../lib/notificaciones';
 import { guardarConfigDatos } from '../../lib/empresaConfig';
 import { useHidratarUnaVez } from '../../hooks/useHidratarUnaVez';
+import { ColorInput } from './ColorInput';
 
 const TAMANOS_TITULO: { value: TamanoTitulo; label: string }[] = [
   { value: 'sm', label: 'Pequeño' },
@@ -54,7 +55,7 @@ export default function ConstructorPlantillasPage() {
   const navigate = useNavigate();
   const [config, setConfig] = useState<ConfigPlantilla>(CONFIG_PLANTILLA_DEFECTO);
 
-  const { data: empresaConfig, isLoading } = useQuery({
+  const { data: empresaConfig, isLoading, error: errorEmpresaConfig } = useQuery({
     queryKey: ['empresa_config'],
     queryFn: async () => {
       const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
@@ -62,6 +63,10 @@ export default function ConstructorPlantillasPage() {
       return data;
     },
   });
+  useEffect(() => {
+    if (errorEmpresaConfig) toast.error(`No se pudo cargar la configuración de empresa: ${errorEmpresaConfig.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorEmpresaConfig]);
 
   // Solo se hidrata una vez — el polling de 'empresa_config' no debe pisar ediciones en curso.
   useHidratarUnaVez(empresaConfig, (empresaConfig) => {
@@ -74,7 +79,22 @@ export default function ConstructorPlantillasPage() {
 
   const guardarMutation = useMutation({
     mutationFn: async () => {
-      await guardarConfigDatos({ plantilla_documento: config });
+      // Releer y fusionar solo los campos que esta pantalla edita, no sobrescribir el objeto
+      // completo — 'estructura' (PlantillasSection) y 'portadaTaglineEs/Fr' (ConstructorPortadaPage)
+      // pertenecen a otras pantallas que comparten la misma clave 'plantilla_documento'; guardar
+      // aquí el snapshot cargado al abrir esta página podía revertir un cambio hecho mientras
+      // tanto en otra pestaña (bug real corregido 2026-08-18).
+      await guardarConfigDatos((datosActuales) => {
+        const fresca = configPlantillaDesde((datosActuales as { plantilla_documento?: unknown }).plantilla_documento);
+        return {
+          plantilla_documento: {
+            ...config,
+            estructura: fresca.estructura,
+            portadaTaglineEs: fresca.portadaTaglineEs,
+            portadaTaglineFr: fresca.portadaTaglineFr,
+          },
+        };
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
@@ -138,33 +158,11 @@ export default function ConstructorPlantillasPage() {
 
           <Bloque titulo="Colores">
             <div className="flex items-center gap-3 mb-3">
-              <input
-                type="color"
-                value={config.colorPrimario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPrimario: e.target.value }))}
-                className="w-12 h-9 border border-gray-200 rounded-sm cursor-pointer"
-              />
-              <input
-                type="text"
-                value={config.colorPrimario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorPrimario: e.target.value }))}
-                className="w-32 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
-              />
+              <ColorInput value={config.colorPrimario} onChange={(hex) => setConfig((c) => ({ ...c, colorPrimario: hex }))} />
               <p className="text-xs text-gray-400">Color principal (cabecera, tabla, totales).</p>
             </div>
             <div className="flex items-center gap-3">
-              <input
-                type="color"
-                value={config.colorSecundario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorSecundario: e.target.value }))}
-                className="w-12 h-9 border border-gray-200 rounded-sm cursor-pointer"
-              />
-              <input
-                type="text"
-                value={config.colorSecundario}
-                onChange={(e) => setConfig((c) => ({ ...c, colorSecundario: e.target.value }))}
-                className="w-32 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
-              />
+              <ColorInput value={config.colorSecundario} onChange={(hex) => setConfig((c) => ({ ...c, colorSecundario: hex }))} />
               <p className="text-xs text-gray-400">Color de acento (franja, línea decorativa).</p>
             </div>
           </Bloque>

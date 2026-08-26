@@ -27,19 +27,19 @@ quedaba inutilizable).
 ## Qué hace hoy el flujo manual (lo que hay que igualar)
 
 1. Se busca en Gmail (cuenta `reformasordonezeus@gmail.com`) solicitudes nuevas — llegan por
-   cuatro fuentes distintas, ver `docs/directrices-respuesta-clientes.md` y
-   `docs/bloque6-solicitudes-seguimiento.md` más abajo — o respuestas a presupuestos
+   cuatro fuentes distintas, ver `docs/negocio/directrices-respuesta-clientes.md` y
+   `docs/producto/bloque6-solicitudes-seguimiento.md` más abajo — o respuestas a presupuestos
    `Pendiente` ya enviados.
 2. Se cruza con Supabase: tabla `presupuestos` (estado, tipo, cliente_email, fecha_emision)
    y tabla `visitas` (huecos ya ocupados) para saber a qué slot de visita ofrecer.
-3. Se aplican las reglas de `docs/directrices-respuesta-clientes.md`: orden del mensaje
+3. Se aplican las reglas de `docs/negocio/directrices-respuesta-clientes.md`: orden del mensaje
    (visita arriba, orientativo después, pedir datos si falta info, aclarar que no somos
    empresa de diseño si hace falta), tono según cliente nuevo/conocido, idioma es/fr, y el
    algoritmo de horarios por defecto (18:00 llenando de lunes a viernes, 12:00 llenando de
    sábado hacia atrás).
 4. Se redacta el mensaje, nunca se envía solo — Gabriel aprueba.
-5. Se guarda un PDF de referencia (`equipo-presupuestos/revisiones/.../seguimiento/` o
-   `solicitudes-presupuesto/...`).
+5. Se guarda un PDF de referencia (`negocio/equipo-presupuestos/revisiones/.../seguimiento/` o
+   `negocio/solicitudes-presupuesto/...`).
 
 ## Por qué no se puede hacer solo con lo que hay hoy en el CRM
 
@@ -60,7 +60,7 @@ navegador:
    volver a escanear), `estado` (`Nueva` / `Revisada` / `Convertida a presupuesto` /
    `Descartada`), `mensaje_generado`, `mensaje_enviado boolean`.
 2. **Ingesta de solicitudes — vía Gmail, no webhook.** Confirmado 2026-07-28: hay cuatro
-   fuentes (ver `docs/directrices-respuesta-clientes.md`), y dos de ellas (autoenvíos de
+   fuentes (ver `docs/negocio/directrices-respuesta-clientes.md`), y dos de ellas (autoenvíos de
    Gabriel y clientes que escriben directo) **no tienen remitente/asunto fijo**, así que un
    webhook de Landbot/WordPress solo cubriría 2 de las 4 y de todos modos habría que seguir
    leyendo Gmail para las otras dos. Como además el punto 3 de abajo ya necesita Gmail
@@ -76,7 +76,7 @@ navegador:
    te pego es una solicitud de presupuesto?") en vez de escanear toda la bandeja a diario.
 3. **Gmail para seguimiento de presupuestos enviados** — misma Edge Function/conexión que el
    punto 2, para saber si el cliente respondió a un presupuesto ya enviado. Requiere:
-   - App OAuth de Gmail registrada en Google Cloud (ver `docs/google-apis.md`, ya se usa
+   - App OAuth de Gmail registrada en Google Cloud (ver `docs/tecnico/google-apis.md`, ya se usa
      Google para Maps/Calendar — mismo proyecto `ordonez-crm`).
    - Refresh token guardado como secreto de Supabase (Edge Function `secrets`), nunca en
      el cliente.
@@ -88,9 +88,9 @@ navegador:
      también manualmente con un botón "Comprobar ahora" en el CRM.
 4. **Generación del mensaje con el mismo razonamiento** — confirmado con Gabriel
    (2026-07-28): **IA real**, no plantillas deterministas. Una Edge Function llama a la
-   API de Anthropic (ver `docs/google-apis.md` y la skill `claude-api` del repo de
+   API de Anthropic (ver `docs/tecnico/google-apis.md` y la skill `claude-api` del repo de
    Claude Code para referencia de la API) pasándole el contenido de
-   `docs/directrices-respuesta-clientes.md` (mover a una tabla `directrices` editable
+   `docs/negocio/directrices-respuesta-clientes.md` (mover a una tabla `directrices` editable
    desde el CRM en vez de un fichero markdown, para que Gabriel pueda seguir ajustándolas
    sin tocar código) + los datos del caso concreto (solicitud o presupuesto + historial de
    Gmail). Implica: guardar `ANTHROPIC_API_KEY` como secreto de la Edge Function (nunca en
@@ -119,7 +119,7 @@ navegador:
 ## Decisiones aún pendientes de Gabriel
 
 - Ninguna bloqueante por ahora. Las cuatro fuentes de solicitudes ya están confirmadas
-  (ver `docs/directrices-respuesta-clientes.md`). El webhook de Landbot/WordPress queda
+  (ver `docs/negocio/directrices-respuesta-clientes.md`). El webhook de Landbot/WordPress queda
   como optimización opcional, no bloquea el diseño (ingesta vía Gmail cubre las 4 fuentes).
 
 ## Estado de implementación (2026-07-28)
@@ -130,7 +130,7 @@ intermedio — ver riesgos al final):
 - **Migraciones aplicadas:** tabla `solicitudes`, columnas nuevas en `presupuestos`
   (`ultima_respuesta_cliente_resumen`, `ultima_respuesta_cliente_fecha`,
   `ultima_respuesta_revisada`, `mensaje_seguimiento_generado`), tabla `directrices` (con
-  el contenido de `docs/directrices-respuesta-clientes.md` ya migrado, 3 filas), y columna
+  el contenido de `docs/negocio/directrices-respuesta-clientes.md` ya migrado, 3 filas), y columna
   `empresa_config.visitas_disponibles_desde` (hoy en `2026-09-07`, actualizar cuando
   cambie la disponibilidad real — sustituye la fecha en texto libre que había antes).
 - **Scope de Google ampliado:** `src/lib/googleCalendar.ts` pide ahora también

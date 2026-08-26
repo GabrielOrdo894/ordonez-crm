@@ -19,6 +19,7 @@ import {
   Check,
   Sun,
   Moon,
+  SunMoon,
   BookOpen,
   Bell,
   ChevronDown,
@@ -26,12 +27,13 @@ import {
   CalendarCheck,
   Ban,
   Banknote,
+  ListChecks,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { useAuth } from '../../hooks/useAuth';
-import { useTema, TEMAS } from '../../hooks/useTema';
+import { useTema, TEMAS, ZONAS_HORARIAS_AUTO, type ZonaHorariaAuto } from '../../hooks/useTema';
 import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { Select } from '../../components/ui/Select';
@@ -39,12 +41,14 @@ import { Button } from '../../components/ui/Button';
 import { PlantillasSection } from './PlantillasSection';
 import { CatalogoLineasSection } from './CatalogoLineasSection';
 import { DirectricesSection } from './DirectricesSection';
+import { CatalogosVisitasSection } from './CatalogosVisitasSection';
 import { CondicionesPagoEditor } from '../finanzas/CondicionesPagoEditor';
 import { iniciarConexionGoogleCalendar, iniciarConexionGmail } from '../../lib/googleCalendar';
 import { useFiscalConfig } from '../fiscalidad/useFiscalConfig';
 import { notificarCambioConfig } from '../../lib/notificaciones';
 import { guardarConfigDatos } from '../../lib/empresaConfig';
 import { useHidratarUnaVez } from '../../hooks/useHidratarUnaVez';
+import { pathEmpresaDesdeUrl } from './storagePaths';
 import type { LucideIcon } from 'lucide-react';
 
 type BloqueNav = { id: string; label: string; icon: LucideIcon };
@@ -101,6 +105,7 @@ const GRUPOS_NAV: GrupoNav[] = [
     items: [
       { id: 'bloque-gcal', label: 'Google Calendar', icon: CalendarClock },
       { id: 'bloque-notificaciones', label: 'Notificaciones de visitas', icon: Bell },
+      { id: 'bloque-catalogos-visitas', label: 'Catálogos de Visitas', icon: ListChecks },
       { id: 'bloque-banco', label: 'Sincronización bancaria', icon: Banknote },
     ],
   },
@@ -231,7 +236,7 @@ function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentifi
 export default function ConfiguracionPage() {
   const toast = useToast();
   const { user } = useAuth();
-  const { tema, modo, setTema, setModo } = useTema();
+  const { tema, modo, zonaHorariaAuto, setTema, setModo, setZonaHorariaAuto } = useTema();
   const queryClient = useQueryClient();
   const [bloqueActivo, setBloqueActivo] = useState(BLOQUES_NAV[0].id);
   const [grupoAbierto, setGrupoAbierto] = useState(GRUPOS_NAV[0].id);
@@ -274,7 +279,7 @@ export default function ConfiguracionPage() {
   const [soldeIsMes, setSoldeIsMes] = useState(5);
   const [soldeIsDia, setSoldeIsDia] = useState(15);
 
-  const { data: config, isLoading } = useQuery({
+  const { data: config, isLoading, error: errorConfig } = useQuery({
     queryKey: ['empresa_config'],
     queryFn: async () => {
       const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
@@ -283,7 +288,7 @@ export default function ConfiguracionPage() {
     },
   });
 
-  const { data: googleConfig, refetch: refetchGoogleConfig } = useQuery({
+  const { data: googleConfig, refetch: refetchGoogleConfig, error: errorGoogleConfig } = useQuery({
     queryKey: ['google_config'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -295,6 +300,18 @@ export default function ConfiguracionPage() {
       return data;
     },
   });
+
+  // Sin esto, un fallo al cargar dejaba la pantalla con valores por defecto/vacíos sin ningún
+  // aviso — riesgo real de pulsar "Guardar" sobre un formulario vacío y sobrescribir datos reales
+  // de empresa (bug real corregido 2026-08-18, contradice CLAUDE.md §1).
+  useEffect(() => {
+    if (errorConfig) toast.error(`No se pudo cargar la configuración de empresa: ${errorConfig.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorConfig]);
+  useEffect(() => {
+    if (errorGoogleConfig) toast.error(`No se pudo cargar la configuración de Google: ${errorGoogleConfig.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorGoogleConfig]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -506,20 +523,39 @@ export default function ConfiguracionPage() {
     ...alGuardar('Presupuesto de IA guardado', 'actualizó el presupuesto mensual de IA en Configuración.'),
   });
 
+  const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // La lista negra admite email completo o dominio entero con "@dominio.com" (ver estaExcluido()
+  // en revisar-gmail/index.ts) — el formato válido es distinto al de notificaciones de visitas.
+  const ENTRADA_LISTA_NEGRA_VALIDA = /^@?[^\s@]+\.[^\s@]+$/;
+
   const guardarNotificacionesMutation = useMutation({
-    mutationFn: () =>
-      guardarDatos({ notificaciones_visita_emails_extra: emailsNotificacion.map((e) => e.trim()).filter(Boolean) }),
+    mutationFn: () => {
+      const emails = emailsNotificacion.map((e) => e.trim()).filter(Boolean);
+      // Antes se guardaba cualquier texto tal cual — un email mal escrito simplemente no llegaba
+      // nunca a recibir el aviso de visita, sin ningún indicio del porqué (bug real corregido
+      // 2026-08-18).
+      const invalido = emails.find((e) => !EMAIL_VALIDO.test(e));
+      if (invalido) throw new Error(`"${invalido}" no parece un email válido — corrígelo antes de guardar.`);
+      return guardarDatos({ notificaciones_visita_emails_extra: emails });
+    },
     ...alGuardar('Emails de notificación guardados', 'actualizó los emails de notificación de visitas en Configuración.'),
   });
 
   const guardarListaNegraMutation = useMutation({
-    mutationFn: () =>
-      guardarDatos({ solicitudes_emails_excluidos: emailsExcluidos.map((e) => e.trim().toLowerCase()).filter(Boolean) }),
+    mutationFn: () => {
+      const emails = emailsExcluidos.map((e) => e.trim().toLowerCase()).filter(Boolean);
+      const invalido = emails.find((e) => !ENTRADA_LISTA_NEGRA_VALIDA.test(e));
+      if (invalido) {
+        throw new Error(`"${invalido}" no parece un email o dominio válido (usa "nombre@dominio.com" o "@dominio.com") — corrígelo antes de guardar.`);
+      }
+      return guardarDatos({ solicitudes_emails_excluidos: emails });
+    },
     ...alGuardar('Lista negra guardada', 'actualizó la lista negra de emails de Solicitudes en Configuración.'),
   });
 
   const handleSubirLogo = async (file: File) => {
     setSubiendoLogo(true);
+    const logoAnteriorUrl = logoUrl;
     const extension = file.name.split('.').pop() ?? 'png';
     const path = `logo_${Date.now()}.${extension}`;
     const { error } = await supabase.storage.from('empresa').upload(path, file, {
@@ -534,6 +570,14 @@ export default function ConfiguracionPage() {
     const { data } = supabase.storage.from('empresa').getPublicUrl(path);
     setLogoUrl(data.publicUrl);
     toast.success('Logo subido — pulsa Guardar para confirmar');
+    // Cada subida usaba un nombre con Date.now() distinto — sin borrar el anterior, el bucket
+    // acumulaba un archivo huérfano por cada cambio de logo (bug real corregido 2026-08-18).
+    // Best-effort: un fallo aquí no debe impedir usar el logo recién subido.
+    const pathAnterior = pathEmpresaDesdeUrl(logoAnteriorUrl);
+    if (pathAnterior) {
+      const { error: errorBorrado } = await supabase.storage.from('empresa').remove([pathAnterior]);
+      if (errorBorrado) console.warn('No se pudo borrar el logo anterior en Storage:', errorBorrado.message);
+    }
   };
 
   if (isLoading) {
@@ -676,7 +720,38 @@ export default function ConfiguracionPage() {
             <Moon size={14} />
             Oscuro
           </button>
+          <button
+            onClick={() => setModo('auto')}
+            title="Claro de día y oscuro de noche según la salida/puesta de sol real de la zona horaria elegida abajo"
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-sm border ${
+              modo === 'auto' ? 'border-brand text-brand bg-brand-light' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <SunMoon size={14} />
+            Automático
+          </button>
         </div>
+
+        {modo === 'auto' && (
+          <div className="mb-4">
+            <p className="text-xs font-semibold text-gray-700 mb-2">Selecciona tu zona horaria</p>
+            <div className="flex gap-2">
+              {(Object.entries(ZONAS_HORARIAS_AUTO) as [ZonaHorariaAuto, (typeof ZONAS_HORARIAS_AUTO)[ZonaHorariaAuto]][]).map(
+                ([id, z]) => (
+                  <button
+                    key={id}
+                    onClick={() => setZonaHorariaAuto(id)}
+                    className={`px-3 py-1.5 text-sm rounded-sm border ${
+                      zonaHorariaAuto === id ? 'border-brand text-brand bg-brand-light' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {z.label}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        )}
 
         <p className="text-xs font-semibold text-gray-700 mb-2">Color</p>
         <div className="flex flex-wrap gap-3">
@@ -1082,6 +1157,13 @@ export default function ConfiguracionPage() {
           + Añadir email
         </Button>
       </section>
+
+      <div
+        id="bloque-catalogos-visitas"
+        style={{ display: bloqueActivo === 'bloque-catalogos-visitas' ? undefined : 'none' }}
+      >
+        <CatalogosVisitasSection />
+      </div>
 
       <section
         id="bloque-banco"

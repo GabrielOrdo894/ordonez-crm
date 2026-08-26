@@ -5,9 +5,14 @@ import {
   calcularTNS,
   calcularDividendos,
   calcularReservaLegal,
+  calcularBilanPasivo,
   simularEjercicio,
   generarEcheances,
   mesesTranscurridosEjercicio,
+  calcularQuotientFamiliar,
+  calcularAbattementProfesional,
+  calcularIRPersonal,
+  calcularIRGerante,
   type ConfigFn,
 } from './calculos';
 
@@ -104,7 +109,7 @@ describe('calcularTNS', () => {
   });
 
   it('remuneración por encima del tope abatido tributa el exceso sin abattement', () => {
-    const topeAbatido = 47100 * 1.3;
+    const topeAbatido = 48060 * 1.3;
     const r = calcularTNS(80000, cfgPorDefecto);
     const parteAbatida = topeAbatido * 0.74;
     const parteExceso = 80000 - topeAbatido;
@@ -147,7 +152,7 @@ describe('calcularDividendos', () => {
     expect(r.umbralLibre).toBe(100);
     expect(r.libre).toBe(50);
     expect(r.exceso).toBe(0);
-    expect(r.pfuLibre).toBeCloseTo(15);
+    expect(r.pfuLibre).toBeCloseTo(15.7);
     expect(r.irExceso).toBe(0);
     expect(r.tnsExceso).toBe(0);
     expect(r.superaSeuil).toBe(false);
@@ -158,10 +163,10 @@ describe('calcularDividendos', () => {
     expect(r.umbralLibre).toBe(100);
     expect(r.libre).toBe(100);
     expect(r.exceso).toBe(400);
-    expect(r.pfuLibre).toBeCloseTo(30);
+    expect(r.pfuLibre).toBeCloseTo(31.4);
     expect(r.irExceso).toBeCloseTo(400 * 0.128);
     expect(r.tnsExceso).toBeCloseTo(400 * 0.45);
-    expect(r.total).toBeCloseTo(30 + 400 * 0.128 + 400 * 0.45);
+    expect(r.total).toBeCloseTo(31.4 + 400 * 0.128 + 400 * 0.45);
     expect(r.superaSeuil).toBe(true);
   });
 
@@ -185,9 +190,9 @@ describe('simularEjercicio', () => {
     expect(r.is.total).toBeCloseTo(1501.5, 1);
     expect(r.reservaLegal.dotacion).toBeCloseTo(100, 0);
     expect(r.dividendos).toBeCloseTo(4204.25, 1);
-    expect(r.divCalc.total).toBeCloseTo(2402.26, 1);
-    expect(r.totalPrelevements).toBeCloseTo(13893.76, 1);
-    expect(r.netoDisponible).toBeCloseTo(21811.99, 1);
+    expect(r.divCalc.total).toBeCloseTo(2403.66, 1);
+    expect(r.totalPrelevements).toBeCloseTo(13895.16, 1);
+    expect(r.netoDisponible).toBeCloseTo(21810.59, 1);
   });
 
   it('sin beneficio (0), no hay IS ni dividendos, solo las cotisations TNS mínimas sobre la rémunération', () => {
@@ -196,6 +201,116 @@ describe('simularEjercicio', () => {
     expect(r.is.total).toBe(0);
     expect(r.dividendos).toBe(0);
     expect(r.netoDisponible).toBeCloseTo(20000 - r.tns.total, 1);
+  });
+});
+
+describe('calcularBilanPasivo', () => {
+  it('suma capital social, reservas (previas + dotación), resultado del ejercicio y deuda fiscal por IS', () => {
+    const is = calcularIS(30000, 6, cfgPorDefecto);
+    const reservaLegal = calcularReservaLegal(8508.5, 1000, cfgPorDefecto);
+    const r = calcularBilanPasivo(8508.5, reservaLegal, is, 1000);
+    expect(r.capitalSocial).toBe(1000);
+    expect(r.reservas).toBeCloseTo(reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion);
+    expect(r.resultadoEjercicio).toBe(8508.5);
+    expect(r.dettesFiscales).toBeCloseTo(is.total);
+    expect(r.dettesFournisseurs).toBe(0);
+    expect(r.total).toBeCloseTo(1000 + r.reservas + 8508.5 + is.total);
+  });
+});
+
+describe('calcularQuotientFamiliar', () => {
+  it('soltero sin hijos: 1 parte', () => {
+    expect(calcularQuotientFamiliar(false, 0, cfgPorDefecto)).toBe(1);
+  });
+
+  it('casado sin hijos: 2 partes (base del matrimonio)', () => {
+    expect(calcularQuotientFamiliar(true, 0, cfgPorDefecto)).toBe(2);
+  });
+
+  it('casado con 1 hijo a cargo: 2,5 partes (situación real de Reformas Ordoñez)', () => {
+    expect(calcularQuotientFamiliar(true, 1, cfgPorDefecto)).toBe(2.5);
+  });
+
+  it('casado con 3 hijos: 2 (base) + 0,5×2 (primeros dos) + 1 (tercero) = 4 partes', () => {
+    expect(calcularQuotientFamiliar(true, 3, cfgPorDefecto)).toBe(4);
+  });
+});
+
+describe('calcularAbattementProfesional', () => {
+  it('aplica el 10% dentro de los topes', () => {
+    expect(calcularAbattementProfesional(42000, cfgPorDefecto)).toBeCloseTo(4200);
+  });
+
+  it('sin ingresos, sin abattement', () => {
+    expect(calcularAbattementProfesional(0, cfgPorDefecto)).toBe(0);
+  });
+
+  it('respeta el mínimo (495 €) para ingresos bajos', () => {
+    expect(calcularAbattementProfesional(2000, cfgPorDefecto)).toBeCloseTo(495);
+  });
+
+  it('respeta el máximo (14.171 €) para ingresos altos', () => {
+    expect(calcularAbattementProfesional(200000, cfgPorDefecto)).toBeCloseTo(14171);
+  });
+});
+
+describe('calcularIRPersonal', () => {
+  it('familia casada con 1 hijo (2,5 partes), 40.000 € de revenu imposable — quotient + décote aplicados', () => {
+    // revenuParPart = 16.000 € → tramo 11%: (16.000-11.600)×11% = 484 € por parte → 1.210 € sin plafonar.
+    // Comprobación del plafonnement (no debería activarse aquí): con solo 2 partes (matrimonio sin
+    // hijo) el impôt sería 1.848 €, el ahorro real de la media parte extra es 638 €, muy por debajo
+    // del tope de 1.807 € — por eso el resultado final usa el cálculo con las 2,5 partes reales.
+    const r = calcularIRPersonal(40000, 2.5, cfgPorDefecto);
+    expect(r.impotSinPlafon).toBeCloseTo(1210, 0);
+    expect(r.impotConPartsBase).toBeCloseTo(1848, 0);
+    expect(r.impotBruto).toBeCloseTo(1210, 0);
+    // Décote (matrimonio): 1.483 − 45,25%×1.210 ≈ 935,48 €.
+    expect(r.decote).toBeCloseTo(935.5, 0);
+    expect(r.impotFinal).toBeCloseTo(274.5, 1);
+  });
+
+  it('revenu por debajo del primer tramo (por parte): impôt 0', () => {
+    const r = calcularIRPersonal(20000, 2.5, cfgPorDefecto);
+    expect(r.impotFinal).toBe(0);
+  });
+
+  it('el plafonnement del quotient familial limita el ahorro de las medias partes extra en rentas altas', () => {
+    // Con un revenu alto, el ahorro fiscal real de pasar de 2 a 2,5 partes supera el tope de 1.807 €
+    // por media parte — el impôt final debe quedar en impotConPartsBase − ahorroMaximo, no en el
+    // cálculo directo con 2,5 partes (que sería más bajo de lo permitido).
+    const r = calcularIRPersonal(200000, 2.5, cfgPorDefecto);
+    expect(r.impotBruto).toBeCloseTo(r.impotConPartsBase - r.ahorroMaximo, 0);
+    expect(r.impotBruto).toBeGreaterThan(r.impotSinPlafon);
+  });
+});
+
+describe('calcularIRGerante', () => {
+  it('sin ingresos del cónyuge: encadena abattement + quotient familial sobre la rémunération neta del gérant', () => {
+    // Mismos 30.000 € de rémunération y 9.990 € de cotisations TNS que el ejemplo de simularEjercicio.
+    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto);
+    expect(r.remuneracionNeta).toBeCloseTo(20010);
+    expect(r.abattement).toBeCloseTo(2001);
+    expect(r.revenuNetImposable).toBeCloseTo(18009);
+    expect(r.parts).toBe(2.5);
+    // 18.009 € entre 2,5 partes = 7.203,6 €/parte, por debajo del primer tramo (11.600 €) → sin IR.
+    expect(r.impotFinal).toBe(0);
+  });
+
+  it('con ingresos del cónyuge: reproduce el resultado real del simulador oficial de la DGFiP', () => {
+    // Verificado a mano en simulateur-ir-ifi.impots.gouv.fr (2026-08): rémunération neta 40.020 €
+    // (declarante 1) + 18.000 € del cónyuge (declarante 2), casado + 1 hijo (2,5 partes) → la
+    // Administración da exactamente droits simples 2.554 €, décote 327 € e impôt net 2.227 €.
+    // remuneracion/tnsTotal se pasan ya restados (40.020 = remuneración neta directamente, con
+    // tnsTotal=0) porque lo que se está verificando aquí es el tramo del IR, no el cálculo de TNS.
+    const r = calcularIRGerante(40020, 0, 18000, true, 1, cfgPorDefecto);
+    expect(r.remuneracionNeta).toBeCloseTo(40020, 0);
+    expect(r.abattement).toBeCloseTo(4002, 0);
+    expect(r.abattementConyuge).toBeCloseTo(1800, 0);
+    expect(r.revenuNetImposable).toBeCloseTo(52218, 0);
+    expect(r.parts).toBe(2.5);
+    expect(r.impotSinPlafon).toBeCloseTo(2554, 0);
+    expect(r.decote).toBeCloseTo(327, 0);
+    expect(r.impotFinal).toBeCloseTo(2227, 0);
   });
 });
 

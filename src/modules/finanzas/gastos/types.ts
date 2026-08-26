@@ -19,6 +19,13 @@ export type Gasto = {
   adjunto_tipo: string | null;
   num_factura_proveedor: string | null;
   inmovilizado_id: string | null;
+  km: number | null;
+  vehiculo_cv: number | null;
+  // 'pendiente' = generado automáticamente al completar una visita, todavía sin revisar (no
+  // genera asiento contable hasta confirmarse) — 'pagado' es el resto de gastos, igual que
+  // siempre (ver feedback_gastos_siempre_pagados). Rechazar un 'pendiente' borra la fila, nunca
+  // queda un tercer estado.
+  estado_gasto: 'pendiente' | 'pagado';
 };
 
 export type NuevoGasto = Omit<Gasto, 'id' | 'created_at'>;
@@ -71,16 +78,30 @@ export const CUENTAS_FR = [
   { value: '695', label: '695 · Impôts sur les bénéfices' },
 
   // 64 — Charges de personnel
+  // Nota: 644 "Rémunération du travail de l'exploitant" es solo para entreprises individuelles —
+  // Reformas Ordoñez es una EURL a l'IS, la rémunération del gérant pasa por 641, nunca por 644
+  // (verificado 2026-08-16, fuente: compta-facile.com/comptabilisation-remuneration-dirigeant).
   { value: '641', label: '641 · Rémunérations du personnel' },
-  { value: '644', label: '644 · Rémunération du travail de l’exploitant' },
   { value: '645', label: '645 · Charges de sécurité sociale et de prévoyance' },
+  // Cuenta específica para las cotizaciones URSSAF/TNS personales de un gérant majoritaire de
+  // EURL (maladie, retraite, CSG-CRDS, formation professionnelle) — distinta de 645, que es para
+  // cargas sociales sobre nóminas de personal asalariado (hallazgo real, recapitulativo 2026-08-22).
+  { value: '646', label: '646 · Cotisations sociales personnelles de l’exploitant (gérant TNS)' },
   { value: '647', label: '647 · Autres charges sociales' },
   { value: '648', label: '648 · Autres charges de personnel' },
 
   // 20/21/23 — Immobilisations (inversiones/activo, no gasto directo)
+  // Costes reales de constitución de la société (redacción de estatutos, trámites del Greffe,
+  // anuncio legal) — se inmovilizan y amortizan aquí en vez de perderse como gasto corriente
+  // (hallazgo real, recapitulativo 2026-08-22).
+  { value: '201', label: '201 · Frais d’établissement' },
   { value: '205', label: '205 · Concessions, brevets, licences, marques' },
   { value: '213', label: '213 · Constructions' },
   { value: '2154', label: '2154 · Matériel industriel' },
+  // 2155 (verificado 2026-08-16): outillage de obra inmovilizable (taladros grandes, generador...
+  // >500€ HT) — 2154 es para maquinaria industrial pesada de producción fija, no aplica a una
+  // reforma; 2155 es la cuenta real para herramienta de obra.
+  { value: '2155', label: '2155 · Outillage industriel' },
   { value: '2182', label: '2182 · Matériel de transport' },
   { value: '2183', label: '2183 · Matériel de bureau et informatique' },
   { value: '2184', label: '2184 · Mobilier' },

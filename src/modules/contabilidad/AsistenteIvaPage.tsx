@@ -166,11 +166,14 @@ export default function AsistenteIvaPage() {
   const { data: facturas, isLoading: cargandoFacturas } = useQuery({
     queryKey: ['facturas', 'iva-fr', mesISO],
     queryFn: async () => {
+      // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL actual, no
+      // cuenta como ingreso real para esta declaración.
       const { data, error } = await supabase
         .from('facturas')
         .select('fecha_factura, tipo_iva, lineas')
         .is('eliminado_en', null)
         .eq('pais', 'Francia')
+        .eq('estructura_anterior', false)
         .gte('fecha_factura', inicioMes)
         .lte('fecha_factura', finMes);
       if (error) throw error;
@@ -200,10 +203,17 @@ export default function AsistenteIvaPage() {
     const facturas10 = fs.filter((f) => f.tipo_iva === 'TVA_10');
     const facturasExentas = fs.filter((f) => f.tipo_iva === 'EXENTO');
     const gastosIntracom = gs.filter((g) => g.tipo_iva === 'INTRACOM');
+    // Importación fuera de la UE — desde 2022 se autoliquida en la CA3 igual que una adquisición
+    // intracomunitaria, pero en casillas propias y distintas (A4/24, no B2/17 — confirmado por
+    // investigación real, auditoría 2026-08-21): la base va en A4 (no en B2) y la TVA autoliquidada
+    // se declara/deduce en la casilla 24 (no en la 17), aunque el mecanismo de cálculo interno sea
+    // el mismo simple×20% que ya se usaba para intracomunitario.
+    const gastosImportacion = gs.filter((g) => g.tipo_iva === 'IMPORTACION');
 
     const baseVentasGravadas = [...facturas20, ...facturas10].reduce((s, f) => s + baseFactura(f), 0);
     const baseA1 = baseVentasGravadas;
     const baseB2 = gastosIntracom.reduce((s, g) => s + (g.importe_base ?? 0), 0);
+    const baseA4 = gastosImportacion.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const baseE2 = facturasExentas.reduce((s, f) => s + baseFactura(f), 0);
 
     const base08 = facturas20.reduce((s, f) => s + baseFactura(f), 0);
@@ -212,20 +222,27 @@ export default function AsistenteIvaPage() {
     const taxe9B = base9B * TASA_REDUCIDA_10;
 
     const taxe17 = baseB2 * TASA_ESTANDAR;
-    const taxe16 = taxe08 + taxe9B + taxe17;
+    const taxe24 = baseA4 * TASA_ESTANDAR;
+    const taxe16 = taxe08 + taxe9B + taxe17 + taxe24;
 
-    // OJO revisado 2026-08-11: iva19 no excluye tipo_iva === 'INTRACOM' a propósito — no hace
-    // falta. GastoForm.tsx fuerza `porcentaje = 0` (y por tanto importe_iva = 0) para cualquier
-    // gasto marcado como intracomunitario, así que un gasto intracom de inmovilizado nunca aporta
-    // nada aquí — su IVA solo entra por taxe17/iva20 (autoliquidación), sin duplicarse. Si algún
-    // día se permite editar importe_iva a mano en gastos intracom, esto habría que revisarlo.
+    // OJO revisado 2026-08-11 (y de nuevo 2026-08-21 al añadir importación): iva19 no excluye
+    // tipo_iva === 'INTRACOM'/'IMPORTACION' a propósito — no hace falta. GastoForm.tsx fuerza
+    // `porcentaje = 0` (y por tanto importe_iva = 0) para cualquier gasto marcado como
+    // intracomunitario o importación, así que ninguno de los dos aporta nada aquí — su IVA solo
+    // entra por taxe17/taxe24 (autoliquidación), sin duplicarse. Si algún día se permite editar
+    // importe_iva a mano en esos casos, esto habría que revisarlo.
     const iva19 = gs
       .filter((g) => g.cuenta_contable && CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable))
       .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
     const iva20Gastos = gs
-      .filter((g) => g.tipo_iva !== 'INTRACOM' && (!g.cuenta_contable || !CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable)))
+      .filter(
+        (g) =>
+          g.tipo_iva !== 'INTRACOM' &&
+          g.tipo_iva !== 'IMPORTACION' &&
+          (!g.cuenta_contable || !CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable)),
+      )
       .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
-    const iva20 = iva20Gastos + taxe17;
+    const iva20 = iva20Gastos + taxe17 + taxe24;
     const iva22 = creditoAnterior;
     const iva23 = iva19 + iva20 + iva22;
 
@@ -243,6 +260,7 @@ export default function AsistenteIvaPage() {
         // esa distinción al formulario de gastos para que A3 refleje datos reales.
         { linea: 'A3', label: 'Achats de prestations de services intracommunautaires', base: 0 },
         { linea: 'B2', label: 'Acquisitions intra-communautaires', base: baseB2 },
+        { linea: 'A4', label: 'Importations (autoliquidation, hors UE)', base: baseA4 },
         { linea: 'B5', label: 'Régularisations', base: 0 },
       ] as Fila[],
       seccionA_noTaxadas: [
@@ -267,6 +285,7 @@ export default function AsistenteIvaPage() {
       tvaDeductible: [
         { linea: '19', label: 'Biens constituant des immobilisations', taxe: iva19 },
         { linea: '20', label: 'Autres biens et services', taxe: iva20 },
+        { linea: '24', label: 'Dont TVA déductible sur importations', taxe: taxe24 },
         { linea: '21', label: 'Autre TVA à déduire', taxe: 0 },
         { linea: '22', label: 'Report du crédit de la précédente déclaration', taxe: iva22 },
         { linea: '23', label: 'Total TVA déductible (lignes 19 à 2C)', taxe: iva23 },

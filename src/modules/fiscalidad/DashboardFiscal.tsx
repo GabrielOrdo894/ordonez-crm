@@ -19,20 +19,16 @@ import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { calcularTotales } from '../finanzas/lineas';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
-import { useFiscalConfig } from './useFiscalConfig';
-import { useGerantConfig } from './useGerantConfig';
-import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useComptaFrancia } from './useComptaFrancia';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { useEjercicioFiscal } from './useEjercicioFiscal';
+import { calcularIS } from './calculos';
+import { fmt } from './format';
 import { Faq } from './Faq';
+import { QueNecesitasHoy } from './QueNecesitasHoy';
 
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
 
 function iso(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -47,21 +43,10 @@ function diasRestantes(fecha: string) {
 
 export function DashboardFiscal() {
   const anioActual = new Date().getFullYear();
-  const ejercicio = limitesEjercicio(anioActual);
-  const { config } = useFiscalConfig();
-  const { gerantConfig } = useGerantConfig();
-  const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const { ejercicio, config, gerantConfig, remuneracionAnual, cotisacionesPeriodo, is } = useEjercicioFiscal(anioActual);
   const { bilanActivo } = useComptaFrancia(anioActual);
   const { echeances } = useEcheances();
 
-  const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  // Prorrateado por meses transcurridos, no por la duración total del ejercicio — ver comentario
-  // en TabIS.tsx (bug real corregido 2026-08-11).
-  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
-  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
-  const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
-  const is = calcularIS(beneficioNeto, ejercicio.meses, config);
   const progresoTramo = is.plafondReducido > 0 ? Math.min(100, (is.baseReducida / is.plafondReducido) * 100) : 0;
   const evolucionAcumulada = useEvolucionAcumulada(anioActual, ejercicio, remuneracionAnual, config);
 
@@ -149,10 +134,11 @@ export function DashboardFiscal() {
 
   return (
     <div className="flex flex-col gap-4">
+      <QueNecesitasHoy />
+
       <p className="text-xs text-gray-500 leading-relaxed">
-        Vista general del ejercicio {anioActual} ({limitesEjercicio(anioActual).meses} meses): las cifras se calculan en vivo a
-        partir de tus Facturas y Gastos, y de la rémunération del gérant configurada en "Cotisations URSSAF". Cada pestaña de
-        arriba explica su cálculo en detalle, con la fuente oficial y un apartado de preguntas frecuentes.
+        Vista general del ejercicio {anioActual} ({ejercicio.meses} meses): las cifras se calculan en vivo a
+        partir de tus Facturas y Gastos, y de la rémunération del gérant configurada en "Cotisations URSSAF".
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">

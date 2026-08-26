@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -39,7 +39,7 @@ export function CatalogoLineasSection() {
   const [form, setForm] = useState<FormLinea>(vacio());
   const [filtroIdioma, setFiltroIdioma] = useState<'todos' | 'es' | 'fr'>('todos');
 
-  const { data: catalogo, isLoading } = useQuery({
+  const { data: catalogo, isLoading, error: errorCatalogo } = useQuery({
     queryKey: ['lineas_catalogo'],
     queryFn: async () => {
       const { data, error } = await supabase.from('lineas_catalogo').select('*').order('designacion');
@@ -47,6 +47,10 @@ export function CatalogoLineasSection() {
       return data as LineaCatalogo[];
     },
   });
+  useEffect(() => {
+    if (errorCatalogo) toast.error(`No se pudo cargar el catálogo de líneas: ${errorCatalogo.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorCatalogo]);
 
   const catalogoFiltrado = (catalogo ?? []).filter((c) => filtroIdioma === 'todos' || c.idioma === filtroIdioma);
 

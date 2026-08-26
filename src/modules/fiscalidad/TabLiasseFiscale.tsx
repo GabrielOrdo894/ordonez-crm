@@ -1,20 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { FileText, AlertTriangle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Select';
 import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfLiasseFiscale } from '../../lib/generarPdfLiasseFiscale';
-import { useFiscalConfig } from './useFiscalConfig';
-import { useGerantConfig } from './useGerantConfig';
-import { useResultadoEjercicio } from './useResultadoEjercicio';
+import { generarPdfLivreInventaire } from '../../lib/generarPdfLivreInventaire';
 import { useComptaFrancia } from './useComptaFrancia';
-import { calcularIS, calcularReservaLegal, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { useEjercicioFiscal } from './useEjercicioFiscal';
+import { calcularBilanPasivo } from './calculos';
+import { fmt } from './format';
 import { Faq } from './Faq';
+import { ResumenTitular } from './ResumenTitular';
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 
 function Fila({ label, valor, negrita }: { label: string; valor: number; negrita?: boolean }) {
   return (
@@ -25,38 +26,14 @@ function Fila({ label, valor, negrita }: { label: string; valor: number; negrita
   );
 }
 
-export function TabLiasseFiscale() {
+export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
   const toast = useToast();
   const [generando, setGenerando] = useState(false);
-  const anio = new Date().getFullYear();
-  const ejercicio = limitesEjercicio(anio);
-  const { config } = useFiscalConfig();
-  const { gerantConfig } = useGerantConfig();
-  const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const [generandoInventaire, setGenerandoInventaire] = useState(false);
+  const { is, resultadoNeto, capitalSocial, reservaLegal } = useEjercicioFiscal(anio);
   const { compteResultat, bilanActivo, activos, cargando } = useComptaFrancia(anio);
 
-  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
-  const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-  const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
-  const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
-  const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
-  const is = calcularIS(beneficioNeto, ejercicio.meses, config);
-  const resultadoNeto = Math.max(0, beneficioNeto - is.total);
-  const capitalSocial = gerantConfig?.capital_social ?? 1000;
-  const reservaLegal = calcularReservaLegal(resultadoNeto, capitalSocial, config);
-
-  const bilanPasivo = useMemo(() => {
-    const reservas = reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion;
-    return {
-      capitalSocial,
-      reservas,
-      resultadoEjercicio: resultadoNeto,
-      dettesFiscales: is.total,
-      dettesFournisseurs: 0,
-      total: capitalSocial + reservas + resultadoNeto + is.total,
-    };
-  }, [capitalSocial, reservaLegal, resultadoNeto, is.total]);
-
+  const bilanPasivo = calcularBilanPasivo(resultadoNeto, reservaLegal, is, capitalSocial);
   const descuadre = bilanActivo.total - bilanPasivo.total;
 
   const handleDescargar = async () => {
@@ -73,19 +50,40 @@ export function TabLiasseFiscale() {
     }
   };
 
+  const handleDescargarInventaire = async () => {
+    setGenerandoInventaire(true);
+    try {
+      await conAvisoDescarga(
+        () => generarPdfLivreInventaire(anio, { bilanActivo, bilanPasivo, activos }),
+        toast,
+      );
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el documento'));
+    } finally {
+      setGenerandoInventaire(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-2">
-          <FileText size={14} className="text-brand" /> Preparación de la liasse fiscale
-        </p>
-        <p className="text-xs text-gray-600 leading-relaxed">
-          Compte de résultat y bilan simplificado calculados desde el libro diario (
-          <code>/contabilidad/diario</code>) y el registro de inmovilizado. Cubre lo esencial para preparar la
-          declaración (2058-A/2054/2055/2050/2051/2052/2053) — no sustituye el formulario Cerfa oficial ni su
-          transmisión EDI-TDFC, que quedan como paso posterior tuyo (con un partenaire EDI o tu experto-contable).
-        </p>
-      </div>
+      <Select
+        label="Ejercicio"
+        options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))}
+        value={String(anio)}
+        onChange={(e) => onAnioChange(Number(e.target.value))}
+        className="w-32"
+      />
+
+      <ResumenTitular icono={FileText}>
+        Con los datos de {anio}, el resultado neto tras Impôt sur les Sociétés es{' '}
+        <strong className="text-brand">{fmt(resultadoNeto)}</strong> (IS de {fmt(is.total)} sobre un resultado antes de
+        impuestos de {fmt(compteResultat.resultadoAntesIS)}).
+      </ResumenTitular>
+      <p className="text-xs text-gray-400 px-1">
+        Calculado desde el libro diario (<code>/contabilidad/diario</code>) y el registro de inmovilizado — no
+        sustituye el formulario Cerfa oficial ni su transmisión EDI-TDFC, que quedan como paso posterior tuyo (con
+        un partenaire EDI o tu experto-contable).
+      </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
@@ -152,6 +150,18 @@ export function TabLiasseFiscale() {
         </p>
         <Button onClick={handleDescargar} disabled={generando || cargando}>
           {generando ? 'Generando...' : `Descargar resumen de liasse fiscale ${anio} (PDF)`}
+        </Button>
+      </div>
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">
+        <p className="text-sm font-semibold text-gray-900 mb-1">Livre d'inventaire</p>
+        <p className="text-xs text-gray-500 leading-relaxed mb-3">
+          Mismo actif/passif de arriba, en el formato del inventaire anual (art. L123-12 Code de commerce). Desde
+          2015 ya no hace falta libro físico cosido y foliado — basta con conservar el soporte que justifique el
+          contenido del inventario (art. R123-173-1), que es justo lo que genera este PDF.
+        </p>
+        <Button variant="secondary" onClick={handleDescargarInventaire} disabled={generandoInventaire || cargando}>
+          {generandoInventaire ? 'Generando...' : `Descargar livre d'inventaire ${anio} (PDF)`}
         </Button>
       </div>
 

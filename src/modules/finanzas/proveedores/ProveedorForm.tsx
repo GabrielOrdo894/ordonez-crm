@@ -1,14 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
 import { useConfirmar } from '../../../hooks/useConfirm';
-import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import type { Proveedor, NuevoProveedor } from './types';
+import { buscarEmpresasFrancia, type EmpresaFrancia } from './empresasFrancia';
 
 type FormState = {
   pais: string;
@@ -37,14 +37,26 @@ type ProveedorFormProps = {
   onClose: () => void;
   proveedor?: Proveedor | null;
   onCreado?: (proveedor: Proveedor) => void;
-  variante?: 'modal' | 'inline';
+  // 'pagina' es la vista completa usada desde ProveedoresPage (alta/edición) — Gabriel pidió
+  // explícitamente que dejara de ser un pop-up (2026-08-22). 'inline' se mantiene igual, la usa
+  // GastoForm para dar de alta un proveedor sin salir del formulario de gasto.
+  variante?: 'pagina' | 'inline';
 };
 
-export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = 'modal' }: ProveedorFormProps) {
+export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = 'pagina' }: ProveedorFormProps) {
   const toast = useToast();
   const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(vacio());
+
+  const [sugerencias, setSugerencias] = useState<EmpresaFrancia[]>([]);
+  const [buscandoEmpresa, setBuscandoEmpresa] = useState(false);
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +73,46 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
     } else {
       setForm(vacio());
     }
+    setSugerencias([]);
+    setMostrarSugerencias(false);
   }, [open, proveedor]);
+
+  const esFrancia = form.pais === 'Francia';
+
+  // Búsqueda en la API pública "Recherche d'entreprises" del gobierno francés — solo por nombre o
+  // SIRET, solo con Francia seleccionado. Con debounce para no lanzar una petición por tecla, y
+  // fallando en silencio: si la búsqueda falla (red, límite de peticiones...) el campo se sigue
+  // pudiendo rellenar a mano exactamente igual que antes, nunca debe bloquear el alta.
+  function buscarConDebounce(query: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!esFrancia || query.trim().length < 3) {
+      setSugerencias([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setBuscandoEmpresa(true);
+      try {
+        const resultados = await buscarEmpresasFrancia(query);
+        setSugerencias(resultados);
+        setMostrarSugerencias(true);
+      } catch {
+        setSugerencias([]);
+      } finally {
+        setBuscandoEmpresa(false);
+      }
+    }, 400);
+  }
+
+  function elegirEmpresa(empresa: EmpresaFrancia) {
+    setForm((f) => ({
+      ...f,
+      razon_social: empresa.nombre || f.razon_social,
+      identificador: empresa.siret || f.identificador,
+      direccion: empresa.direccion || f.direccion,
+    }));
+    setSugerencias([]);
+    setMostrarSugerencias(false);
+  }
 
   const guardarMutation = useMutation({
     mutationFn: async () => {
@@ -117,8 +168,6 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
     guardarMutation.mutate();
   };
 
-  const esFrancia = form.pais === 'Francia';
-
   const campos = (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <Select
@@ -127,21 +176,61 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
         value={form.pais}
         onChange={(e) => setForm((f) => ({ ...f, pais: e.target.value }))}
       />
-      <Input
-        label="Razón social / Nombre"
-        value={form.razon_social}
-        onChange={(e) => setForm((f) => ({ ...f, razon_social: e.target.value }))}
-      />
-      <Input
-        label={esFrancia ? 'SIRET' : 'CIF'}
-        value={form.identificador}
-        onChange={(e) => setForm((f) => ({ ...f, identificador: e.target.value }))}
-      />
+      <div className="relative">
+        <Input
+          label="Razón social / Nombre"
+          value={form.razon_social}
+          onChange={(e) => {
+            const valor = e.target.value;
+            setForm((f) => ({ ...f, razon_social: valor }));
+            buscarConDebounce(valor);
+          }}
+          onFocus={() => sugerencias.length > 0 && setMostrarSugerencias(true)}
+          onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
+          hint={esFrancia ? 'Escribe el nombre o el SIRET para buscarla en el registro de empresas francesas' : undefined}
+        />
+        {esFrancia && mostrarSugerencias && (buscandoEmpresa || sugerencias.length > 0) && (
+          <div className="absolute z-10 top-full left-0 right-0 mt-1 border border-gray-200 rounded-sm bg-surface shadow-sm overflow-hidden">
+            {buscandoEmpresa && <p className="px-3 py-2 text-xs text-gray-400">Buscando...</p>}
+            {!buscandoEmpresa &&
+              sugerencias.map((empresa) => (
+                <button
+                  key={empresa.siret || empresa.siren}
+                  type="button"
+                  onMouseDown={() => elegirEmpresa(empresa)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm border-b border-gray-100 last:border-0 hover:bg-brand-light"
+                >
+                  <Search size={13} className="text-gray-400 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block text-gray-900 truncate">{empresa.nombre}</span>
+                    <span className="block text-xs text-gray-400 truncate">
+                      SIRET {empresa.siret || '—'} · {empresa.direccion || 'Sin dirección'}
+                    </span>
+                  </span>
+                </button>
+              ))}
+          </div>
+        )}
+      </div>
+      <div className="relative">
+        <Input
+          label={esFrancia ? 'SIRET' : 'CIF'}
+          value={form.identificador}
+          onChange={(e) => {
+            const valor = e.target.value;
+            setForm((f) => ({ ...f, identificador: valor }));
+            buscarConDebounce(valor);
+          }}
+          onFocus={() => sugerencias.length > 0 && setMostrarSugerencias(true)}
+          onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
+        />
+      </div>
       {esFrancia && (
         <Input
           label="TVA"
           value={form.identificador_extra}
           onChange={(e) => setForm((f) => ({ ...f, identificador_extra: e.target.value }))}
+          hint="La API de empresas francesas no da el número de TVA — se rellena a mano"
         />
       )}
       <div className="col-span-2">
@@ -173,23 +262,38 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
     );
   }
 
+  if (!open) return null;
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={proveedor ? 'Editar proveedor' : 'Nuevo proveedor'}
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={handleGuardar} disabled={guardarMutation.isPending}>
-            {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
-          </Button>
-        </>
-      }
-    >
-      {campos}
-    </Modal>
+    <div className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-5">
+        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+          <ArrowLeft size={15} />
+          Volver a proveedores
+        </button>
+        <Button onClick={handleGuardar} disabled={guardarMutation.isPending}>
+          {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
+        </Button>
+      </div>
+
+      <h1 className="text-xl font-bold text-gray-900 mb-1">{proveedor ? 'Editar proveedor' : 'Nuevo proveedor'}</h1>
+      <p className="text-sm text-gray-500 mb-6">
+        {esFrancia
+          ? 'Busca por nombre o SIRET para autorrellenar los datos desde el registro de empresas francesas.'
+          : 'Datos fiscales y de contacto del proveedor.'}
+      </p>
+
+      <div className="bg-surface border border-gray-200 rounded-sm p-4">{campos}</div>
+
+      <div className="flex items-center justify-between gap-2 flex-wrap mt-5">
+        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+          <ArrowLeft size={15} />
+          Volver a proveedores
+        </button>
+        <Button onClick={handleGuardar} disabled={guardarMutation.isPending}>
+          {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
+        </Button>
+      </div>
+    </div>
   );
 }

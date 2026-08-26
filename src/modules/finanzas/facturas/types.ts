@@ -34,6 +34,11 @@ export type Factura = {
   monto_pagado: number | null;
   resena_enviada: boolean;
   resena_fecha_envio: string | null;
+  // Cobro de una estructura empresarial anterior a la EURL actual (2026-08-22) — se registra en
+  // el CRM solo para que lineaDeduccionAcomptes calcule bien la factura definitiva, pero no es
+  // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de
+  // IVA, el Resultado ni los dashboards.
+  estructura_anterior: boolean;
   eliminado_en?: string | null;
   eliminado_por?: string | null;
 };

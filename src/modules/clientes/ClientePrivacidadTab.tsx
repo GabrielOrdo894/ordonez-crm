@@ -15,10 +15,14 @@ import type { Cliente } from './types';
 // en cada una. Mismo criterio de normalización que pipelineSync.ts/documenso-webhook.
 function datosContactoCliente(cliente: Cliente) {
   const telefonos = new Set(
-    [cliente.telefono, ...cliente.visitas.map((v) => v.telefono)].filter(Boolean).map((t) => normalizarTelefono(t as string)),
+    [cliente.telefono, ...cliente.visitas.map((v) => v.telefono)]
+      .filter(Boolean)
+      .map((t) => normalizarTelefono(t as string)),
   );
   const emails = new Set(
-    [cliente.email, ...cliente.visitas.map((v) => v.email)].filter((e): e is string => !!e).map((e) => e.toLowerCase()),
+    [cliente.email, ...cliente.visitas.map((v) => v.email)]
+      .filter((e): e is string => !!e)
+      .map((e) => e.toLowerCase()),
   );
   return { telefonos, emails };
 }
@@ -54,18 +58,31 @@ function descargarJson(nombreArchivo: string, datos: unknown) {
 // visita_id, más documento_eventos/movimientos_banco que cuelgan de presupuesto_id/factura_id/gasto_id,
 // más solicitudes (localizadas por teléfono/email, no por visita_id) y sus funnel_eventos.
 async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
-  const [visitas, notas, proyectos, presupuestos, facturas, gastos, galeria, solicitudes] = await Promise.all([
-    supabase.from('visitas').select('*').in('id', visitaIds),
-    supabase.from('notas_cliente').select('*').in('visita_id', visitaIds),
-    supabase.from('proyectos').select('*').in('visita_id', visitaIds),
-    supabase.from('presupuestos').select('*').in('visita_id', visitaIds),
-    supabase.from('facturas').select('*').in('visita_id', visitaIds),
-    supabase.from('gastos').select('*').in('visita_id', visitaIds),
-    supabase.from('galeria').select('*').in('visita_id', visitaIds),
-    buscarSolicitudesCliente(cliente).then((data) => ({ data, error: null as { message: string } | null })),
-  ]);
+  const [visitas, notas, proyectos, presupuestos, facturas, gastos, galeria, solicitudes] =
+    await Promise.all([
+      supabase.from('visitas').select('*').in('id', visitaIds),
+      supabase.from('notas_cliente').select('*').in('visita_id', visitaIds),
+      supabase.from('proyectos').select('*').in('visita_id', visitaIds),
+      supabase.from('presupuestos').select('*').in('visita_id', visitaIds),
+      supabase.from('facturas').select('*').in('visita_id', visitaIds),
+      supabase.from('gastos').select('*').in('visita_id', visitaIds),
+      supabase.from('galeria').select('*').in('visita_id', visitaIds),
+      buscarSolicitudesCliente(cliente).then((data) => ({
+        data,
+        error: null as { message: string } | null,
+      })),
+    ]);
 
-  const resultados = { visitas, notas, proyectos, presupuestos, facturas, gastos, galeria, solicitudes };
+  const resultados = {
+    visitas,
+    notas,
+    proyectos,
+    presupuestos,
+    facturas,
+    gastos,
+    galeria,
+    solicitudes,
+  };
   for (const [nombre, res] of Object.entries(resultados)) {
     if (res.error) throw new Error(`${nombre}: ${res.error.message}`);
   }
@@ -76,34 +93,48 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   const solicitudIds = (solicitudes.data ?? []).map((s) => s.id as string);
 
   const eventosPresupuesto = presupuestoIds.length
-    ? await supabase.from('documento_eventos').select('*').eq('documento_tipo', 'presupuesto').in('documento_id', presupuestoIds)
+    ? await supabase
+        .from('documento_eventos')
+        .select('*')
+        .eq('documento_tipo', 'presupuesto')
+        .in('documento_id', presupuestoIds)
     : { data: [], error: null };
-  if (eventosPresupuesto.error) throw new Error(`documento_eventos (presupuestos): ${eventosPresupuesto.error.message}`);
+  if (eventosPresupuesto.error)
+    throw new Error(`documento_eventos (presupuestos): ${eventosPresupuesto.error.message}`);
 
   const eventosFactura = facturaIds.length
-    ? await supabase.from('documento_eventos').select('*').eq('documento_tipo', 'factura').in('documento_id', facturaIds)
+    ? await supabase
+        .from('documento_eventos')
+        .select('*')
+        .eq('documento_tipo', 'factura')
+        .in('documento_id', facturaIds)
     : { data: [], error: null };
-  if (eventosFactura.error) throw new Error(`documento_eventos (facturas): ${eventosFactura.error.message}`);
+  if (eventosFactura.error)
+    throw new Error(`documento_eventos (facturas): ${eventosFactura.error.message}`);
 
   const movimientosFactura = facturaIds.length
     ? await supabase.from('movimientos_banco').select('*').in('factura_id', facturaIds)
     : { data: [], error: null };
-  if (movimientosFactura.error) throw new Error(`movimientos_banco (facturas): ${movimientosFactura.error.message}`);
+  if (movimientosFactura.error)
+    throw new Error(`movimientos_banco (facturas): ${movimientosFactura.error.message}`);
 
   const movimientosGasto = gastoIds.length
     ? await supabase.from('movimientos_banco').select('*').in('gasto_id', gastoIds)
     : { data: [], error: null };
-  if (movimientosGasto.error) throw new Error(`movimientos_banco (gastos): ${movimientosGasto.error.message}`);
+  if (movimientosGasto.error)
+    throw new Error(`movimientos_banco (gastos): ${movimientosGasto.error.message}`);
 
   const eventosFunnelSolicitud = solicitudIds.length
     ? await supabase.from('funnel_eventos').select('*').in('solicitud_id', solicitudIds)
     : { data: [], error: null };
-  if (eventosFunnelSolicitud.error) throw new Error(`funnel_eventos (solicitudes): ${eventosFunnelSolicitud.error.message}`);
+  if (eventosFunnelSolicitud.error)
+    throw new Error(`funnel_eventos (solicitudes): ${eventosFunnelSolicitud.error.message}`);
 
   const eventosFunnelPresupuesto = presupuestoIds.length
     ? await supabase.from('funnel_eventos').select('*').in('presupuesto_id', presupuestoIds)
     : { data: [], error: null };
-  if (eventosFunnelPresupuesto.error) throw new Error(`funnel_eventos (presupuestos): ${eventosFunnelPresupuesto.error.message}`);
+  if (eventosFunnelPresupuesto.error)
+    throw new Error(`funnel_eventos (presupuestos): ${eventosFunnelPresupuesto.error.message}`);
 
   return {
     exportado_en: new Date().toISOString(),
@@ -119,7 +150,9 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
     // que puede salir en las dos consultas de arriba.
     funnel_eventos: Array.from(
       new Map(
-        [...(eventosFunnelSolicitud.data ?? []), ...(eventosFunnelPresupuesto.data ?? [])].map((e) => [e.id, e]),
+        [...(eventosFunnelSolicitud.data ?? []), ...(eventosFunnelPresupuesto.data ?? [])].map(
+          (e) => [e.id, e],
+        ),
       ).values(),
     ),
     documento_eventos: [...(eventosPresupuesto.data ?? []), ...(eventosFactura.data ?? [])],
@@ -127,7 +160,10 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   };
 }
 
-async function pasoBorrado(nombre: string, ejecutar: () => PromiseLike<{ error: { message: string } | null }>) {
+async function pasoBorrado(
+  nombre: string,
+  ejecutar: () => PromiseLike<{ error: { message: string } | null }>,
+) {
   const { error } = await ejecutar();
   if (error) throw new Error(`Fallo al borrar ${nombre}: ${error.message}`);
 }
@@ -174,15 +210,27 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
     .filter((p): p is string => !!p);
   if (rutasFotos.length > 0) {
     const { error: errorStorage } = await supabase.storage.from(BUCKET_GALERIA).remove(rutasFotos);
-    if (errorStorage) console.warn('No se pudieron borrar todas las fotos de galería en Storage:', errorStorage.message);
+    if (errorStorage)
+      console.warn(
+        'No se pudieron borrar todas las fotos de galería en Storage:',
+        errorStorage.message,
+      );
   }
 
   // `gastos.adjunto_url` ya guarda el path del bucket privado directamente (no una URL pública que
   // haya que recortar, a diferencia de galería) — ver GastoForm.tsx.
-  const rutasJustificantes = (gas.data ?? []).map((g) => g.adjunto_url as string | null).filter((p): p is string => !!p);
+  const rutasJustificantes = (gas.data ?? [])
+    .map((g) => g.adjunto_url as string | null)
+    .filter((p): p is string => !!p);
   if (rutasJustificantes.length > 0) {
-    const { error: errorStorage } = await supabase.storage.from(BUCKET_JUSTIFICANTES).remove(rutasJustificantes);
-    if (errorStorage) console.warn('No se pudieron borrar todos los justificantes de gastos en Storage:', errorStorage.message);
+    const { error: errorStorage } = await supabase.storage
+      .from(BUCKET_JUSTIFICANTES)
+      .remove(rutasJustificantes);
+    if (errorStorage)
+      console.warn(
+        'No se pudieron borrar todos los justificantes de gastos en Storage:',
+        errorStorage.message,
+      );
   }
 
   const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
@@ -191,7 +239,9 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   const solicitudIds = solicitudesCliente.map((s) => s.id as string);
 
   if (solicitudIds.length) {
-    await pasoBorrado('funnel_eventos (solicitudes)', () => supabase.from('funnel_eventos').delete().in('solicitud_id', solicitudIds));
+    await pasoBorrado('funnel_eventos (solicitudes)', () =>
+      supabase.from('funnel_eventos').delete().in('solicitud_id', solicitudIds),
+    );
   }
   if (presupuestoIds.length) {
     await pasoBorrado('funnel_eventos (presupuestos)', () =>
@@ -199,24 +249,43 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
     );
   }
   if (solicitudIds.length) {
-    await pasoBorrado('solicitudes', () => supabase.from('solicitudes').delete().in('id', solicitudIds));
+    await pasoBorrado('solicitudes', () =>
+      supabase.from('solicitudes').delete().in('id', solicitudIds),
+    );
   }
   if (gastoIds.length) {
-    await pasoBorrado('movimientos_banco (gastos)', () => supabase.from('movimientos_banco').delete().in('gasto_id', gastoIds));
+    await pasoBorrado('movimientos_banco (gastos)', () =>
+      supabase.from('movimientos_banco').delete().in('gasto_id', gastoIds),
+    );
   }
   if (presupuestoIds.length) {
     await pasoBorrado('documento_eventos (presupuestos)', () =>
-      supabase.from('documento_eventos').delete().eq('documento_tipo', 'presupuesto').in('documento_id', presupuestoIds),
+      supabase
+        .from('documento_eventos')
+        .delete()
+        .eq('documento_tipo', 'presupuesto')
+        .in('documento_id', presupuestoIds),
     );
   }
-  await pasoBorrado('notas_cliente', () => supabase.from('notas_cliente').delete().in('visita_id', visitaIds));
-  await pasoBorrado('proyectos', () => supabase.from('proyectos').delete().in('visita_id', visitaIds));
-  await pasoBorrado('presupuestos', () => supabase.from('presupuestos').delete().in('visita_id', visitaIds));
+  await pasoBorrado('notas_cliente', () =>
+    supabase.from('notas_cliente').delete().in('visita_id', visitaIds),
+  );
+  await pasoBorrado('proyectos', () =>
+    supabase.from('proyectos').delete().in('visita_id', visitaIds),
+  );
+  await pasoBorrado('presupuestos', () =>
+    supabase.from('presupuestos').delete().in('visita_id', visitaIds),
+  );
   if (facturaIds.length) {
     await pasoBorrado('facturas (anonimizado RGPD)', () =>
       supabase
         .from('facturas')
-        .update({ cliente_nombre: 'Cliente eliminado (RGPD)', cliente_dir: null, cliente_email: null, cliente_tel: null })
+        .update({
+          cliente_nombre: 'Cliente eliminado (RGPD)',
+          cliente_dir: null,
+          cliente_email: null,
+          cliente_tel: null,
+        })
         .in('id', facturaIds),
     );
   }
@@ -238,7 +307,10 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
     mutationFn: () => recopilarDatosCliente(cliente, visitaIds),
     onSuccess: (datos) => {
       const fecha = new Date().toISOString().slice(0, 10);
-      descargarJson(`datos-${cliente.apellidos.toLowerCase().replace(/\s+/g, '-')}-${fecha}.json`, datos);
+      descargarJson(
+        `datos-${cliente.apellidos.toLowerCase().replace(/\s+/g, '-')}-${fecha}.json`,
+        datos,
+      );
       toast.success('Datos exportados');
     },
     onError: (error) => toast.error(mensajeError(error)),
@@ -260,11 +332,13 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
   return (
     <div className="flex flex-col gap-5">
       <div className="border border-gray-200 rounded-sm p-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Derecho de acceso (RGPD)</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+          Derecho de acceso (RGPD)
+        </p>
         <p className="text-sm text-gray-600 mb-3">
-          Descarga en un fichero todos los datos que el CRM tiene guardados de este cliente: visitas, notas,
-          planning de obra, presupuestos, facturas, gastos, galería, solicitudes de contacto y sus eventos
-          asociados.
+          Descarga en un fichero todos los datos que el CRM tiene guardados de este cliente:
+          visitas, notas, planning de obra, presupuestos, facturas, gastos, galería, solicitudes de
+          contacto y sus eventos asociados.
         </p>
         <Button
           variant="secondary"
@@ -280,14 +354,16 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
       </div>
 
       <div className="border border-red-200 bg-red-50/40 rounded-sm p-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-red-600 mb-2">Derecho al olvido — irreversible</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-red-600 mb-2">
+          Derecho al olvido — irreversible
+        </p>
         <p className="text-sm text-gray-600 mb-3">
-          Borra para siempre los datos de este cliente en visitas, notas, planning, presupuestos, gastos,
-          galería y solicitudes de contacto. Las facturas son la única excepción: por ley la numeración debe
-          quedar completa y sin huecos,
-          así que no se eliminan — se anonimizan (el nombre, dirección, email y teléfono del cliente se borran de
-          la factura, pero el registro numerado se conserva). También borra las fotos de galería y los
-          justificantes de gastos guardados en el almacenamiento. No se puede deshacer.
+          Borra para siempre los datos de este cliente en visitas, notas, planning, presupuestos,
+          gastos, galería y solicitudes de contacto. Las facturas son la única excepción: por ley la
+          numeración debe quedar completa y sin huecos, así que no se eliminan — se anonimizan (el
+          nombre, dirección, email y teléfono del cliente se borran de la factura, pero el registro
+          numerado se conserva). También borra las fotos de galería y los justificantes de gastos
+          guardados en el almacenamiento. No se puede deshacer.
         </p>
         <Button variant="danger" size="sm" onClick={() => setModalPurgaAbierto(true)}>
           <span className="flex items-center gap-1.5">
@@ -328,9 +404,9 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
         }
       >
         <p className="text-sm text-gray-600 mb-3">
-          Esta acción es irreversible y borra de verdad los datos de <strong>{nombreCompleto}</strong>, salvo sus
-          facturas, que se anonimizan en vez de eliminarse (numeración legal). Para confirmar, escribe su nombre
-          completo tal cual:
+          Esta acción es irreversible y borra de verdad los datos de{' '}
+          <strong>{nombreCompleto}</strong>, salvo sus facturas, que se anonimizan en vez de
+          eliminarse (numeración legal). Para confirmar, escribe su nombre completo tal cual:
         </p>
         <Input
           value={nombreEscrito}

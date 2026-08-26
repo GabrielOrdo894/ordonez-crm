@@ -1,38 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertTriangle, TrendingUp, Landmark } from 'lucide-react';
-import { useFiscalConfig } from './useFiscalConfig';
+import { AlertTriangle, TrendingUp, Landmark, Wallet } from 'lucide-react';
 import { useGerantConfig } from './useGerantConfig';
-import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { simularEjercicio, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { simularEjercicio } from './calculos';
+import { useEjercicioFiscal } from './useEjercicioFiscal';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Select';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
+import { fmt } from './format';
+import { ResumenTitular } from './ResumenTitular';
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
-}
+const ANIO_ACTUAL = new Date().getFullYear();
+const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 
-export function TabSalarioDividendos() {
-  const anio = new Date().getFullYear();
-  const ejercicio = limitesEjercicio(anio);
-  const { config, fuente } = useFiscalConfig();
+export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
+  // Igual que TabIS.tsx: el beneficio del ejercicio solo suma lo facturado/gastado hasta HOY, no el
+  // ejercicio completo — usar `ejercicio.meses` para el plafond del 15% de IS infla ese plafond
+  // respecto a un beneficio parcial y da una cifra de IS distinta (más optimista) que la que
+  // muestra "Impôt sur les Sociétés" para el mismo beneficio real (bug real, auditoría 2026-08-15).
+  // Por eso esta pestaña usa `mesesTranscurridos` del hook compartido, no `ejercicio.meses`.
+  const { mesesTranscurridos, config, fuente, capitalSocial, compteCourantMedio, beneficioBruto } = useEjercicioFiscal(anio);
   const { gerantConfig, guardar, guardando } = useGerantConfig();
-  const { beneficioBruto } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
-  const capitalSocial = gerantConfig?.capital_social ?? 1000;
-  // Antes hardcodeado a 0 en todas las llamadas a simularEjercicio() de más abajo — el umbral libre de
-  // cotisations TNS sobre dividendos (capitalSocial + compteCourantMedio) × 10% nunca llegaba a
-  // contar el compte courant real, así que salía sistemáticamente más bajo de lo real (bug real
-  // corregido 2026-08-11).
-  const compteCourantMedio = gerantConfig?.compte_courant_medio ?? 0;
-  // Igual que TabIS.tsx: `beneficioBruto` (useResultadoEjercicio) solo suma lo facturado/gastado
-  // hasta HOY, no el ejercicio completo — usar `ejercicio.meses` para el plafond del 15% de IS
-  // infla ese plafond respecto a un beneficio parcial y da una cifra de IS distinta (más optimista)
-  // que la que muestra "Impôt sur les Sociétés" para el mismo beneficio real (bug real, auditoría
-  // 2026-08-15).
-  const mesesTranscurridos = useMemo(() => mesesTranscurridosEjercicio(ejercicio), [ejercicio]);
 
   const [remuneracion, setRemuneracion] = useState(30000);
   const [pctDividendos, setPctDividendos] = useState(50);
@@ -64,6 +55,20 @@ export function TabSalarioDividendos() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Select
+        label="Ejercicio"
+        options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))}
+        value={String(anio)}
+        onChange={(e) => onAnioChange(Number(e.target.value))}
+        className="w-32"
+      />
+
+      <ResumenTitular icono={Wallet}>
+        Con rémunération de <strong className="text-brand">{fmt(remuneracion)}</strong> y {pctDividendos}% del resto como
+        dividendos, a Mario le quedan libres <strong className="text-brand">{fmt(resultado.netoDisponible)}</strong> en el
+        ejercicio {anio}.
+      </ResumenTitular>
+
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
         <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
           <Landmark size={14} className="text-brand" /> Capital social y compte courant
@@ -173,7 +178,8 @@ export function TabSalarioDividendos() {
           <span>
             Con un capital social de {fmt(capitalSocial)}, el umbral libre de cotisations TNS es solo{' '}
             {fmt(resultado.divCalc.umbralLibre)}. {fmt(resultado.divCalc.exceso)} de dividendos superan ese umbral y llevan
-            cotisations TNS (~{(config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del 30%. Puede convenir ampliar
+            cotisations TNS (~{(config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del{' '}
+            {(config('pfu_total', 0.314) * 100).toFixed(1)}%. Puede convenir ampliar
             el capital social para elevar el umbral del 10%.
           </span>
         </div>
@@ -233,19 +239,19 @@ export function TabSalarioDividendos() {
           },
           {
             q: '¿Qué es el PFU (flat tax)?',
-            a: 'El PFU (Prélèvement Forfaitaire Unique), conocido como "flat tax", es un tipo fijo del 30% que se aplica a los dividendos de personas físicas en Francia: 12,8% de impuesto sobre la renta (IR) + 17,2% de prélèvements sociaux. Es la tributación "normal" de un dividendo — pero solo se aplica a la parte de dividendos que NO supera el umbral del 10% del capital social (ver siguiente pregunta).',
+            a: `El PFU (Prélèvement Forfaitaire Unique), conocido como "flat tax", es un tipo fijo del ${(config('pfu_total', 0.314) * 100).toFixed(1)}% que se aplica a los dividendos de personas físicas en Francia: 12,8% de impuesto sobre la renta (IR) + 18,6% de prélèvements sociaux (subido desde el 17,2% con la Loi de financement de la Sécurité sociale 2026). Es la tributación "normal" de un dividendo — pero solo se aplica a la parte de dividendos que NO supera el umbral del 10% del capital social (ver siguiente pregunta).`,
           },
           {
             q: 'Muevo el slider de dividendos y no cambia nada, ¿por qué?',
             a: 'El % se aplica sobre el beneficio distribuible (lo que queda tras salario, sus cotisations e IS), no sobre el beneficio bruto del ejercicio. Si ese beneficio distribuible es 0 — por ejemplo porque la rémunération elegida ya consume todo el beneficio del ejercicio, o porque el ejercicio va en pérdidas — el 0% de 0 € y el 100% de 0 € dan igual: 0 €. Verás un aviso gris explicándolo con las cifras exactas justo encima de las tarjetas cuando esto ocurra. Para ver el slider "funcionando", baja la rémunération o simula con un beneficio del ejercicio mayor (registrando más facturas, por ejemplo).',
           },
           {
-            q: '¿Por qué casi todos los dividendos llevan cotisations TNS en vez del PFU del 30%?',
-            a: 'Porque el capital social de Reformas Ordoñez es de 1.000 € y el umbral libre de cotisations TNS es el 10% del capital (+ compte courant), es decir solo 100 € al año. Cualquier dividendo por encima de esa cifra se considera "remuneración encubierta" por la Administración francesa (una forma de evitar que los gérants majoritaires se paguen todo en dividendos para esquivar las cotisations sociales) y lleva cotisations TNS (~45%) en la parte que excede, en vez del PFU del 30%. Ampliar el capital social (por ejemplo a 10.000 €) elevaría el umbral libre a 1.000 €/año.',
+            q: `¿Por qué casi todos los dividendos llevan cotisations TNS en vez del PFU del ${(config('pfu_total', 0.314) * 100).toFixed(1)}%?`,
+            a: `Porque el capital social de Reformas Ordoñez es de 1.000 € y el umbral libre de cotisations TNS es el 10% del capital (+ compte courant), es decir solo 100 € al año. Cualquier dividendo por encima de esa cifra se considera "remuneración encubierta" por la Administración francesa (una forma de evitar que los gérants majoritaires se paguen todo en dividendos para esquivar las cotisations sociales) y lleva cotisations TNS (~45%) en la parte que excede, en vez del PFU del ${(config('pfu_total', 0.314) * 100).toFixed(1)}%. Ampliar el capital social (por ejemplo a 10.000 €) elevaría el umbral libre a 1.000 €/año.`,
           },
           {
             q: 'Ejemplo completo con números',
-            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario: 30.000 × 0,74 × 45% = 9.990 €. Beneficio tras salario: 50.000 − 30.000 − 9.990 = 10.010 €. IS (ejercicio de 6 meses, plafond 21.250 €): 10.010 × 15% = 1.501,50 €. Beneficio tras IS: 10.010 − 1.501,50 = 8.508,50 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 8.508,50 × 5% = 425,43 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 8.508,50 − 100 = 8.408,50 €. Dividendos (50%): 4.204,25 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 30% = 30 €); los 4.104,25 € restantes llevan IR del 12,8% (525,34 €) + cotisations TNS del 45% (1.846,91 €) = 2.402,26 € de carga. Total prélèvements: 9.990 + 1.501,50 + 2.402,26 = 13.893,76 €. Neto disponible para Mario: 30.000 − 9.990 + 4.204,25 − 2.402,26 = 21.811,99 €.',
+            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario: 30.000 × 0,74 × 45% = 9.990 €. Beneficio tras salario: 50.000 − 30.000 − 9.990 = 10.010 €. IS (ejercicio de 6 meses, plafond 21.250 €): 10.010 × 15% = 1.501,50 €. Beneficio tras IS: 10.010 − 1.501,50 = 8.508,50 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 8.508,50 × 5% = 425,43 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 8.508,50 − 100 = 8.408,50 €. Dividendos (50%): 4.204,25 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 31,4% = 31,40 €); los 4.104,25 € restantes llevan IR del 12,8% (525,34 €) + cotisations TNS del 45% (1.846,91 €) = 2.403,66 € de carga. Total prélèvements: 9.990 + 1.501,50 + 2.403,66 = 13.895,16 €. Neto disponible para Mario: 30.000 − 9.990 + 4.204,25 − 2.403,66 = 21.810,59 €.',
           },
           {
             q: '¿Qué diferencia hay entre "Neto disponible Mario" y "Total prélèvements"?',

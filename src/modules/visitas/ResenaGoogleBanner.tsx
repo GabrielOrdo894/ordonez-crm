@@ -61,6 +61,7 @@ export function ResenaGoogleBanner() {
         .from('facturas')
         .select('*')
         .is('eliminado_en', null)
+        .eq('tipo', 'normal')
         .eq('estado_cobro', 'Cobrada')
         .eq('resena_enviada', false)
         .not('cliente_email', 'is', null)

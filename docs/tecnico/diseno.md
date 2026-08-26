@@ -2,7 +2,7 @@
 
 ## Tipografía
 
-Desde la actualización de la Home (inspirada en la referencia de `guias/`), el CRM usa
+Desde la actualización de la Home (inspirada en la referencia de `negocio/guias/`), el CRM usa
 **Poppins** (Google Fonts) en vez de la fuente de sistema:
 
 ```html

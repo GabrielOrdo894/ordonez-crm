@@ -40,3 +40,15 @@ export function fechaPlanning(fecha: string | null | undefined, idioma: 'es' | '
   const dias = idioma === 'fr' ? DIAS_CORTO_FR : DIAS_CORTO;
   return `${d.getFullYear()}-${meses[d.getMonth()]}-${String(d.getDate()).padStart(2, '0')} (${dias[d.getDay()]})`;
 }
+
+/** "14/08" — versión corta (día/mes, sin año ni día de la semana) para anotar el rango de fechas
+ * junto a cada barra del Gantt, donde el espacio disponible es de solo unos 30mm: el formato largo
+ * de `fechaPlanning` desborda ese hueco (bug real reportado 2026-08-16, captura en
+ * `negocio/modificaciones/problema de desborde.png`). Mismo formato que ya usaba `PlanningPreview.tsx` para
+ * su Gantt en pantalla — se comparte aquí para que el PDF (planning suelto y dossier de obra, que
+ * reutilizan `dibujarGanttYFases`) deje de desbordar también. */
+export function fechaPlanningCorta(fecha: string | null | undefined): string {
+  if (!fecha) return '—';
+  const d = new Date(`${fecha}T00:00:00`);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}

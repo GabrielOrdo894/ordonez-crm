@@ -36,11 +36,13 @@ create table proyectos (
   id uuid primary key default gen_random_uuid(),
   created_at timestamptz default now(),
   visita_id uuid references visitas(id) on delete set null,
+  presupuesto_id uuid, -- sin FK real (auditoría 2026-08-18): purgar el presupuesto vinculado deja el planning huérfano sin aviso
   nombre_obra text, fecha_inicio date,
   idioma text default 'es',
   introduccion text, nota_final text,
   estado text default 'Planificado',
-  fases jsonb default '[]'
+  fases jsonb default '[]',
+  traduccion jsonb -- snapshot de fases traducidas (generarPdfPlanningTraducido.ts), congelado en el momento de traducir
 );
 
 create table presupuestos (
@@ -53,7 +55,7 @@ create table presupuestos (
   estado text default 'Borrador',
   firmado boolean default false,
   firma_nombre text, firma_fecha timestamptz, firma_base64 text,
-  -- Firma electrónica Documenso — ver docs/documenso.md
+  -- Firma electrónica Documenso — ver docs/tecnico/documenso.md
   firma_metodo text not null default 'manual', -- 'manual' | 'documenso'
   documenso_envelope_id text, documenso_signing_url text, documenso_estado text
 );
@@ -164,7 +166,7 @@ create table if not exists gerant_config (
 );
 insert into gerant_config (id) values (1) on conflict do nothing;
 
--- Refresh_token compartido de Google Calendar (fila única) — ver modificaciones/reparación de inicio de sesion de google.txt
+-- Refresh_token compartido de Google Calendar (fila única) — ver negocio/modificaciones/reparación de inicio de sesion de google.txt
 -- Lo escriben las Edge Functions google-oauth-callback / google-token con la service role key.
 create table if not exists google_config (
   id int primary key default 1,

@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Paperclip, Receipt, UploadCloud, X, Eye, Building2, Coins, CreditCard } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
-import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
+import { FechaPicker } from '../../../components/ui/FechaPicker';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { SelectorIva } from '../SelectorIva';
@@ -17,14 +17,30 @@ import { CategoriaPicker } from './CategoriaPicker';
 import { cuentaLabel, GRUPOS_CATEGORIA } from './categorias';
 import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
 import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
+import { calcularIndemnizacionKm, tarifaPorCv, CV_OPCIONES } from './baremoKilometrico';
+import { calcularKmIdaYVuelta } from '../../../lib/calcularKmIdaYVuelta';
+import { MapsAutocomplete } from '../../google/MapsAutocomplete';
+import type { LugarSeleccionado } from '../../google/MapsAutocomplete';
 
 const NUEVO_PROVEEDOR = '__nuevo__';
 const TIPO_INTRACOM = 'INTRACOM';
+// Compra a un proveedor de fuera de la UE (importación) — desde 2022 Francia autoliquida su TVA
+// exactamente igual que una adquisición intracomunitaria (mismo mecanismo, cuenta deducible
+// distinta: 445661 en vez de 445662 — ver asientosContables.ts), así que se trata en paralelo al
+// caso INTRACOM en vez de un simple "no aplica" (hallazgo real, auditoría 2026-08-21: antes no
+// existía ninguna opción para este caso).
+const TIPO_IMPORTACION = 'IMPORTACION';
+const CUENTA_KILOMETRICO = '6251';
 
+// Cuentas verificadas 2026-08-16: 624 es "transports de biens" (fletes a terceros), no carburant ni
+// desplazamientos propios — error real que tenían Gasolina y Peaje antes de esta corrección. '625' a
+// secas ni siquiera existe como cuenta del catálogo (solo 6251/6256/6257), Comida tampoco apuntaba
+// bien. Fuentes: keobiz.fr/le-mag/compte-compta-carburant, pennylane.com/fr/fiches-pratiques/plan-comptable/compte-6256-missions.
 const PLANTILLAS_RAPIDAS = [
-  { label: 'Gasolina', descripcion: 'Gasolina', cuenta_contable: '624' },
-  { label: 'Peaje', descripcion: 'Peaje autopista', cuenta_contable: '624' },
-  { label: 'Comida', descripcion: 'Comida de trabajo', cuenta_contable: '625' },
+  { label: 'Gasolina', descripcion: 'Carburant véhicule', cuenta_contable: '6061' },
+  { label: 'Peaje', descripcion: 'Péage autoroute — déplacement professionnel', cuenta_contable: '6251' },
+  { label: 'Comida', descripcion: 'Repas seul en déplacement professionnel', cuenta_contable: '6256' },
+  { label: 'Teléfono', descripcion: 'Reembolso 50% línea telefónica profesional', cuenta_contable: '626' },
 ];
 
 function fechaHoy() {
@@ -57,6 +73,9 @@ type FormState = {
   tipo_iva: string;
   cuenta_contable: string;
   num_factura_proveedor: string;
+  es_kilometrico: boolean;
+  km: number;
+  vehiculo_cv: number;
 };
 
 function vacio(): FormState {
@@ -71,6 +90,9 @@ function vacio(): FormState {
     tipo_iva: 'IVA_21',
     cuenta_contable: '',
     num_factura_proveedor: '',
+    es_kilometrico: false,
+    km: 0,
+    vehiculo_cv: 5,
   };
 }
 
@@ -86,6 +108,9 @@ function formDesdeGasto(g: Gasto): FormState {
     tipo_iva: g.tipo_iva ?? 'IVA_21',
     cuenta_contable: g.cuenta_contable ?? '',
     num_factura_proveedor: g.num_factura_proveedor ?? '',
+    es_kilometrico: g.km != null,
+    km: g.km ?? 0,
+    vehiculo_cv: g.vehiculo_cv ?? 5,
   };
 }
 
@@ -145,6 +170,8 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
   const [creandoProveedor, setCreandoProveedor] = useState(false);
   const [mostrandoCategorias, setMostrandoCategorias] = useState(false);
   const [modoImporte, setModoImporte] = useState<'total' | 'base'>('total');
+  const [direccionVisita, setDireccionVisita] = useState('');
+  const [calculandoKm, setCalculandoKm] = useState(false);
 
   const { data: proveedores } = useQuery({
     queryKey: ['proveedores'],
@@ -183,18 +210,51 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     }));
   };
 
+  const activarKilometrico = () => {
+    setForm((f) => ({
+      ...f,
+      es_kilometrico: true,
+      categoria: cuentaLabel(CUENTA_KILOMETRICO),
+      cuenta_contable: CUENTA_KILOMETRICO,
+      tipo_iva: 'EXENTO',
+      // El barème kilométrique y la exención de cotisations/IR es una regla francesa (TNS/IS) — sin
+      // esto, un gasto kilométrico se podía quedar en 'España' por defecto y no generaba asiento
+      // contable ni contaba en el Simulador (que solo suma gastos de Francia con km).
+      pais: 'Francia',
+    }));
+    setDireccionVisita('');
+  };
+
+  const handleSeleccionarDireccionVisita = async (lugar: LugarSeleccionado) => {
+    setDireccionVisita(lugar.direccion);
+    if (lugar.lat == null || lugar.lng == null) return;
+    setCalculandoKm(true);
+    const km = await calcularKmIdaYVuelta({ lat: lugar.lat, lng: lugar.lng });
+    setCalculandoKm(false);
+    if (km != null) setForm((f) => ({ ...f, km }));
+  };
+
   const esIntracomunitario = form.tipo_iva === TIPO_INTRACOM;
+  const esImportacion = form.tipo_iva === TIPO_IMPORTACION;
   const cuentasAmortizacion = GRUPOS_CATEGORIA.find((g) => g.id === 'amortissements')?.cuentas ?? [];
   const esAmortizacion = cuentasAmortizacion.includes(form.cuenta_contable);
-  const porcentaje = esIntracomunitario || esAmortizacion ? 0 : porcentajeIva(form.tipo_iva);
-  const importeBase = porcentaje > 0 ? form.importe_total / (1 + porcentaje / 100) : form.importe_total;
-  const importeIvaDeducible = form.importe_total - importeBase;
+  const porcentaje =
+    esIntracomunitario || esImportacion || esAmortizacion || form.es_kilometrico ? 0 : porcentajeIva(form.tipo_iva);
+  const importeTotalEfectivo = form.es_kilometrico ? calcularIndemnizacionKm(form.km, form.vehiculo_cv) : form.importe_total;
+  const importeBase = porcentaje > 0 ? importeTotalEfectivo / (1 + porcentaje / 100) : importeTotalEfectivo;
+  const importeIvaDeducible = importeTotalEfectivo - importeBase;
 
   useEffect(() => {
     if (esAmortizacion && form.tipo_iva !== 'EXENTO') {
       setForm((f) => ({ ...f, tipo_iva: 'EXENTO' }));
     }
   }, [esAmortizacion, form.tipo_iva]);
+
+  useEffect(() => {
+    if (form.es_kilometrico && form.tipo_iva !== 'EXENTO') {
+      setForm((f) => ({ ...f, tipo_iva: 'EXENTO', cuenta_contable: f.cuenta_contable || CUENTA_KILOMETRICO }));
+    }
+  }, [form.es_kilometrico, form.tipo_iva]);
 
   const handleImporteChange = (valor: number) => {
     if (modoImporte === 'base') {
@@ -240,7 +300,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     mutationFn: async () => {
       const nuevo: NuevoGasto = {
         fecha: form.fecha,
-        descripcion: form.descripcion || null,
+        descripcion:
+          form.descripcion ||
+          (form.es_kilometrico ? `Indemnité kilométrique — ${form.km} km (${form.vehiculo_cv} CV)` : null),
         categoria: form.categoria || null,
         proveedor: form.proveedor || null,
         proveedor_id: form.proveedor_id,
@@ -255,6 +317,14 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
         adjunto_tipo: adjunto?.tipo ?? null,
         num_factura_proveedor: form.num_factura_proveedor || null,
         inmovilizado_id: gasto?.inmovilizado_id ?? null,
+        km: form.es_kilometrico ? form.km : null,
+        vehiculo_cv: form.es_kilometrico ? form.vehiculo_cv : null,
+        // Un gasto creado a mano aquí siempre se considera ya pagado. Al editar uno que ya existe
+        // se preserva su estado_gasto tal cual estaba — aprobarlo es una acción explícita vía
+        // "Registrar pago" en GastosPage, nunca un efecto colateral de corregir un campo (bug
+        // real corregido 2026-08-18: editar un gasto de kilometraje pendiente lo aprobaba y
+        // contabilizaba en silencio, sin pasar por esa revisión).
+        estado_gasto: gasto?.estado_gasto ?? 'pagado',
       };
 
       if (gasto) {
@@ -283,11 +353,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
           cuenta_contable: form.cuenta_contable || null,
           importe_base: Math.round(importeBase * 100) / 100,
           importe_iva: Math.round(importeIvaDeducible * 100) / 100,
+          tipo_iva: form.tipo_iva,
         }).catch((error) => toast.warning(`Gasto guardado, pero no se pudo registrar en el libro diario: ${error.message}`));
-      } else if (gasto) {
+      } else if (gasto && gasto.estado_gasto !== 'pendiente') {
         (async () => {
           try {
-            await rectificarAsientos('gasto', gasto.id);
+            await rectificarAsientos('gasto', gasto.id, 'creacion', gasto.fecha ?? form.fecha);
             if (form.pais === 'Francia') {
               await registrarAsientoGasto({
                 id: gasto.id,
@@ -297,6 +368,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                 cuenta_contable: form.cuenta_contable || null,
                 importe_base: Math.round(importeBase * 100) / 100,
                 importe_iva: Math.round(importeIvaDeducible * 100) / 100,
+                tipo_iva: form.tipo_iva,
               });
             }
           } catch (error) {
@@ -311,6 +383,23 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
   });
 
   const esImagenAdjunto = adjunto?.tipo ? adjunto.tipo.startsWith('image/') : !adjunto?.url.toLowerCase().includes('.pdf');
+
+  // Página completa en vez de modal — con 12 grupos y ~50 cuentas del PCG no cabía con comodidad
+  // en un modal (hallazgo real, auditoría 2026-08-21).
+  if (mostrandoCategorias) {
+    return (
+      <div className="max-w-5xl mx-auto animate-[scale-in_180ms_ease-out]">
+        <CategoriaPicker
+          seleccionActual={form.cuenta_contable}
+          onVolver={() => setMostrandoCategorias(false)}
+          onSeleccionar={(categoria, cuenta_contable) => {
+            setForm((f) => ({ ...f, categoria, cuenta_contable }));
+            setMostrandoCategorias(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
@@ -343,6 +432,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                   {p.label}
                 </Button>
               ))}
+              <Button size="sm" variant="secondary" onClick={activarKilometrico}>
+                Indemnité kilométrique
+              </Button>
             </div>
           )}
 
@@ -362,7 +454,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
 
             <Seccion numero={2} titulo="Detalles del gasto" icono={Receipt}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Input label="Fecha" type="date" value={form.fecha} onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))} />
+                <FechaPicker label="Fecha" value={form.fecha} onChange={(fecha) => setForm((f) => ({ ...f, fecha }))} />
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Categoría contable</label>
                   <button
@@ -395,88 +487,159 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
             </Seccion>
 
             <Seccion numero={3} titulo="Importe e IVA" icono={Coins}>
-              <div className="flex items-center justify-between mb-3">
-                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  {modoImporte === 'base' ? 'Base imponible (sin IVA)' : 'Importe total (con IVA)'}
-                </label>
-                <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden text-xs shrink-0">
+              {form.es_kilometrico ? (
+                <>
+                  <div className="mb-3">
+                    <MapsAutocomplete
+                      label="Dirección de la visita (calcula los km ida y vuelta desde el taller — 4 Avenue des Allées)"
+                      value={direccionVisita}
+                      onChange={setDireccionVisita}
+                      onSelect={handleSeleccionarDireccionVisita}
+                    />
+                    {calculandoKm && <p className="text-xs text-gray-400 mt-1">Calculando distancia...</p>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                    <Input
+                      label="Kilómetros recorridos (ida y vuelta)"
+                      type="number"
+                      min={0}
+                      value={form.km}
+                      onChange={(e) => setForm((f) => ({ ...f, km: Number(e.target.value) }))}
+                    />
+                    <Select
+                      label="Puissance fiscale del vehículo (CV)"
+                      options={CV_OPCIONES.map((cv) => ({ value: String(cv), label: `${cv} CV${cv === 7 ? ' o más' : ''}` }))}
+                      value={String(form.vehiculo_cv)}
+                      onChange={(e) => setForm((f) => ({ ...f, vehiculo_cv: Number(e.target.value) }))}
+                    />
+                  </div>
+                  <div className="bg-brand-light rounded-sm px-4 py-3 flex items-center justify-between mb-3">
+                    <p className="text-xs text-gray-600">
+                      Barème kilométrique 2026: {form.km} km × {tarifaPorCv(form.vehiculo_cv)} €/km
+                    </p>
+                    <p className="text-base font-semibold text-brand">{importeTotalEfectivo.toFixed(2)} €</p>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Indemnité kilométrique por uso profesional puntual de un vehículo personal — sin IVA (no es una compra,
+                    es un reembolso). Válido hasta 5.000 km/año; si este vehículo supera esa cifra en el ejercicio, avisa
+                    para ajustar el cálculo (la fórmula cambia por tramos).
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setModoImporte('total')}
-                    className={`px-2.5 py-1 ${modoImporte === 'total' ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
+                    onClick={() => setForm((f) => ({ ...f, es_kilometrico: false }))}
+                    className="text-xs text-gray-500 hover:text-gray-800 underline mb-3"
                   >
-                    Total con IVA
+                    Cambiar a gasto normal
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setModoImporte('base')}
-                    className={`px-2.5 py-1 border-l border-gray-200 ${
-                      modoImporte === 'base' ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    Base sin IVA
-                  </button>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      {modoImporte === 'base' ? 'Base imponible (sin IVA)' : 'Importe total (con IVA)'}
+                    </label>
+                    <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden text-xs shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setModoImporte('total')}
+                        className={`px-2.5 py-1 ${modoImporte === 'total' ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Total con IVA
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setModoImporte('base')}
+                        className={`px-2.5 py-1 border-l border-gray-200 ${
+                          modoImporte === 'base' ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        Base sin IVA
+                      </button>
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                <Input
-                  type="number"
-                  value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : form.importe_total}
-                  onChange={(e) => handleImporteChange(Number(e.target.value))}
-                />
-                {esIntracomunitario ? (
-                  <p className="text-xs text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5 bg-gray-50 self-center">
-                    Sin IVA — autoliquidación
-                  </p>
-                ) : esAmortizacion ? (
-                  <p className="text-xs text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5 bg-gray-50 self-center">
-                    Sin IVA — apunte contable
-                  </p>
-                ) : (
-                  <SelectorIva pais={form.pais} value={form.tipo_iva} onChange={(tipo_iva) => setForm((f) => ({ ...f, tipo_iva }))} />
-                )}
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                    <Input
+                      type="number"
+                      value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : form.importe_total}
+                      onChange={(e) => handleImporteChange(Number(e.target.value))}
+                    />
+                    {esIntracomunitario || esImportacion ? (
+                      <p className="text-xs text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5 bg-gray-50 self-center">
+                        Sin IVA — autoliquidación
+                      </p>
+                    ) : esAmortizacion ? (
+                      <p className="text-xs text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5 bg-gray-50 self-center">
+                        Sin IVA — apunte contable
+                      </p>
+                    ) : (
+                      <SelectorIva pais={form.pais} value={form.tipo_iva} onChange={(tipo_iva) => setForm((f) => ({ ...f, tipo_iva }))} />
+                    )}
+                  </div>
 
-              {esAmortizacion && (
-                <p className="text-xs text-gray-400 mb-3">
-                  Las dotaciones a amortizaciones son un apunte contable interno, no una factura de proveedor — no llevan
-                  IVA deducible, por lo que no sumarán nada en el Asistente de IVA.
-                </p>
+                  {esAmortizacion && (
+                    <p className="text-xs text-gray-400 mb-3">
+                      Las dotaciones a amortizaciones son un apunte contable interno, no una factura de proveedor — no llevan
+                      IVA deducible, por lo que no sumarán nada en el Asistente de IVA.
+                    </p>
+                  )}
+                </>
               )}
 
-              <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
-                <input
-                  type="checkbox"
-                  checked={esIntracomunitario}
-                  disabled={esAmortizacion}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, tipo_iva: e.target.checked ? TIPO_INTRACOM : tipoIvaPorDefecto(f.pais) }))
-                  }
-                />
-                Es una adquisición intracomunitaria (sin IVA en factura, autoliquidación en Francia)
-              </label>
-              {esIntracomunitario && (
-                <p className="text-xs text-gray-400 mb-3">
-                  El importe total se registra como base, sin IVA soportado directo. Se declarará por autoliquidación en
-                  el Asistente de IVA.
-                </p>
-              )}
+              {!form.es_kilometrico && (
+                <>
+                  <div className="mb-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Origen de la compra</p>
+                    <div className="inline-flex border border-gray-200 rounded-sm overflow-hidden text-sm">
+                      <button
+                        type="button"
+                        disabled={esAmortizacion}
+                        onClick={() => setForm((f) => ({ ...f, tipo_iva: tipoIvaPorDefecto(f.pais) }))}
+                        className={`px-2.5 py-1 ${!esIntracomunitario && !esImportacion ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Nacional
+                      </button>
+                      <button
+                        type="button"
+                        disabled={esAmortizacion}
+                        onClick={() => setForm((f) => ({ ...f, tipo_iva: TIPO_INTRACOM }))}
+                        className={`px-2.5 py-1 border-l border-gray-200 ${esIntracomunitario ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Intracomunitario (UE)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={esAmortizacion}
+                        onClick={() => setForm((f) => ({ ...f, tipo_iva: TIPO_IMPORTACION }))}
+                        className={`px-2.5 py-1 border-l border-gray-200 ${esImportacion ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        Importación (fuera de UE)
+                      </button>
+                    </div>
+                  </div>
+                  {(esIntracomunitario || esImportacion) && (
+                    <p className="text-xs text-gray-400 mb-3">
+                      El importe total se registra como base, sin IVA soportado directo. Se declarará por autoliquidación en
+                      el Asistente de IVA{esImportacion ? ' (importación fuera de la UE)' : ' (adquisición intracomunitaria)'}.
+                    </p>
+                  )}
 
-              <div className="bg-brand-light rounded-sm px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-500">Base</p>
-                  <p className="text-sm text-gray-900">{importeBase.toFixed(2)} €</p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible ({porcentaje}%)</p>
-                  <p className="text-sm text-gray-900">{importeIvaDeducible.toFixed(2)} €</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
-                  <p className="text-base font-semibold text-brand">{form.importe_total.toFixed(2)} €</p>
-                </div>
-              </div>
+                  <div className="bg-brand-light rounded-sm px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Base</p>
+                      <p className="text-sm text-gray-900">{importeBase.toFixed(2)} €</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible ({porcentaje}%)</p>
+                      <p className="text-sm text-gray-900">{importeIvaDeducible.toFixed(2)} €</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
+                      <p className="text-base font-semibold text-brand">{importeTotalEfectivo.toFixed(2)} €</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </Seccion>
 
             <Seccion numero={4} titulo="Justificante" icono={CreditCard}>
@@ -552,17 +715,6 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
           </div>
         </>
       )}
-
-      <Modal open={mostrandoCategorias} onClose={() => setMostrandoCategorias(false)} title="Elegir categoría contable">
-        <CategoriaPicker
-          seleccionActual={form.cuenta_contable}
-          onVolver={() => setMostrandoCategorias(false)}
-          onSeleccionar={(categoria, cuenta_contable) => {
-            setForm((f) => ({ ...f, categoria, cuenta_contable }));
-            setMostrandoCategorias(false);
-          }}
-        />
-      </Modal>
 
       <VistaPreviaAdjunto url={vistaPreviaAbierta ? adjunto?.url ?? null : null} onClose={() => setVistaPreviaAbierta(false)} />
     </div>

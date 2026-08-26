@@ -41,15 +41,18 @@ Deno.serve(async (req: Request) => {
     .eq('id', 1)
     .maybeSingle();
 
-  if (error) return jsonResponse({ error: error.message });
+  // Los 4 errores de esta función devolvían siempre HTTP 200 — el frontend ya los manejaba bien
+  // leyendo `data.error`, pero el dashboard de Edge Functions de Supabase los contaba como éxito,
+  // rompiendo la observabilidad real de fallos (bug real corregido 2026-08-18).
+  if (error) return jsonResponse({ error: error.message }, 500);
   if (!config?.refresh_token) {
-    return jsonResponse({ error: 'Google Calendar no está conectado. Pide a un administrador que lo conecte desde Configuración.' });
+    return jsonResponse({ error: 'Google Calendar no está conectado. Pide a un administrador que lo conecte desde Configuración.' }, 409);
   }
 
   const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
   const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
   if (!clientId || !clientSecret) {
-    return jsonResponse({ error: 'Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos de la función' });
+    return jsonResponse({ error: 'Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos de la función' }, 500);
   }
 
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -65,7 +68,7 @@ Deno.serve(async (req: Request) => {
   const tokenData = await tokenRes.json();
 
   if (!tokenRes.ok) {
-    return jsonResponse({ error: tokenData.error_description ?? 'No se pudo renovar el token de Google Calendar' });
+    return jsonResponse({ error: tokenData.error_description ?? 'No se pudo renovar el token de Google Calendar' }, 502);
   }
 
   return jsonResponse({ access_token: tokenData.access_token, expires_in: tokenData.expires_in });

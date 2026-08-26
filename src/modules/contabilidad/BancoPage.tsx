@@ -30,7 +30,7 @@ export default function BancoPage() {
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos_banco'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('movimientos_banco').select('*').order('fecha', { ascending: false });
+      const { data, error } = await supabase.from('movimientos_banco').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       return data as MovimientoBanco[];
     },

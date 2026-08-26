@@ -45,7 +45,7 @@ export default function DashboardGeneralPage() {
   const [desdeCustom, setDesdeCustom] = useState(iso(new Date(anioActual, 0, 1)));
   const [hastaCustom, setHastaCustom] = useState(iso(new Date()));
   const { desde, hasta } = useMemo(() => rangoPeriodo(periodo, desdeCustom, hastaCustom), [periodo, desdeCustom, hastaCustom]);
-  const { noLeidas } = useNotificaciones();
+  const { pendientes } = useNotificaciones();
   const { data: visitas } = useQuery({
     queryKey: ['visitas'],
     queryFn: async () => {
@@ -84,8 +84,12 @@ export default function DashboardGeneralPage() {
 
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
 
+  // estructura_anterior (2026-08-22): cobros de una empresa anterior a la EURL actual, se
+  // registran en el CRM para las acomptes pero no son ingreso real — fuera de los totales.
+  const facturasIngresoReal = useMemo(() => (facturas ?? []).filter((f) => !f.estructura_anterior), [facturas]);
+
   const kpis = useMemo(() => {
-    const ingresos = (facturas ?? []).filter((f) => f.monto_pagado != null).reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+    const ingresos = facturasIngresoReal.filter((f) => f.monto_pagado != null).reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
     const gastosTotal = (gastos ?? []).reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
     const presupuestosPendientes = (presupuestos ?? []).filter((p) => p.estado === 'Pendiente').length;
     const facturasPendientes = (facturas ?? []).filter(
@@ -102,16 +106,16 @@ export default function DashboardGeneralPage() {
       facturasPendientes,
       facturasVencidas,
     };
-  }, [clientes, visitas, facturas, gastos, presupuestos]);
+  }, [clientes, visitas, facturas, facturasIngresoReal, gastos, presupuestos]);
 
   const ingresosPorPaisPeriodo = useMemo(() => {
-    const facturasPeriodo = (facturas ?? []).filter(
+    const facturasPeriodo = facturasIngresoReal.filter(
       (f) => f.fecha_pago && f.monto_pagado != null && f.fecha_pago >= desde && f.fecha_pago <= hasta,
     );
     const francia = facturasPeriodo.filter((f) => f.pais === 'Francia').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
     const espana = facturasPeriodo.filter((f) => f.pais === 'España').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
     return { francia, espana };
-  }, [facturas, desde, hasta]);
+  }, [facturasIngresoReal, desde, hasta]);
 
   const visitasPorPipeline = useMemo(() => {
     const map = new Map<string, number>();
@@ -190,11 +194,11 @@ export default function DashboardGeneralPage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3 flex items-center gap-1.5">
           <AlertTriangle size={13} className="text-brand" /> Pendientes urgentes
         </p>
-        {noLeidas.length === 0 ? (
+        {pendientes.length === 0 ? (
           <p className="text-sm text-gray-400 py-8 text-center">Todo al día — sin pendientes urgentes.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {noLeidas.slice(0, 6).map((n) => (
+            {pendientes.slice(0, 6).map((n) => (
               <Link
                 key={n.id}
                 to={n.to}
@@ -211,7 +215,7 @@ export default function DashboardGeneralPage() {
                 )}
               </Link>
             ))}
-            {noLeidas.length > 6 && <p className="text-xs text-gray-400 text-center">+ {noLeidas.length - 6} más</p>}
+            {pendientes.length > 6 && <p className="text-xs text-gray-400 text-center">+ {pendientes.length - 6} más</p>}
           </div>
         )}
       </div>

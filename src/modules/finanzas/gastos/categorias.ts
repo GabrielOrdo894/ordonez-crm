@@ -79,7 +79,7 @@ export const GRUPOS_CATEGORIA: GrupoCategoria[] = [
     icono: Users,
     colorFondo: 'bg-cyan-50',
     colorTexto: 'text-cyan-700',
-    cuentas: ['641', '644', '645', '647', '648'],
+    cuentas: ['641', '645', '646', '647', '648'],
   },
   {
     id: 'impots',
@@ -90,12 +90,17 @@ export const GRUPOS_CATEGORIA: GrupoCategoria[] = [
     cuentas: ['631', '6351', '6354', '635', '637', '695'],
   },
   {
+    // Umbral real (verificado 2026-08-16, BOI-BIC-CHG-20-30-10): un bien de menos de 500 € HT se
+    // puede pasar directo a gasto (p. ej. 6063 "petit équipement") aunque dure varios años; por
+    // encima de 500 € HT toca inmovilizarlo aquí y amortizarlo — salvo material de transporte
+    // (furgoneta, coche), que se inmoviliza siempre sin importar el precio. Sin automatizar en el
+    // formulario a propósito: la elección sigue siendo manual, esto es solo la referencia.
     id: 'immobilisations',
     nombre: 'Immobilisations',
     icono: Boxes,
     colorFondo: 'bg-purple-50',
     colorTexto: 'text-purple-700',
-    cuentas: ['205', '213', '2154', '2182', '2183', '2184', '2188', '231'],
+    cuentas: ['201', '205', '213', '2154', '2155', '2182', '2183', '2184', '2188', '231'],
   },
   {
     id: 'financieres',

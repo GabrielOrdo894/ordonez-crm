@@ -42,6 +42,9 @@ export type Proyecto = {
   fecha_inicio: string | null;
   estado: string;
   fases: FaseObra[];
+  // Antes no había ningún campo de posventa — sin fecha de fin de garantía por obra ni forma de
+  // saber cuándo revisar una obra ya entregada (mejora real, auditoría de Clientes 2026-08-18).
+  fecha_fin_garantia: string | null;
   traduccion?: TraduccionPlanning | null;
 };
 
@@ -62,7 +65,10 @@ export default function PlanningObraPage() {
   const { data: proyectos, isLoading: cargandoProyectos } = useQuery({
     queryKey: ['proyectos', 'todos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('proyectos').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('proyectos')
+        .select('*')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Proyecto[];
     },
@@ -129,7 +135,10 @@ export default function PlanningObraPage() {
         .eq('documento_tipo', 'proyecto')
         .in('documento_id', ids as string[]);
       if (errorEventos) throw errorEventos;
-      const { error } = await supabase.from('proyectos').delete().in('id', ids as string[]);
+      const { error } = await supabase
+        .from('proyectos')
+        .delete()
+        .in('id', ids as string[]);
       if (error) throw error;
     },
     onSuccess: (_data, ids) => {
@@ -155,13 +164,18 @@ export default function PlanningObraPage() {
     const todos = proyectos ?? [];
     return [
       { label: 'Total obras', valor: todos.length },
-      { label: 'En curso', valor: todos.filter((p) => p.estado === 'En curso').length, acento: true },
+      {
+        label: 'En curso',
+        valor: todos.filter((p) => p.estado === 'En curso').length,
+        acento: true,
+      },
       { label: 'Planificadas', valor: todos.filter((p) => p.estado === 'Planificado').length },
       { label: 'Finalizadas', valor: todos.filter((p) => p.estado === 'Finalizado').length },
     ];
   }, [proyectos]);
 
-  const presupuestoPorId = (id: string | null) => (id ? (presupuestos?.find((p) => p.id === id) ?? null) : null);
+  const presupuestoPorId = (id: string | null) =>
+    id ? (presupuestos?.find((p) => p.id === id) ?? null) : null;
 
   const handleEliminar = async (p: Proyecto) => {
     if (!(await confirmar(`¿Eliminar el planning de obra "${p.nombre_obra}"?`))) return;
@@ -173,7 +187,14 @@ export default function PlanningObraPage() {
     if (!presupuesto || p.fases.length === 0) return;
     try {
       await conAvisoDescarga(
-        () => generarPdfDossierObra({ nombreObra: p.nombre_obra, estadoObra: p.estado, fechaInicio: p.fecha_inicio, fases: p.fases, presupuesto }),
+        () =>
+          generarPdfDossierObra({
+            nombreObra: p.nombre_obra,
+            estadoObra: p.estado,
+            fechaInicio: p.fecha_inicio,
+            fases: p.fases,
+            presupuesto,
+          }),
         toast,
       );
     } catch (err) {
@@ -191,6 +212,7 @@ export default function PlanningObraPage() {
           generarPdfPlanning({
             clienteNombre: presupuesto?.cliente_nombre ?? '',
             clienteTelefono: presupuesto?.cliente_tel ?? '',
+            clienteEmail: presupuesto?.cliente_email ?? '',
             clienteDir: presupuesto?.cliente_dir ?? '',
             pais,
             idioma,
@@ -200,6 +222,7 @@ export default function PlanningObraPage() {
             presupuestoNumero: presupuesto?.numero ?? null,
             presupuestoFecha: presupuesto?.fecha_emision ?? null,
             presupuestoTotal: presupuesto ? calcularTotales(presupuesto.lineas).totalConIva : null,
+            planPago: presupuesto?.plan_pago ?? [],
             fases: p.fases,
           }),
         toast,
@@ -265,8 +288,20 @@ export default function PlanningObraPage() {
           onChange={(e) => setFiltroEstado(e.target.value)}
           className="w-44"
         />
-        <Input label="Inicio desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
-        <Input label="Inicio hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
+        <Input
+          label="Inicio desde"
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="w-40"
+        />
+        <Input
+          label="Inicio hasta"
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="w-40"
+        />
       </div>
 
       <KpiRow items={kpis} />
@@ -297,7 +332,12 @@ export default function PlanningObraPage() {
           onToggleFila={toggleFila}
           onToggleTodas={toggleTodas}
           columns={[
-            { key: 'obra', label: 'Obra', sortValue: (p) => p.nombre_obra, render: (p) => p.nombre_obra },
+            {
+              key: 'obra',
+              label: 'Obra',
+              sortValue: (p) => p.nombre_obra,
+              render: (p) => p.nombre_obra,
+            },
             {
               key: 'cliente',
               label: 'Cliente',
@@ -314,7 +354,10 @@ export default function PlanningObraPage() {
             {
               key: 'progreso',
               label: 'Progreso',
-              sortValue: (p) => (p.fases.length === 0 ? -1 : p.fases.filter((f) => f.completada).length / p.fases.length),
+              sortValue: (p) =>
+                p.fases.length === 0
+                  ? -1
+                  : p.fases.filter((f) => f.completada).length / p.fases.length,
               render: (p) => {
                 const total = p.fases.length;
                 const completadas = p.fases.filter((f) => f.completada).length;
@@ -326,12 +369,16 @@ export default function PlanningObraPage() {
               label: '',
               sortable: false,
               render: (p) => {
-                const tieneDossierCompleto = !!presupuestoPorId(p.presupuesto_id) && p.fases.length > 0;
+                const tieneDossierCompleto =
+                  !!presupuestoPorId(p.presupuesto_id) && p.fases.length > 0;
                 return (
                   <AccionesFila
                     menu={[
                       { label: 'Abrir', onClick: () => setProyectoAbierto(p) },
-                      { label: 'Descargar planning (PDF)', onClick: () => handleDescargarPlanning(p) },
+                      {
+                        label: 'Descargar planning (PDF)',
+                        onClick: () => handleDescargarPlanning(p),
+                      },
                       {
                         label: 'Descargar dossier completo (PDF)',
                         onClick: () => handleDescargarDossier(p),

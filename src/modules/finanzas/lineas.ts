@@ -14,7 +14,7 @@ export type Linea = {
 
 export const UNIDADES = ['ud', 'm2', 'ml', 'h', 'forfait'];
 
-// Categorización de la línea — en factura FR es obligatoria por normativa (ver docs/finanzas.md).
+// Categorización de la línea — en factura FR es obligatoria por normativa (ver docs/negocio/finanzas.md).
 // Cada idioma usa su propia terminología legal, no una traducción literal de la otra.
 const TIPOS_SERVICIO_FR = ['Travaux', 'Prestations de services BIC', 'Fournitures', "Main d'œuvre", '—'];
 const TIPOS_SERVICIO_ES = ['Obra', 'Prestación de servicios', 'Suministro de materiales', 'Mano de obra', '—'];

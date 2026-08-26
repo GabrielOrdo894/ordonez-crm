@@ -10,7 +10,18 @@
 //   1. Facturas vencidas (estado_cobro = 'Vencida')
 //   2. Presupuestos caducados sin respuesta (Pendiente, fecha_validez < hoy)
 //   3. Presupuestos a punto de caducar (Pendiente, fecha_validez en los próximos 7 días)
-//   4. Solicitudes nuevas sin revisar (estado = 'Nueva')
+//   4. Solicitudes nuevas sin revisar (estado = 'Nueva' y nunca se contestaron, mensaje_enviado_en null)
+//   5. Gastos de kilometraje pendientes de revisar (estado_gasto = 'pendiente')
+//   6. Respuestas de cliente a presupuestos sin revisar (seguimiento en estado 'Nueva', ver
+//      estadoSeguimiento en src/modules/solicitudes/types.ts) — categorías 5 y 6 añadidas
+//      2026-08-18, antes se quedaban fuera de este email pese a estar ya en la campana in-app.
+//   7. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
+//      no-null — ya se había contestado y el cliente respondió otra vez en el mismo hilo; antes
+//      salía mezclado con la categoría 4 como "solicitud nueva", corregido 2026-08-19).
+//
+// Idempotente por día (`alerta_diaria_estado`, fila única con `ultima_fecha_enviada`) — si se
+// dispara más de una vez el mismo día (reintento, prueba manual) no se duplica el email
+// (bug real corregido 2026-08-18).
 //
 // Reutiliza el patrón de envío Gmail de supabase/functions/notificar-visita/index.ts.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
@@ -41,7 +52,15 @@ const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 
 type FacturaVencida = { numero: string | null; cliente_nombre: string | null; fecha_vence: string | null };
 type PresupuestoPendiente = { numero: string | null; cliente_nombre: string | null; fecha_validez: string };
-type SolicitudNueva = { nombre: string | null; email: string | null; created_at: string | null };
+type SolicitudNueva = { nombre: string | null; email: string | null; created_at: string | null; mensaje_enviado_en: string | null };
+type GastoPendiente = { descripcion: string | null; fecha: string | null; importe_base: number | null };
+type SeguimientoNuevo = {
+  numero: string | null;
+  cliente_nombre: string | null;
+  ultima_respuesta_cliente_fecha: string | null;
+  mensaje_seguimiento_generado: string | null;
+  mensaje_seguimiento_enviado: boolean | null;
+};
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -160,7 +179,17 @@ Deno.serve(async (req: Request) => {
     const hoy = isoHoy();
     const limite7d = isoEnDias(7);
 
-    const [facturasRes, presupuestosRes, solicitudesRes] = await Promise.all([
+    const { data: estadoPrevio, error: errorEstado } = await supabase
+      .from('alerta_diaria_estado')
+      .select('ultima_fecha_enviada')
+      .eq('id', 1)
+      .maybeSingle();
+    if (errorEstado) return jsonResponse({ ok: false, error: `alerta_diaria_estado: ${errorEstado.message}` }, 500);
+    if (estadoPrevio?.ultima_fecha_enviada === hoy) {
+      return jsonResponse({ ok: true, enviado: false, motivo: 'ya se envió hoy' });
+    }
+
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -168,10 +197,22 @@ Deno.serve(async (req: Request) => {
         .eq('estado', 'Pendiente')
         .not('fecha_validez', 'is', null)
         .is('eliminado_en', null),
-      supabase.from('solicitudes').select('nombre, email, created_at').eq('estado', 'Nueva'),
+      supabase.from('solicitudes').select('nombre, email, created_at, mensaje_enviado_en').eq('estado', 'Nueva'),
+      supabase.from('gastos').select('descripcion, fecha, importe_base').eq('estado_gasto', 'pendiente'),
+      supabase
+        .from('presupuestos')
+        .select('numero, cliente_nombre, ultima_respuesta_cliente_fecha, mensaje_seguimiento_generado, mensaje_seguimiento_enviado')
+        .is('eliminado_en', null)
+        .not('ultima_respuesta_cliente_fecha', 'is', null),
     ]);
 
-    for (const [nombre, res] of Object.entries({ facturas: facturasRes, presupuestos: presupuestosRes, solicitudes: solicitudesRes })) {
+    for (const [nombre, res] of Object.entries({
+      facturas: facturasRes,
+      presupuestos: presupuestosRes,
+      solicitudes: solicitudesRes,
+      gastos: gastosRes,
+      seguimientos: seguimientosRes,
+    })) {
       if ((res as { error: { message: string } | null }).error) {
         return jsonResponse({ ok: false, error: `${nombre}: ${(res as { error: { message: string } }).error.message}` }, 500);
       }
@@ -181,9 +222,29 @@ Deno.serve(async (req: Request) => {
     const presupuestosPendientes = (presupuestosRes.data ?? []) as PresupuestoPendiente[];
     const presupuestosCaducados = presupuestosPendientes.filter((p) => p.fecha_validez < hoy);
     const presupuestosPorCaducar = presupuestosPendientes.filter((p) => p.fecha_validez >= hoy && p.fecha_validez <= limite7d);
-    const solicitudesNuevas = (solicitudesRes.data ?? []) as SolicitudNueva[];
+    // estado='Nueva' cubre dos casos: solicitud nunca contestada (`mensaje_enviado_en` null, de
+    // verdad nueva) y solicitud ya contestada que `revisar-gmail` volvió a poner en "Nueva"
+    // porque el cliente respondió en el mismo hilo (`mensaje_enviado_en` no-null) — esa segunda
+    // es una respuesta pendiente, no un lead nuevo (mismo criterio que useNotificaciones.ts,
+    // bug real corregido 2026-08-19: antes ambas salían como "solicitud nueva sin revisar").
+    const todasLasSolicitudesNueva = (solicitudesRes.data ?? []) as SolicitudNueva[];
+    const solicitudesNuevas = todasLasSolicitudesNueva.filter((s) => !s.mensaje_enviado_en);
+    const solicitudesConRespuesta = todasLasSolicitudesNueva.filter((s) => s.mensaje_enviado_en);
+    const gastosPendientes = (gastosRes.data ?? []) as GastoPendiente[];
+    // Mismo criterio que estadoSeguimiento() en src/modules/solicitudes/types.ts: hay respuesta
+    // del cliente y todavía no se generó ni envió ningún mensaje de seguimiento.
+    const seguimientosNuevos = ((seguimientosRes.data ?? []) as SeguimientoNuevo[]).filter(
+      (p) => !p.mensaje_seguimiento_enviado && !p.mensaje_seguimiento_generado,
+    );
 
-    const totalUrgentes = facturasVencidas.length + presupuestosCaducados.length + presupuestosPorCaducar.length + solicitudesNuevas.length;
+    const totalUrgentes =
+      facturasVencidas.length +
+      presupuestosCaducados.length +
+      presupuestosPorCaducar.length +
+      solicitudesNuevas.length +
+      solicitudesConRespuesta.length +
+      gastosPendientes.length +
+      seguimientosNuevos.length;
 
     if (totalUrgentes === 0) {
       return jsonResponse({ ok: true, enviado: false, motivo: 'nada urgente pendiente hoy' });
@@ -218,6 +279,27 @@ Deno.serve(async (req: Request) => {
           detalle: s.created_at ? new Date(s.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' }) : '—',
         })),
       ),
+      seccionHtml(
+        'Respuestas de cliente a solicitudes sin revisar',
+        solicitudesConRespuesta.map((s) => ({
+          titulo: s.nombre || s.email || 'Sin nombre',
+          detalle: s.created_at ? new Date(s.created_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' }) : '—',
+        })),
+      ),
+      seccionHtml(
+        'Gastos de kilometraje pendientes de revisar',
+        gastosPendientes.map((g) => ({
+          titulo: g.descripcion ?? 'Gasto de kilometraje',
+          detalle: `${g.fecha ?? '—'} · ${(g.importe_base ?? 0).toFixed(2)} €`,
+        })),
+      ),
+      seccionHtml(
+        'Respuestas de cliente sin revisar',
+        seguimientosNuevos.map((p) => ({
+          titulo: p.numero ?? 'Sin número',
+          detalle: `${p.cliente_nombre ?? '—'} · respondió el ${p.ultima_respuesta_cliente_fecha ?? '—'}`,
+        })),
+      ),
     ];
 
     const cuerpo = construirHtml(secciones);
@@ -245,6 +327,14 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
     }
 
+    // Se marca DESPUÉS de un envío realmente correcto — si Gmail falla, la próxima invocación
+    // (reintento o el cron del día siguiente si nadie reintenta antes) debe poder volver a intentarlo.
+    const { error: errorMarcar } = await supabase
+      .from('alerta_diaria_estado')
+      .update({ ultima_fecha_enviada: hoy })
+      .eq('id', 1);
+    if (errorMarcar) console.error('No se pudo marcar alerta_diaria_estado tras el envío:', errorMarcar.message);
+
     return jsonResponse({
       ok: true,
       enviado: true,
@@ -253,6 +343,9 @@ Deno.serve(async (req: Request) => {
         presupuestosCaducados: presupuestosCaducados.length,
         presupuestosPorCaducar: presupuestosPorCaducar.length,
         solicitudesNuevas: solicitudesNuevas.length,
+        solicitudesConRespuesta: solicitudesConRespuesta.length,
+        gastosPendientes: gastosPendientes.length,
+        seguimientosNuevos: seguimientosNuevos.length,
       },
     });
   } catch (err) {

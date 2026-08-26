@@ -7,6 +7,7 @@ import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
 
 type FacturaCobrada = {
+  id: string;
   numero: string | null;
   cliente_nombre: string | null;
   fecha_pago: string | null;
@@ -45,9 +46,12 @@ export default function ResultadoPage() {
   const { data: facturas, isLoading: cargandoFacturas } = useQuery({
     queryKey: ['facturas', 'cobradas'],
     queryFn: async () => {
+      // Mismo superconjunto de columnas que LibroIngresosPage.tsx — comparten esta queryKey y
+      // Tanstack Query cachea por key, no por select (mismo patrón de bug ya corregido en
+      // asientos_contables, ver LibroMayorPage.tsx).
       const { data, error } = await supabase
         .from('facturas')
-        .select('numero, cliente_nombre, fecha_pago, monto_pagado, tipo_iva')
+        .select('id, numero, cliente_nombre, fecha_pago, monto_pagado, tipo_iva')
         .is('eliminado_en', null)
         .not('monto_pagado', 'is', null);
       if (error) throw error;

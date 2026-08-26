@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Image as ImageIcon } from 'lucide-react';
@@ -14,6 +14,7 @@ import { PortadaPreview } from './PortadaPreview';
 import { notificarCambioConfig } from '../../lib/notificaciones';
 import { guardarConfigDatos } from '../../lib/empresaConfig';
 import { useHidratarUnaVez } from '../../hooks/useHidratarUnaVez';
+import { pathEmpresaDesdeUrl } from './storagePaths';
 
 function Bloque({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
@@ -39,8 +40,12 @@ export default function ConstructorPortadaPage() {
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [previewOrientativo, setPreviewOrientativo] = useState(true);
   const [previewIdioma, setPreviewIdioma] = useState<'es' | 'fr'>('es');
+  // Foto ya persistida en BD al cargar la página — se usa para poder borrarla de Storage en
+  // guardarMutation si el usuario confirma un cambio (subir-y-cancelar no debe borrar nada, ver
+  // comentario junto a guardarMutation más abajo).
+  const fotoOriginalUrlRef = useRef('');
 
-  const { data: empresaConfig, isLoading } = useQuery({
+  const { data: empresaConfig, isLoading, error: errorEmpresaConfig } = useQuery({
     queryKey: ['empresa_config'],
     queryFn: async () => {
       const { data, error } = await supabase.from('empresa_config').select('*').eq('id', 1).single();
@@ -48,6 +53,10 @@ export default function ConstructorPortadaPage() {
       return data;
     },
   });
+  useEffect(() => {
+    if (errorEmpresaConfig) toast.error(`No se pudo cargar la configuración de empresa: ${errorEmpresaConfig.message}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [errorEmpresaConfig]);
 
   // Solo se hidrata una vez — el polling de 'empresa_config' no debe pisar ediciones en curso.
   useHidratarUnaVez(empresaConfig, (empresaConfig) => {
@@ -55,13 +64,16 @@ export default function ConstructorPortadaPage() {
     setConfig(configPlantillaDesde(datos.plantilla_documento));
     const portada = configPortadaDesde(datos.portada);
     setFotoUrl(portada.fotoUrl);
+    fotoOriginalUrlRef.current = portada.fotoUrl;
     setFiltroOpacidad(portada.filtroOpacidad);
   });
 
   const datosEmpresa = (empresaConfig?.datos ?? {}) as { logo_url?: string; logo_oficial_url?: string };
   const logoOficialUrl = datosEmpresa.logo_oficial_url || datosEmpresa.logo_url || '';
 
-  const actualizarDatos = async (parcial: Record<string, unknown>) => {
+  const actualizarDatos = async (
+    parcial: Record<string, unknown> | ((datosActuales: Record<string, unknown>) => Record<string, unknown>),
+  ) => {
     await guardarConfigDatos(parcial);
     queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
   };
@@ -78,6 +90,7 @@ export default function ConstructorPortadaPage() {
       return;
     }
     setSubiendoLogo(true);
+    const logoAnteriorUrl = datosEmpresa.logo_oficial_url ?? '';
     const extension = file.name.split('.').pop() ?? 'png';
     const path = `logo_oficial_${Date.now()}.${extension}`;
     const { error: errorSubida } = await supabase.storage.from('empresa').upload(path, file, { contentType: file.type, upsert: true });
@@ -91,6 +104,14 @@ export default function ConstructorPortadaPage() {
       await actualizarDatos({ logo_oficial_url: data.publicUrl });
       toast.success('Logo oficial actualizado');
       notificarCambioConfig(user, 'cambió el logo oficial en el Constructor de portadas.');
+      // Cada subida usaba un nombre con Date.now() distinto — sin borrar el anterior, el bucket
+      // acumulaba un archivo huérfano por cada cambio de logo (bug real corregido 2026-08-18).
+      // Best-effort: un fallo aquí no debe impedir usar el logo recién subido.
+      const pathAnterior = pathEmpresaDesdeUrl(logoAnteriorUrl);
+      if (pathAnterior) {
+        const { error: errorBorrado } = await supabase.storage.from('empresa').remove([pathAnterior]);
+        if (errorBorrado) console.warn('No se pudo borrar el logo oficial anterior en Storage:', errorBorrado.message);
+      }
     } catch (error) {
       toast.error((error as Error).message);
     }
@@ -122,14 +143,39 @@ export default function ConstructorPortadaPage() {
   };
 
   const guardarMutation = useMutation({
+    // Solo se editan aquí portadaTaglineEs/Fr (dentro de plantilla_documento, clave compartida con
+    // ConstructorPlantillasPage y PlantillasSection) y 'portada' completo (esta pantalla es la
+    // única dueña de esa clave). Releer y fusionar solo esos dos campos, no el `config` local
+    // completo — evita revertir un color/estilo cambiado mientras tanto en otra pestaña (bug real
+    // corregido 2026-08-18).
     mutationFn: () =>
-      actualizarDatos({
-        plantilla_documento: config,
-        portada: { foto_url: fotoUrl, filtro_opacidad: filtroOpacidad },
+      actualizarDatos((datosActuales) => {
+        const fresca = configPlantillaDesde((datosActuales as { plantilla_documento?: unknown }).plantilla_documento);
+        return {
+          plantilla_documento: { ...fresca, portadaTaglineEs: config.portadaTaglineEs, portadaTaglineFr: config.portadaTaglineFr },
+          portada: { foto_url: fotoUrl, filtro_opacidad: filtroOpacidad },
+        };
       }),
     onSuccess: () => {
       toast.success('Portada guardada');
       notificarCambioConfig(user, 'actualizó el Constructor de portadas (foto, filtro o frase).');
+      // Solo se borra la foto anterior AQUÍ, tras un guardado real confirmado — borrarla ya al
+      // subir la nueva (como si hiciera guardarConfigDatos de inmediato) rompería la portada si
+      // el usuario sube una foto y luego sale sin pulsar "Guardar" (bug real corregido
+      // 2026-08-18, mismo patrón que el logo, pero la foto no se persiste hasta guardar).
+      const fotoAnterior = fotoOriginalUrlRef.current;
+      if (fotoAnterior && fotoAnterior !== fotoUrl) {
+        const pathAnterior = pathEmpresaDesdeUrl(fotoAnterior);
+        if (pathAnterior) {
+          supabase.storage
+            .from('empresa')
+            .remove([pathAnterior])
+            .then(({ error: errorBorrado }) => {
+              if (errorBorrado) console.warn('No se pudo borrar la foto de portada anterior en Storage:', errorBorrado.message);
+            });
+        }
+      }
+      fotoOriginalUrlRef.current = fotoUrl;
     },
     onError: (error: Error) => toast.error(error.message),
   });

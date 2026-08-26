@@ -1,6 +1,6 @@
 // Edge Function: recibe el webhook de Documenso cuando un presupuesto se firma
 // y lo marca automáticamente como firmado + Aceptado. Se registra en Documenso
-// (Settings → Webhooks) apuntando a esta función. Ver docs/documenso.md.
+// (Settings → Webhooks) apuntando a esta función. Ver docs/tecnico/documenso.md.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -41,7 +41,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   // Falla cerrado: si el secreto no está configurado como secret de la función, se rechaza toda
-  // petición en vez de aceptarlas todas sin comprobar nada (ver docs/documenso.md § 4 y 6).
+  // petición en vez de aceptarlas todas sin comprobar nada (ver docs/tecnico/documenso.md § 4 y 6).
   const secretoEsperado = Deno.env.get('DOCUMENSO_WEBHOOK_SECRET');
   const secretoRecibido = req.headers.get('x-documenso-secret');
   if (!secretoEsperado || secretoRecibido !== secretoEsperado) {
@@ -71,7 +71,11 @@ Deno.serve(async (req: Request) => {
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-  const busqueda = supabase.from('presupuestos').select('id, numero, visita_id, cliente_tel, firmado').limit(1);
+  // .is('eliminado_en', null): un presupuesto en la papelera (soft-delete, no purgado todavía)
+  // no debe poder marcarse Aceptado/firmado mientras sigue oculto ahí — quedaría "aceptado y
+  // firmado" de verdad sin que nadie lo vea salvo que entre a la papelera a propósito (bug real
+  // corregido 2026-08-18).
+  const busqueda = supabase.from('presupuestos').select('id, numero, visita_id, cliente_tel, firmado').is('eliminado_en', null).limit(1);
   const { data: presupuestos, error: buscarError } = externalId
     ? await busqueda.eq('id', externalId)
     : await busqueda.eq('documenso_envelope_id', envelopeId);
@@ -107,7 +111,8 @@ Deno.serve(async (req: Request) => {
     documento_id: presupuesto.id,
     evento: 'Firmado electrónicamente (Documenso) — marcado como Aceptado',
   });
-  await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_firmado', presupuesto_id: presupuesto.id });
+  const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_firmado', presupuesto_id: presupuesto.id });
+  if (errorFunnel) console.error('No se pudo registrar el evento de funnel presupuesto_firmado:', errorFunnel.message);
 
   // Sincroniza la etapa de pipeline del cliente, igual que hace la firma manual en el frontend
   // (sincronizarPipelineCliente) — aquí no hay usuario con sesión abierta que lo dispare.
@@ -155,7 +160,9 @@ Deno.serve(async (req: Request) => {
 
       if (nuevaEtapa !== ultimaVisita.estado_pipeline) {
         const { error: pipelineError } = await supabase.from('visitas').update({ estado_pipeline: nuevaEtapa }).eq('id', ultimaVisita.id);
-        if (!pipelineError) {
+        if (pipelineError) {
+          console.error('No se pudo sincronizar estado_pipeline tras la firma:', pipelineError.message);
+        } else {
           await supabase.from('notas_cliente').insert({
             visita_id: ultimaVisita.id,
             tipo: 'sistema',

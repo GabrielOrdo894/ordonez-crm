@@ -26,18 +26,8 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Datos de negocio (no son código, quedan solo en disco local)
-/avatares/
-/catalogos/
-/documentos legales/
-/equipo-marketing/
-/equipo-presupuestos/
-/guias/
-/modificaciones/
-/nueva solicitud de presupuesto/
-/plantilla de presupuesto/
-/plantillas-email/
-/solicitudes-presupuesto/
+# Datos de negocio (no son código, quedan solo en disco local) — todo bajo /negocio/ desde 2026-08-18
+/negocio/
 
 # Build info de TypeScript
 *.tsbuildinfo

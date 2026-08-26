@@ -49,7 +49,7 @@ de darla por buena.
 Directriz (Gabriel, 2026-07-28): quien escribe por primera vez a través de un
 formulario de la web (o directamente) quiere saber ante todo **cuándo puede
 ser la visita, o si no se puede todavía**. Las solicitudes llegan por cuatro
-canales distintos (ver `docs/bloque6-solicitudes-seguimiento.md` y buscar en
+canales distintos (ver `docs/producto/bloque6-solicitudes-seguimiento.md` y buscar en
 Gmail con `from:8c3d549c-46cd-4773-9027-31b23bc30704@landbot.email OR
 from:noreply@ordonezrenov.com`, más los autoenvíos de Gabriel y los emails
 directos de clientes, que no se detectan por remitente):
@@ -91,9 +91,9 @@ primero":
    tiene, no la creamos nosotros. No hace falta incluir esta aclaración si el
    cliente ya sabe lo que quiere y no la pide.
 
-**Dónde guardar la respuesta:** en `solicitudes-presupuesto/<fecha> - <nombre
+**Dónde guardar la respuesta:** en `negocio/solicitudes-presupuesto/<fecha> - <nombre
 o email del cliente>/`, carpeta en la raíz del repo, separada de
-`equipo-presupuestos/` (esa es solo para presupuestos ya creados en el CRM).
+`negocio/equipo-presupuestos/` (esa es solo para presupuestos ya creados en el CRM).
 Generar el PDF con `scripts/generar-pdf-solicitud.mjs`.
 
 ---
@@ -119,7 +119,7 @@ color/modelo, si duda entre opciones) y trátalo según corresponda.
   trabajamos, no es bricolaje.
 - El presupuesto orientativo que le demos mientras tanto está basado en precios medios de
   Alkain — nuestro catálogo propio está desactualizado, así que no se entrega hasta que
-  llegue el nuevo (ver `catalogos/` en la raíz del repo: catálogos de Gamma y Roca, dos de
+  llegue el nuevo (ver `negocio/catalogo/` en la raíz del repo: catálogos de Gamma y Roca, dos de
   las marcas que Alkain distribuye, útiles de referencia interna pero no para enviar al
   cliente).
 - Recomiéndale llevar las medidas en metros cuadrados de la estancia a Alkain, para que
@@ -136,7 +136,7 @@ color/modelo, si duda entre opciones) y trátalo según corresponda.
 
 Directriz (Gabriel, 2026-08-02): la zona de trabajo real tiene un límite concreto — lado francés hasta
 **Biarritz** (pasando por Hendaya, Urrugne, Biriatu, Saint-Jean-de-Luz, Bayonne), lado español hasta
-**Donostia/San Sebastián**. Ver tabla completa en `docs/empresa.md` § "Zona de operación".
+**Donostia/San Sebastián**. Ver tabla completa en `docs/negocio/empresa.md` § "Zona de operación".
 
 - Si la dirección de la obra que da el cliente está claramente fuera de ese límite, no ofrezcas visita técnica ni
   presupuesto orientativo — dilo con claridad y cortesía: que la obra queda fuera de la zona en la que trabajamos

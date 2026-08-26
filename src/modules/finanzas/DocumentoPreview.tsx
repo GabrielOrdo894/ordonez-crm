@@ -77,6 +77,7 @@ export type ConfigPlantilla = {
 };
 
 const TAMANOS_VALIDOS: TamanoTitulo[] = ['sm', 'md', 'lg'];
+const ESTRUCTURAS_VALIDAS: PlantillaDocumento[] = PLANTILLAS_DOCUMENTO.map((p) => p.value);
 
 export const PORTADA_TAGLINE_ES_DEFECTO = 'Calidad, compromiso y confianza en cada detalle.';
 export const PORTADA_TAGLINE_FR_DEFECTO = 'Qualité, engagement et confiance à chaque détail.';
@@ -113,8 +114,12 @@ export function configPlantillaDesde(valor: unknown): ConfigPlantilla {
   }
   const v = valor as Partial<ConfigPlantilla>;
   return {
-    // Estructura fijada a "minimalista" — el resto de estilos ya no se ofrecen en el constructor.
-    estructura: 'minimalista',
+    // Bug real corregido 2026-08-18: esto forzaba 'minimalista' sin importar lo que Gabriel
+    // eligiera y guardara en Configuración → Plantillas, así que la elección de las 7 tarjetas
+    // (PlantillasSection.tsx) nunca llegaba a ningún PDF. Se respeta el valor guardado de verdad.
+    estructura: (ESTRUCTURAS_VALIDAS.includes(v.estructura as ConfigPlantilla['estructura'])
+      ? v.estructura
+      : CONFIG_PLANTILLA_DEFECTO.estructura) as ConfigPlantilla['estructura'],
     colorPrimario: v.colorPrimario || CONFIG_PLANTILLA_DEFECTO.colorPrimario,
     colorSecundario: v.colorSecundario || CONFIG_PLANTILLA_DEFECTO.colorSecundario,
     mostrarLogo: v.mostrarLogo ?? CONFIG_PLANTILLA_DEFECTO.mostrarLogo,

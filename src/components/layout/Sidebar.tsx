@@ -258,7 +258,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
       const { data, error } = await supabase
         .from('presupuestos')
         .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en',
+          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
         )
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null)

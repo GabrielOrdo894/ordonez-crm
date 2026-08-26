@@ -1,7 +1,10 @@
-import { Calendar, MapPin } from 'lucide-react';
+import { useState } from 'react';
+import { Calendar, MapPin, Image as ImageIcon } from 'lucide-react';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { RutaPreview } from '../google/RutaPreview';
+import { GaleriaForm } from '../galeria/GaleriaForm';
 import { fechaVisitaLarga } from '../../lib/fechas';
+import { VisitaChecklist } from './VisitaChecklist';
 import type { Visita } from './types';
 
 export function urlGoogleMaps(v: Visita) {
@@ -12,6 +15,7 @@ export function urlGoogleMaps(v: Visita) {
 
 export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
   const urlMaps = urlGoogleMaps(visita);
+  const [mostrarFormGaleria, setMostrarFormGaleria] = useState(false);
 
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -100,6 +104,28 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
           <p className="text-gray-700">{visita.notas}</p>
         </div>
       )}
+
+      <div className="border-t border-gray-200 pt-3">
+        <VisitaChecklist visitaId={visita.id} checklist={visita.checklist} />
+        <button
+          onClick={() => setMostrarFormGaleria(true)}
+          className="flex items-center gap-1.5 text-xs text-brand hover:underline mt-3"
+        >
+          <ImageIcon size={13} />
+          + Foto a galería (vinculada a esta visita)
+        </button>
+      </div>
+
+      <GaleriaForm
+        open={mostrarFormGaleria}
+        onClose={() => setMostrarFormGaleria(false)}
+        visitaPrefill={{
+          visita_id: visita.id,
+          titulo: `${visita.tipo ?? 'Reforma'} — ${visita.nombre} ${visita.apellidos}`,
+          tipo_obra: visita.tipo ?? '',
+          zona: visita.zona ?? '',
+        }}
+      />
     </div>
   );
 }

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Star, Plus, Copy, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Trash2, Star, Plus, Copy, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
+import { camposContactoFaltantes } from '../../../lib/datosContacto';
 import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
 import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
+import { vincularSolicitudPorContacto } from '../../../lib/funnelTracking';
 import { generarPdfPresupuesto } from '../../../lib/generarPdfPresupuesto';
 import { enviarPresupuestoAFirmar } from '../../../lib/documenso';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
@@ -151,6 +153,10 @@ type PresupuestoFormProps = {
   tipoInicial?: TipoPresupuesto;
   formatoInicial?: FormatoPresupuesto;
   clienteInicialId?: string;
+  // Datos de contacto de un cliente potencial (solicitud/orientativo previo) para rellenar de
+  // entrada los campos de texto libre del cliente cuando no hay clienteInicialId (presupuesto
+  // orientativo sin cliente real todavía) — no crea ninguna visita.
+  clientePotencialPrefill?: { nombre: string; telefono: string; email: string; idioma?: string };
   idiomaInicial?: string;
   desdeOrientativo?: Presupuesto | null;
 };
@@ -161,6 +167,7 @@ export function PresupuestoForm({
   tipoInicial,
   formatoInicial,
   clienteInicialId,
+  clientePotencialPrefill,
   idiomaInicial,
   desdeOrientativo,
 }: PresupuestoFormProps) {
@@ -252,7 +259,15 @@ export function PresupuestoForm({
       setClienteSeleccionado('');
       setNotaActivada(false);
     } else {
-      setForm({ ...vacio(), tipo: tipoInicial ?? 'normal', formato: formatoInicial ?? 'rapido', idioma: idiomaInicial ?? 'Español' });
+      setForm({
+        ...vacio(),
+        tipo: tipoInicial ?? 'normal',
+        formato: formatoInicial ?? 'rapido',
+        idioma: clientePotencialPrefill?.idioma === 'Français' ? 'Français' : (idiomaInicial ?? 'Español'),
+        cliente_nombre: clientePotencialPrefill?.nombre ?? '',
+        cliente_tel: clientePotencialPrefill?.telefono ?? '',
+        cliente_email: clientePotencialPrefill?.email ?? '',
+      });
       setClienteSeleccionado(clienteInicialId ?? '');
       setNotaActivada(false);
     }
@@ -306,6 +321,12 @@ export function PresupuestoForm({
 
   const porcentaje = porcentajeIva(form.tipo_iva);
   const esOrientativo = form.tipo === 'orientativo';
+  const camposFaltantesCliente = camposContactoFaltantes({
+    nombre: form.cliente_nombre,
+    telefono: form.cliente_tel,
+    direccion: form.cliente_dir,
+    email: form.cliente_email,
+  });
 
   // Por normativa un presupuesto orientativo no lleva IVA (se determina en el presupuesto normal
   // tras la visita técnica) — se fuerza a "Exento" para que ningún cálculo le aplique impuesto.
@@ -437,6 +458,7 @@ export function PresupuestoForm({
         await notaSistema(form.visita_id, `Presupuesto ${numero} creado por ${nombreUsuarioActual}`);
       }
       await registrarEvento('presupuesto', data.id, 'Presupuesto creado');
+      await vincularSolicitudPorContacto(data.id, { telefono: nuevo.cliente_tel, email: nuevo.cliente_email });
       if (desdeOrientativo) {
         await registrarEvento('presupuesto', desdeOrientativo.id, `Presupuesto normal ${numero} creado a partir de este orientativo`);
       }
@@ -698,6 +720,18 @@ export function PresupuestoForm({
           </FaseCard>
 
           <FaseCard numero={2} titulo="Cliente">
+            {!esOrientativo && !form.visita_id && (
+              <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 mb-3">
+                Este presupuesto normal no está vinculado a ningún cliente registrado — elige uno existente
+                arriba o créalo desde Clientes para que quede como cliente real.
+              </p>
+            )}
+            {camposFaltantesCliente.length > 0 && (
+              <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 mb-3 flex items-center gap-2">
+                <AlertTriangle size={14} className="shrink-0" />
+                Faltan datos de contacto del cliente: {camposFaltantesCliente.join(', ')}.
+              </p>
+            )}
             {!editandoCliente && form.cliente_nombre.trim() ? (
               <button
                 onClick={() => setConfirmarEdicionAbierto(true)}

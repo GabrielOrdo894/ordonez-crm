@@ -85,6 +85,7 @@ type FormState = {
   metodo_pago: string;
   nota: string;
   estado_cobro: string;
+  estructura_anterior: boolean;
 };
 
 function vacio(): FormState {
@@ -107,6 +108,7 @@ function vacio(): FormState {
     metodo_pago: 'Transferencia',
     nota: '',
     estado_cobro: 'Pendiente',
+    estructura_anterior: false,
   };
 }
 
@@ -213,6 +215,7 @@ export function FacturaForm({
         metodo_pago: factura.metodo_pago ?? 'Transferencia',
         nota: factura.nota ?? '',
         estado_cobro: factura.estado_cobro,
+        estructura_anterior: factura.estructura_anterior ?? false,
       });
       setNotaActivada(!!factura.nota);
     } else if (desdePresupuesto) {
@@ -235,6 +238,7 @@ export function FacturaForm({
         metodo_pago: 'Transferencia',
         nota: '',
         estado_cobro: 'Pendiente',
+        estructura_anterior: false,
       });
       setNotaActivada(false);
     } else if (facturaOriginal) {
@@ -261,6 +265,7 @@ export function FacturaForm({
         metodo_pago: facturaOriginal.metodo_pago ?? 'Transferencia',
         nota: notaRectificativa,
         estado_cobro: 'Pendiente',
+        estructura_anterior: facturaOriginal.estructura_anterior ?? false,
       });
       setNotaActivada(true);
     } else {
@@ -364,6 +369,7 @@ export function FacturaForm({
         metodo_pago: form.metodo_pago,
         nota: notaActivada ? form.nota || null : null,
         estado_cobro: form.estado_cobro,
+        estructura_anterior: form.estructura_anterior,
         fecha_pago: factura?.fecha_pago ?? null,
         monto_pagado: factura?.monto_pagado ?? null,
         resena_enviada: factura?.resena_enviada ?? false,
@@ -399,6 +405,23 @@ export function FacturaForm({
       if (form.presupuesto_id) {
         const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : form.tipo === 'rectificativa' ? 'rectificativa' : 'completa/final';
         await registrarEvento('presupuesto', form.presupuesto_id, `Factura ${numero} generada (${tipoTexto})`);
+        // Tener una factura implica que el presupuesto se aceptó, aunque nadie lo marcara a mano
+        // (p.ej. facturas creadas directamente) — filtro .eq('estado','Pendiente') para no tocar
+        // ni re-registrar el evento de funnel si ya estaba Aceptado, y sobre todo para no
+        // reactivar un presupuesto que se había Rechazado explícitamente (bug real corregido
+        // 2026-08-18: el filtro anterior era .neq('estado','Aceptado'), que sí lo reactivaba).
+        const { data: aceptado, error: errorAceptar } = await supabase
+          .from('presupuestos')
+          .update({ estado: 'Aceptado' })
+          .eq('id', form.presupuesto_id)
+          .eq('estado', 'Pendiente')
+          .select('id')
+          .maybeSingle();
+        if (errorAceptar) {
+          toast.warning(`Factura creada, pero no se pudo marcar el presupuesto como Aceptado: ${errorAceptar.message}`);
+        } else if (aceptado) {
+          await registrarEventoFunnel('presupuesto_aceptado', { presupuestoId: form.presupuesto_id });
+        }
       }
       return { id: data.id as string, numero: numero as string, esNueva: true };
     },
@@ -411,7 +434,7 @@ export function FacturaForm({
       // Al emitir: asiento nuevo si es de Francia. Al editar: se rectifica (asiento espejo, solo
       // el evento de emisión — el cobro, si existe, no se toca aquí) el asiento previo y se
       // registra uno nuevo con los valores corregidos si sigue siendo de Francia.
-      if (resultado.esNueva && form.pais === 'Francia') {
+      if (resultado.esNueva && form.pais === 'Francia' && !form.estructura_anterior) {
         registrarAsientoFacturaEmision({
           id: resultado.id,
           numero: resultado.numero,
@@ -422,8 +445,8 @@ export function FacturaForm({
       } else if (!resultado.esNueva) {
         (async () => {
           try {
-            await rectificarAsientos('factura', resultado.id, 'creacion');
-            if (form.pais === 'Francia') {
+            await rectificarAsientos('factura', resultado.id, 'creacion', factura?.fecha_factura ?? form.fecha_factura);
+            if (form.pais === 'Francia' && !form.estructura_anterior) {
               await registrarAsientoFacturaEmision({
                 id: resultado.id,
                 numero: resultado.numero,
@@ -644,6 +667,17 @@ export function FacturaForm({
               <p className="text-xs text-gray-500 mt-3">
                 Pagado: {factura.monto_pagado.toFixed(2)} € el {factura.fecha_pago?.slice(0, 10)}
               </p>
+            )}
+            {form.pais === 'Francia' && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
+                <input
+                  type="checkbox"
+                  checked={form.estructura_anterior}
+                  onChange={(e) => setForm((f) => ({ ...f, estructura_anterior: e.target.checked }))}
+                />
+                Cobro de una estructura anterior a la EURL actual (no cuenta como ingreso real — no entra en TVA,
+                Resultado, Libro Mayor ni dashboards)
+              </label>
             )}
             <div className="mt-3 border-t border-gray-200 pt-3">
               <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">

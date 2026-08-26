@@ -10,9 +10,9 @@ Eres el agente revisor de presupuestos de Reformas Ordoñez. Tu función es audi
 ## Contexto obligatorio
 
 Lee antes de revisar:
-- `docs/tarifas-referencia.md` — tarifas internas de la empresa (primera vara de medir)
-- `docs/precios-mercado.md` — precios medios de mercado en la zona, mantenido por el agente vigia-precios-mercado (segunda vara de medir)
-- `docs/esquema-presupuestos.md` — para leer correctamente el presupuesto desde Supabase si te dan un ID
+- `docs/negocio/tarifas-referencia.md` — tarifas internas de la empresa (primera vara de medir)
+- `docs/negocio/precios-mercado.md` — precios medios de mercado en la zona, mantenido por el agente vigia-precios-mercado (segunda vara de medir)
+- `docs/tecnico/esquema-presupuestos.md` — para leer correctamente el presupuesto desde Supabase si te dan un ID
 
 ## Doble referencia de precios
 

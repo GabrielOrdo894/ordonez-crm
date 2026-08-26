@@ -15,6 +15,15 @@ import type { Factura } from '../finanzas/facturas/types';
 
 type Tabla = 'visitas' | 'presupuestos' | 'facturas';
 
+// Mismo patrón que ClientePrivacidadTab.tsx (purga RGPD) — el bucket 'galeria' es público, así que
+// la URL guardada en cada foto es la URL pública completa, no un path de Storage.
+const BUCKET_GALERIA = 'galeria';
+function pathGaleriaDesdeUrl(url: string): string | null {
+  const marca = `/storage/v1/object/public/${BUCKET_GALERIA}/`;
+  const idx = url.indexOf(marca);
+  return idx === -1 ? null : url.slice(idx + marca.length);
+}
+
 function fechaHora(iso: string | null | undefined) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -38,7 +47,7 @@ function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null
         .from(tabla)
         .select('*')
         .not('eliminado_en', 'is', null)
-        .order('eliminado_en', { ascending: false });
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as T[];
     },
@@ -116,12 +125,34 @@ function TablaVisitas() {
           console.warn('No se pudo borrar el evento de Google Calendar al purgar la visita:', (error as Error).message);
         }
       }
-      const { error } = await supabase.from('notas_cliente').delete().eq('visita_id', id);
-      if (error) throw error;
+      // galeria.visita_id no tiene FK (ni cascade ni set null) — a diferencia de
+      // presupuestos/facturas/gastos, purgar la visita dejaba estas filas y sus fotos en el bucket
+      // público 'galeria' huérfanas para siempre, sin limpieza (bug real corregido 2026-08-18; el
+      // flujo RGPD de ClientePrivacidadTab.tsx sí lo hacía bien, mismo patrón reutilizado aquí).
+      const { data: proyectosGaleria, error: errorLecturaGaleria } = await supabase
+        .from('galeria')
+        .select('id, fotos')
+        .eq('visita_id', id);
+      if (errorLecturaGaleria) throw errorLecturaGaleria;
+      const rutasFotos = (proyectosGaleria ?? [])
+        .flatMap((g) => (g.fotos as { url: string }[] | null) ?? [])
+        .map((f) => pathGaleriaDesdeUrl(f.url))
+        .filter((p): p is string => !!p);
+      if (rutasFotos.length > 0) {
+        const { error: errorStorage } = await supabase.storage.from(BUCKET_GALERIA).remove(rutasFotos);
+        if (errorStorage) console.warn('No se pudieron borrar todas las fotos de galería en Storage:', errorStorage.message);
+      }
+      if (proyectosGaleria && proyectosGaleria.length > 0) {
+        const { error: errorGaleria } = await supabase.from('galeria').delete().eq('visita_id', id);
+        if (errorGaleria) throw errorGaleria;
+      }
+      // notas_cliente.visita_id ya tiene ON DELETE CASCADE real en BD — el DELETE manual que había
+      // aquí era redundante (código muerto que podía confundir sobre qué hace falta limpiar a
+      // mano, corregido 2026-08-18); se borran solas al eliminar la fila de visitas más abajo.
     },
     async (id) => {
       const aviso = await avisoDocumentosActivosDeVisita(id);
-      return aviso ? `${aviso} Se quedarán sin cliente vinculado tras la purga.` : '';
+      return aviso ? `${aviso} Se quedarán sin cliente vinculado tras la purga (las fotos de galería sí se borrarán).` : '';
     },
   );
 
@@ -157,12 +188,32 @@ function TablaVisitas() {
 }
 
 function TablaPresupuestos() {
-  const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Presupuesto>('presupuestos', async (id) => {
-    const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'presupuesto').eq('documento_id', id);
-    if (error) throw error;
-    const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().eq('presupuesto_id', id);
-    if (errorFunnel) throw errorFunnel;
-  });
+  const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Presupuesto>(
+    'presupuestos',
+    async (id) => {
+      const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'presupuesto').eq('documento_id', id);
+      if (error) throw error;
+      const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().eq('presupuesto_id', id);
+      if (errorFunnel) throw errorFunnel;
+    },
+    async (id) => {
+      // Purgar un presupuesto con una firma Documenso enviada y aún sin completar no la cancela —
+      // no existe ninguna función de cancelación de envelope en este proyecto. Si el cliente firma
+      // después, el webhook ya no encuentra el presupuesto y la firma se pierde en silencio (bug
+      // real corregido 2026-08-18) — este aviso es la mitigación posible sin construir cancelación
+      // real en Documenso.
+      const { data: p, error } = await supabase
+        .from('presupuestos')
+        .select('documenso_envelope_id, documenso_estado, firmado')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      if (p?.documenso_envelope_id && !p.firmado && p.documenso_estado !== 'COMPLETED') {
+        return ' Este presupuesto tiene una firma electrónica enviada y todavía pendiente en Documenso — purgarlo no la cancela; si el cliente firma después, esa firma se perderá sin ningún aviso.';
+      }
+      return '';
+    },
+  );
 
   return (
     <Table<Presupuesto>

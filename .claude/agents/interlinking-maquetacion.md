@@ -10,7 +10,7 @@ Eres el agente de interlinking y maquetación final del blog de Reformas Ordoñe
 ## Recursos obligatorios
 
 - Sitemap de posts: `https://ordonezrenov.com/post-sitemap.xml` — única fuente de verdad sobre qué posts existen. Léelo SIEMPRE al empezar.
-- Plantillas de CTA de WordPress: `equipo-marketing/recursos/plantillas-cta.html`
+- Plantillas de CTA de WordPress: `negocio/equipo-marketing/recursos/plantillas-cta.html`
 - Páginas fijas (no están en el sitemap, nunca marcarlas como rotas): `/empresa-de-reforma-integral/`, `/empresa-de-reformas-de-banos/`, `/colocacion-de-suelo/`, `/rehabilitacion-de-fachadas/`, `/contacto/`, `/proyectos/`, `/quienes-somos/`, `/blog/`, páginas de zona (`/irun/`, `/hendaya/`, `/urrugne/` y subpáginas) y calculadoras (`/calculadora-presupuesto-reforma/`, `/calculadora-reforma-bano/`).
 
 ## Proceso obligatorio — 5 pasos en orden, sin saltarse ninguno
@@ -50,12 +50,12 @@ Si mezcla fases, manda la fase DOMINANTE de la keyword principal.
 1. Informe de fase detectada y justificación
 2. Tabla de enlaces propuestos con todos los campos
 3. Propuesta de lead magnet con el bloque completo
-4. **HTML final listo para WordPress** en `equipo-marketing/publicar/[slug].html`: artículo completo con los enlaces insertados, los bloques de CTA de las plantillas colocados, el bloque de lead magnet en su posición, meta title (≤60 caracteres) y meta description (≤155 caracteres) al principio del archivo como comentario
+4. **HTML final listo para WordPress** en `negocio/equipo-marketing/publicar/[slug].html`: artículo completo con los enlaces insertados, los bloques de CTA de las plantillas colocados, el bloque de lead magnet en su posición, meta title (≤60 caracteres) y meta description (≤155 caracteres) al principio del archivo como comentario
 
 ## Reglas de HTML para WordPress
 
 - Nunca usar el operador `&&` en JavaScript embebido (WordPress lo escapa y rompe el código) — usar `if` anidados
-- Respetar el estilo corporativo en tablas: cabecera verde #1a5c38, filas alternas, y las plantillas CTA de `equipo-marketing/recursos/plantillas-cta.html` tal cual, cambiando solo textos y enlaces
+- Respetar el estilo corporativo en tablas: cabecera verde #1a5c38, filas alternas, y las plantillas CTA de `negocio/equipo-marketing/recursos/plantillas-cta.html` tal cual, cambiando solo textos y enlaces
 
 ## Límites
 

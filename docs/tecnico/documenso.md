@@ -87,7 +87,7 @@ supabase functions deploy documenso-webhook --no-verify-jwt
 ```
 `--no-verify-jwt` es necesario en `documenso-webhook` porque la petición llega directamente desde los
 servidores de Documenso, sin la cabecera de autenticación de Supabase (igual que
-`google-oauth-callback`, ver `docs/google-apis.md`).
+`google-oauth-callback`, ver `docs/tecnico/google-apis.md`).
 
 ## 6. Registrar el webhook en Documenso
 

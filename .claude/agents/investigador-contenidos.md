@@ -25,7 +25,7 @@ Gabriel te entrega SIEMPRE la keyword principal (y secundarias si las hay) desde
 
 ## Formato de salida
 
-Escribe el dossier en `equipo-marketing/dossiers/[keyword-slug].md` con estas secciones:
+Escribe el dossier en `negocio/equipo-marketing/dossiers/[keyword-slug].md` con estas secciones:
 1. Keyword principal, secundarias e intención de búsqueda
 2. Análisis de la SERP: qué hay, qué falta, oportunidad concreta
 3. Datos y cifras con fuentes (tabla: Dato | Valor | Fuente | URL)

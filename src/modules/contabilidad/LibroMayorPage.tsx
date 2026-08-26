@@ -11,6 +11,7 @@ type AsientoContable = {
   cuenta: string;
   debe: number;
   haber: number;
+  fecha: string;
 };
 
 type CuentaMayor = {
@@ -22,7 +23,7 @@ type CuentaMayor = {
 };
 
 // Formato exacto que pide Edifiscale para importar la "balance comptable" y auto-rellenar la
-// liasse fiscale (modelo real entregado por Edifiscale, ver documentos legales/modele-balance.csv):
+// liasse fiscale (modelo real entregado por Edifiscale, ver negocio/documentos legales/modele-balance.csv):
 // código de cuenta a 6 dígitos (relleno con ceros a la derecha, convención PCG estándar) y los
 // importes con coma decimal en vez de punto.
 function codigoPcg6(cuenta: string): string {
@@ -43,7 +44,14 @@ export default function LibroMayorPage() {
   const { data: asientos, isLoading } = useQuery({
     queryKey: ['asientos_contables'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('asientos_contables').select('cuenta, debe, haber');
+      // select() debe incluir siempre las MISMAS columnas que el resto de consumidores de esta
+      // queryKey (LibroDiarioPage, useComptaFrancia) — Tanstack Query cachea por key, no por
+      // select, así que un select más corto aquí podía servir filas incompletas a quien necesita
+      // más columnas (bug real corregido 2026-08-18: corrompía el compte de résultat de la Liasse
+      // Fiscale si se visitaba esta página justo antes). Se selecciona siempre el superconjunto
+      // que usa LibroDiarioPage, el consumidor más exigente, para que cualquiera de los tres
+      // pueda poblar la caché sin dejar corto a otro.
+      const { data, error } = await supabase.from('asientos_contables').select('id, fecha, cuenta, debe, haber, concepto, documento_tipo');
       if (error) throw error;
       return data as AsientoContable[];
     },

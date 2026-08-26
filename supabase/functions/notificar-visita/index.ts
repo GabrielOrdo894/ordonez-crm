@@ -4,7 +4,7 @@
 // definidas), a reformasordonezeus@gmail.com y a la lista de emails adicionales configurada
 // en empresa_config.datos.notificaciones_visita_emails_extra (Configuración → Notificaciones).
 // Usa refresh_token_gmail de `google_config`, separado del de Calendar desde 2026-08-05 —
-// ver src/lib/googleCalendar.ts. Ver también docs/bloque6-solicitudes-seguimiento.md.
+// ver src/lib/googleCalendar.ts. Ver también docs/producto/bloque6-solicitudes-seguimiento.md.
 //
 // Body esperado: { "visitaId": "<uuid>" }
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
@@ -34,7 +34,7 @@ function esLlamadaAutorizada(req: Request): boolean {
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 
 // Oficinas de referencia ("la casa") para estimar distancia — coordenadas de
-// docs/empresa.md § Direcciones, geocodificadas una vez con Nominatim/OSM.
+// docs/negocio/empresa.md § Direcciones, geocodificadas una vez con Nominatim/OSM.
 type Oficina = { lat: number; lng: number; direccion: string };
 const OFICINA_ES: Oficina = { lat: 43.3409811, lng: -1.7985261, direccion: 'Calle Estación n5, 5D, 20301 Irún, España' };
 const OFICINA_FR: Oficina = { lat: 43.3546525, lng: -1.7747975, direccion: '4 Avenue des Allées 2ème Étage, 64700 Hendaye, France' };
@@ -144,6 +144,30 @@ function base64UrlEncodeUtf8(texto: string): string {
   return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function enviarGmail(token: string, destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
+  const mensajeMime = [
+    `From: ${REMITENTE_BASE}`,
+    `To: ${destinatarios.join(', ')}`,
+    `Subject: ${codificarAsunto(asunto)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset="UTF-8"',
+    '',
+    cuerpoHtml,
+  ].join('\r\n');
+
+  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
+  });
+  if (!res.ok) {
+    const detalle = await res.text().catch(() => '');
+    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
+  }
+}
+
 function codificarAsunto(asunto: string): string {
   // RFC 2047 — necesario porque el asunto lleva acentos/ñ.
   const utf8 = new TextEncoder().encode(asunto);
@@ -170,6 +194,82 @@ function fila(etiqueta: string, valor: string): string {
 
 function seccion(titulo: string): string {
   return `<div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;font-weight:600;margin:18px 0 6px">${esc(titulo)}</div>`;
+}
+
+// Confirmación al CLIENTE — hasta ahora esta función solo avisaba al equipo interno, nunca al
+// propio cliente, así que no había ningún recordatorio automático que redujera los "no-shows"
+// (desplazamiento en balde a un lado u otro de la frontera). Bilingüe según v.idioma, sin datos
+// internos (empleado asignado, zona interna) que no le aportan nada al cliente (mejora real,
+// auditoría de Visitas 2026-08-18).
+function construirHtmlCliente(opts: {
+  fr: boolean;
+  nombreCliente: string;
+  fechaTxt: string;
+  hora: string;
+  direccionTexto: string;
+  mapsUrl: string | null;
+  tipo: string;
+  telefonoEmpresa: string | null;
+  emailEmpresa: string;
+}): string {
+  const viaTelefono = opts.telefonoEmpresa
+    ? opts.fr
+      ? `au ${esc(opts.telefonoEmpresa)} ou `
+      : `al ${esc(opts.telefonoEmpresa)} o `
+    : '';
+  const t = opts.fr
+    ? {
+        eyebrow: 'Visite technique confirmée',
+        saludo: `Bonjour${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        intro: 'Nous vous confirmons votre visite technique :',
+        adresse: 'Adresse',
+        verMaps: 'Voir sur Google Maps',
+        trabajo: 'Type de travaux',
+        contacto: `Besoin de changer la date ou vous avez une question ? Contactez-nous ${viaTelefono}par email à ${esc(opts.emailEmpresa)}.`,
+        firma: 'À bientôt,<br/>L\'équipe Reformas Ordoñez',
+      }
+    : {
+        eyebrow: 'Visita técnica confirmada',
+        saludo: `Hola${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        intro: 'Te confirmamos tu visita técnica:',
+        adresse: 'Dirección',
+        verMaps: 'Ver en Google Maps',
+        trabajo: 'Tipo de trabajo',
+        contacto: `¿Necesitas cambiar la fecha o tienes alguna duda? Escríbenos ${viaTelefono}por email a ${esc(opts.emailEmpresa)}.`,
+        firma: 'Un saludo,<br/>El equipo de Reformas Ordoñez',
+      };
+  return `<div style="font-family:Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
+    <tr><td style="background:#0f3d24;padding:20px 24px;border-radius:10px 10px 0 0">
+      <div style="color:#ffffff;font-size:16px;font-weight:600">Reformas Ordoñez</div>
+      <div style="color:#cdddd5;font-size:12px;margin-top:2px">${esc(t.eyebrow)}</div>
+    </td></tr>
+    <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+      <p style="font-size:13px;color:#111827;margin:0 0 12px">${t.saludo}</p>
+      <p style="font-size:13px;color:#111827;margin:0 0 6px">${esc(t.intro)}</p>
+      <div style="background:#eaf2ed;border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="color:#1a5c38;font-weight:600;font-size:15px">${esc(opts.fechaTxt)} · ${esc(opts.hora)}</div>
+      </div>
+
+      ${seccion(t.adresse)}
+      <div style="font-size:13px;color:#111827;margin-bottom:10px">${esc(opts.direccionTexto)}</div>
+      ${
+        opts.mapsUrl
+          ? `<a href="${opts.mapsUrl}" style="display:inline-block;background:#1a5c38;color:#ffffff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 14px;border-radius:6px">${esc(t.verMaps)}</a>`
+          : ''
+      }
+
+      ${seccion(t.trabajo)}
+      <div style="font-size:13px;color:#111827;margin-bottom:16px">${esc(opts.tipo)}</div>
+
+      <p style="font-size:12px;color:#6b7280;margin:16px 0 0">${t.contacto}</p>
+      <p style="font-size:13px;color:#111827;margin:16px 0 0">${t.firma}</p>
+    </td></tr>
+    <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
+      <div style="color:#9ca3af;font-size:11px">Reformas Ordoñez</div>
+    </td></tr>
+  </table>
+</div>`;
 }
 
 // Email de marca (colores/tipografía de Reformas Ordoñez, ver CLAUDE.md §4) en vez del texto
@@ -248,7 +348,11 @@ Deno.serve(async (req: Request) => {
     if (!v.fecha_visita || !v.hora_visita) return jsonResponse({ error: 'La visita no tiene fecha/hora definidas' }, 400);
 
     const { data: empresaRow } = await supabase.from('empresa_config').select('datos').eq('id', 1).maybeSingle();
-    const datos = (empresaRow?.datos ?? {}) as { notificaciones_visita_emails_extra?: string[] };
+    const datos = (empresaRow?.datos ?? {}) as {
+      notificaciones_visita_emails_extra?: string[];
+      es?: { telefono?: string; email?: string };
+      fr?: { telefono?: string; email?: string };
+    };
     const extra = Array.isArray(datos.notificaciones_visita_emails_extra) ? datos.notificaciones_visita_emails_extra : [];
     const destinatarios = Array.from(new Set([REMITENTE_BASE, ...extra].filter(Boolean)));
 
@@ -279,28 +383,40 @@ Deno.serve(async (req: Request) => {
 
     const token = await obtenerAccessToken(supabase);
 
-    const mensajeMime = [
-      `From: ${REMITENTE_BASE}`,
-      `To: ${destinatarios.join(', ')}`,
-      `Subject: ${codificarAsunto(asunto)}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset="UTF-8"',
-      '',
-      cuerpo,
-    ].join('\r\n');
+    await enviarGmail(token, destinatarios, asunto, cuerpo);
 
-    const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
-    });
-
-    if (!res.ok) {
-      const detalle = await res.text().catch(() => '');
-      throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
+    // Confirmación al CLIENTE, en su idioma — envío aparte porque la plantilla y el destinatario
+    // son distintos del aviso interno de arriba (bug/hueco real corregido 2026-08-18: antes solo
+    // se avisaba al equipo, nunca al propio cliente, así que no había recordatorio automático que
+    // redujera los "no-shows"). Best-effort: si falla, no debe tumbar el aviso interno que ya se
+    // envió correctamente.
+    let clienteNotificado = false;
+    if (v.email && EMAIL_VALIDO.test(v.email)) {
+      try {
+        const fr = v.idioma === 'Français';
+        const contactoEmpresa = fr ? datos.fr : datos.es;
+        const asuntoCliente = fr
+          ? `Confirmation de votre visite technique — ${v.fecha_visita} ${hora}`
+          : `Confirmación de tu visita técnica — ${v.fecha_visita} ${hora}`;
+        const cuerpoCliente = construirHtmlCliente({
+          fr,
+          nombreCliente: v.nombre ?? '',
+          fechaTxt: fechaLegible(v.fecha_visita),
+          hora,
+          direccionTexto,
+          mapsUrl,
+          tipo: v.tipo || (fr ? 'À définir' : 'Sin especificar'),
+          telefonoEmpresa: contactoEmpresa?.telefono || null,
+          emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
+        });
+        await enviarGmail(token, [v.email], asuntoCliente, cuerpoCliente);
+        clienteNotificado = true;
+      } catch (err) {
+        console.error('No se pudo enviar la confirmación al cliente:', String(err instanceof Error ? err.message : err));
+      }
     }
 
-    return jsonResponse({ ok: true, destinatarios });
+    return jsonResponse({ ok: true, destinatarios, clienteNotificado });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   }

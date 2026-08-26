@@ -35,7 +35,7 @@ import { notaSistema } from '../../lib/notaSistema';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
-import { useConfirmar } from '../../hooks/useConfirm';
+import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { calcularTotales } from '../finanzas/lineas';
@@ -140,7 +140,7 @@ function ItemVisita({ visita, onAbrir }: { visita: Visita; onAbrir: () => void }
             className="flex items-center gap-1 text-xs font-medium text-brand hover:underline mt-0.5"
           >
             <MapPin size={12} className="shrink-0" />
-            <span className="truncate">{visita.direccion}</span>
+            <span className="truncate min-w-0">{visita.direccion}</span>
           </a>
         )}
         <p className="text-xs text-gray-400 mt-0.5">
@@ -206,7 +206,7 @@ export default function InicioPage() {
   const { config: configFiscal } = useFiscalConfig();
   const { echeances } = useEcheances();
   const toast = useToast();
-  const confirmar = useConfirmar();
+  const confirmarConMotivo = useConfirmarConMotivo();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [vistaKpi, setVistaKpi] = useState<'general' | 'marketing' | 'contabilidad'>('general');
@@ -282,7 +282,7 @@ export default function InicioPage() {
       const { data, error } = await supabase
         .from('presupuestos')
         .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en',
+          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
         )
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null)
@@ -322,31 +322,18 @@ export default function InicioPage() {
     [gastos, vistaPais],
   );
 
-  const marcarRealizadasMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { error } = await supabase.from('visitas').update({ estado: 'Realizada' }).in('id', ids);
-      if (error) throw error;
-      for (const id of ids) {
-        await notaSistema(id, 'Visita marcada automáticamente como realizada (fecha y hora ya pasadas)');
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['visitas'] });
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
   const cancelarVisitaMutation = useMutation({
-    mutationFn: async (visita: Visita) => {
+    mutationFn: async ({ visita, motivo }: { visita: Visita; motivo: string }) => {
       const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', visita.id);
       if (error) throw error;
-      await notaSistema(visita.id, 'Visita cancelada');
+      await notaSistema(visita.id, motivo ? `Visita cancelada — motivo: ${motivo}` : 'Visita cancelada');
       if (visita.google_event_id) {
         try {
           await eliminarEventoVisita(visita.google_event_id);
         } catch (error) {
           toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
         }
+        await supabase.from('visitas').update({ google_event_id: null }).eq('id', visita.id);
       }
     },
     onSuccess: () => {
@@ -581,7 +568,6 @@ export default function InicioPage() {
 
   const solicitudesNuevasLista = (solicitudesResumen ?? []).filter((s) => s.estado === 'Nueva');
   const nuevasSolicitudes = solicitudesNuevasLista.length;
-  const borradoresSolicitudes = (solicitudesResumen ?? []).filter((s) => s.estado === 'Borrador').length;
   const nuevosSeguimientos = (seguimientosResumen ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
   const previaSolicitudesNuevas = solicitudesNuevasLista.slice(0, 3);
 
@@ -618,17 +604,6 @@ export default function InicioPage() {
   }, [visitas, echeances, diaSeleccionado]);
 
   const listaVisitasPanel = diaSeleccionado ? itemsDelDiaSeleccionado : proximosItems;
-
-  useEffect(() => {
-    if (!visitas || marcarRealizadasMutation.isPending) return;
-    const ahora = new Date();
-    const idsPasadas = visitas
-      .filter((v) => v.estado === 'Pendiente' && v.fecha_visita)
-      .filter((v) => new Date(`${v.fecha_visita}T${(v.hora_visita ?? '00:00').slice(0, 5)}:00`) < ahora)
-      .map((v) => v.id);
-    if (idsPasadas.length > 0) marcarRealizadasMutation.mutate(idsPasadas);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visitas]);
 
   useEffect(() => {
     const el = calendarioRef.current;
@@ -723,15 +698,15 @@ export default function InicioPage() {
             <Legend wrapperStyle={{ display: 'none' }} />
             {vistaPais === 'todos' ? (
               <>
-                <Bar dataKey="entradasEs" name="Entradas España" stackId="entradas" fill="#1a5c38" />
-                <Bar dataKey="entradasFr" name="Entradas Francia" stackId="entradas" fill="#5f9a78" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="salidasEs" name="Salidas España" stackId="salidas" fill="#fb7185" />
-                <Bar dataKey="salidasFr" name="Salidas Francia" stackId="salidas" fill="#fda4af" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="entradasEs" name="Entradas España" stackId="mes" fill="#1a5c38" />
+                <Bar dataKey="entradasFr" name="Entradas Francia" stackId="mes" fill="#5f9a78" />
+                <Bar dataKey="salidasEs" name="Salidas España" stackId="mes" fill="#fb7185" />
+                <Bar dataKey="salidasFr" name="Salidas Francia" stackId="mes" fill="#fda4af" radius={[4, 4, 0, 0]} />
               </>
             ) : (
               <>
-                <Bar dataKey="entradas" name="Entradas" fill="#1a5c38" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="salidas" name="Salidas" fill="#fb7185" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="entradas" name="Entradas" stackId="mes" fill="#1a5c38" />
+                <Bar dataKey="salidas" name="Salidas" stackId="mes" fill="#fb7185" radius={[4, 4, 0, 0]} />
               </>
             )}
             <Line dataKey="resultado" name="Resultado" stroke="#4b5563" strokeWidth={2} dot={{ r: 3 }} />
@@ -1104,7 +1079,7 @@ export default function InicioPage() {
       <ResenaGoogleBanner />
       {resumenFinanciero}
       <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr_320px] gap-4 items-start">
-      <div ref={calendarioRef}>
+      <div ref={calendarioRef} className="min-w-0">
         <CalendarioMini
           visitas={visitas}
           onVer={() => {}}
@@ -1115,7 +1090,7 @@ export default function InicioPage() {
         />
       </div>
 
-      <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col" style={{ maxHeight: alturaPanel }}>
+      <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col min-w-0" style={{ maxHeight: alturaPanel }}>
         <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3 shrink-0">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">
             {diaSeleccionado ? `Eventos · ${fechaVisitaCorta(diaSeleccionado)}` : 'Próximos eventos'}
@@ -1148,7 +1123,7 @@ export default function InicioPage() {
         )}
       </div>
 
-      <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col" style={{ maxHeight: alturaPanel }}>
+      <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col min-w-0" style={{ maxHeight: alturaPanel }}>
         <TarjetaHeader icon={Inbox} badge="bg-rose-50 text-rose-600" titulo="Solicitudes" to="/solicitudes/entrantes" />
         <div className="shrink-0 flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -1158,16 +1133,12 @@ export default function InicioPage() {
             </span>
           </div>
           <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-            <span className="text-sm text-gray-600">Borradores sin enviar</span>
-            <span className="text-lg font-semibold text-gray-900">{borradoresSolicitudes}</span>
-          </div>
-          <div className="flex items-center justify-between border-t border-gray-100 pt-3">
             <span className="text-sm text-gray-600">Respuestas nuevas a revisar</span>
             <span className={`text-lg font-semibold ${nuevosSeguimientos > 0 ? 'text-red-600' : 'text-gray-900'}`}>
               {nuevosSeguimientos}
             </span>
           </div>
-          {nuevasSolicitudes === 0 && borradoresSolicitudes === 0 && nuevosSeguimientos === 0 && (
+          {nuevasSolicitudes === 0 && nuevosSeguimientos === 0 && (
             <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Todo al día — sin pendientes.</p>
           )}
         </div>
@@ -1198,8 +1169,15 @@ export default function InicioPage() {
           abrirEditarVisita(v);
         }}
         onCancelar={async (v) => {
-          if (!(await confirmar(`¿Cancelar la visita de ${v.nombre} ${v.apellidos}?`))) return;
-          cancelarVisitaMutation.mutate(v);
+          const motivo = await confirmarConMotivo({
+            titulo: `¿Cancelar la visita de ${v.nombre} ${v.apellidos}?`,
+            mensaje: 'Esta acción marcará la visita como cancelada.',
+            motivoLabel: 'Motivo (opcional)',
+            motivoPlaceholder: 'Cliente canceló, no contactable, reprogramación…',
+            textoConfirmar: 'Cancelar visita',
+          });
+          if (motivo === null) return;
+          cancelarVisitaMutation.mutate({ visita: v, motivo });
         }}
       />
     </div>
