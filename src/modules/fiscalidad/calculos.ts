@@ -50,7 +50,15 @@ export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   const parteExceso = Math.max(0, remuneracionAnual - topeAbatido);
   const assiette = parteAbatida + parteExceso;
   const total = assiette * tauxGlobal;
-  return { assiette, total, mensual: total / 12 };
+  // CSG/CRDS no deducible (2,9% de los 9,7% totales, ver DESGLOSE_REFERENCIA — el resto, 6,8%, sí
+  // es deducible y ya está correctamente restado dentro de `total`) — hay que sumarlo de vuelta a
+  // la rémunération neta para obtener el importe real de la casilla 1GB del formulario 2042 (art.
+  // 62 CGI), la Administración no lo hace sola a diferencia del abattement del 10%. Confirmado
+  // 2026-08-26 que se aplica sobre esta misma `assiette` (rémunération × 0,74) bajo el régimen TNS
+  // "assiette única" 2026 (LFSS 2024) — no sobre el bruto, a diferencia de un salarié. Ver
+  // calcularIRGerante, que la usa para calcular la 1GB con precisión.
+  const csgNoDeducible = assiette * config('csg_no_deducible_pct', 0.029);
+  return { assiette, total, mensual: total / 12, csgNoDeducible };
 }
 
 // Article 18 des statuts (verificado contra los estatutos reales, auditoría 2026-08-12): del
@@ -187,14 +195,17 @@ export function calcularIRPersonal(revenuNetImposableFoyer: number, parts: numbe
 }
 
 // Encadena abattement + quotient familial + barème para calcular el IR del foyer fiscal completo:
-// la rémunération neta del gérant (remuneracion − sus cotisations TNS) MÁS los ingresos propios del
-// cónyuge si los tiene (en una déclaration commune de casados, Hacienda francesa suma TODOS los
-// salaires del hogar en una sola declaración — no se declara cada uno "por su cuenta", ver FAQ).
-// Cada declarante tiene su propio abattement del 10% (art. 83 CGI, con el mismo tope 495-14.171 €
-// aplicado a CADA uno por separado, no al total combinado) antes de sumar ambas bases imponibles.
+// la base imponible del gérant antes del abattement (montante1GB — rémunération neta + CSG/CRDS no
+// deducible, ver calcularTNS) MÁS los ingresos propios del cónyuge si los tiene (en una déclaration
+// commune de casados, Hacienda francesa suma TODOS los salaires del hogar en una sola declaración —
+// no se declara cada uno "por su cuenta", ver FAQ). Cada declarante tiene su propio abattement del
+// 10% (art. 83 CGI, con el mismo tope aplicado a CADA uno por separado, no al total combinado)
+// antes de sumar ambas bases imponibles.
 // Verificado 2026-08 contra el simulador oficial de la DGFiP (simulateur-ir-ifi.impots.gouv.fr):
 // con 40.020 € + 18.000 € y 2,5 partes, la Administración da exactamente 2.554 € de droits simples,
-// 327 € de décote y 2.227 € de impôt net — esta función reproduce esas tres cifras al euro.
+// 327 € de décote y 2.227 € de impôt net — esta función reproduce esas tres cifras al euro (esa
+// verificación usó `csgNoDeducible = 0`, es decir, revenu net imposable ya conocido de antemano —
+// no depende de cómo se calcule montante1GB, solo del tramo del IR).
 // No incluye los dividendos (PFU aparte, ver calcularIRPersonal).
 export function calcularIRGerante(
   remuneracion: number,
@@ -203,15 +214,23 @@ export function calcularIRGerante(
   casado: boolean,
   hijosACargo: number,
   config: ConfigFn,
+  // Opcional (por defecto 0, retrocompatible con llamadas existentes) — CSG/CRDS no deducible que
+  // hay que sumar de vuelta a la rémunération neta antes del abattement, ver calcularTNS().
+  // TabDeclaracionRenta.tsx la pasa siempre; TabSimulador.tsx igual desde 2026-08-26.
+  csgNoDeducible: number = 0,
 ) {
   const remuneracionNeta = Math.max(0, remuneracion - tnsTotal);
-  const abattement = calcularAbattementProfesional(remuneracionNeta, config);
+  // montante1GB es el importe real que va en la casilla 1GB del 2042 — remuneracionNeta se queda
+  // como el "neto en mano" para mostrar aparte (ver TabCotisations/TabSalarioDividendos), pero la
+  // base fiscal antes del abattement del 10% es siempre montante1GB (confirmado 2026-08-26).
+  const montante1GB = remuneracionNeta + csgNoDeducible;
+  const abattement = calcularAbattementProfesional(montante1GB, config);
   const abattementConyuge = calcularAbattementProfesional(ingresosConyuge, config);
   const revenuNetImposable =
-    Math.max(0, remuneracionNeta - abattement) + Math.max(0, ingresosConyuge - abattementConyuge);
+    Math.max(0, montante1GB - abattement) + Math.max(0, ingresosConyuge - abattementConyuge);
   const parts = calcularQuotientFamiliar(casado, hijosACargo, config);
   const ir = calcularIRPersonal(revenuNetImposable, parts, config);
-  return { remuneracionNeta, abattement, ingresosConyuge, abattementConyuge, revenuNetImposable, parts, ...ir };
+  return { remuneracionNeta, montante1GB, abattement, ingresosConyuge, abattementConyuge, revenuNetImposable, parts, ...ir };
 }
 
 // Bilan simplificado (pasivo) del ejercicio — mismo cálculo que antes se repetía byte a byte en

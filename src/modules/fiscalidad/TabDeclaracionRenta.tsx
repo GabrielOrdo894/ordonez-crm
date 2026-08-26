@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Clock, Lock, AlertTriangle, ScrollText } from 'lucide-react';
+import { Check, Clock, Lock, ScrollText } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { Button } from '../../components/ui/Button';
@@ -96,13 +96,15 @@ export function TabDeclaracionRenta() {
   const ingresosConyuge = gerantConfig?.ingresos_conyuge_anual ?? 0;
 
   const tns = calcularTNS(remuneracion, config);
-  // Mismo motor de cálculo que "Salario vs Dividendos" (calcularIRGerante en calculos.ts) —
-  // verificado 2026-08 contra el simulador oficial de la DGFiP, nunca reimplementado aquí.
-  const resultado = calcularIRGerante(remuneracion, tns.total, ingresosConyuge, casado, hijosACargo, config);
+  // Mismo motor de cálculo que "Simulador completo" (calcularIRGerante en calculos.ts) — verificado
+  // 2026-08 contra el simulador oficial de la DGFiP, nunca reimplementado aquí. Se pasa
+  // tns.csgNoDeducible para que montante1GB (la cifra real de la casilla 1GB) sume de vuelta el
+  // CSG/CRDS no deducible, confirmado 2026-08-26 con la doctrina oficial (BOFiP BOI-RSA-GER-20).
+  const resultado = calcularIRGerante(remuneracion, tns.total, ingresosConyuge, casado, hijosACargo, config, tns.csgNoDeducible);
 
   const casillas = useMemo(() => {
     const filas = [
-      { linea: '1GB', label: 'Traitements et salaires — Mario (gérant, art. 62 CGI)', importe: resultado.remuneracionNeta },
+      { linea: '1GB', label: 'Traitements et salaires — Mario (gérant, art. 62 CGI)', importe: resultado.montante1GB },
     ];
     if (ingresosConyuge > 0) {
       filas.push({ linea: '1HB', label: 'Traitements et salaires — cónyuge', importe: ingresosConyuge });
@@ -132,12 +134,12 @@ export function TabDeclaracionRenta() {
         Déclaration de revenus personal de Mario (formulario 2042, no la 2042-C-PRO — esa es para autónomos BIC/BNC y
         no aplica aquí): se presenta cada año civil sobre los ingresos del año anterior, con independencia del
         ejercicio social contable de la société. Usa la misma rémunération configurada en "Cotisations URSSAF" y el
-        mismo motor de cálculo que "Salario vs Dividendos".
+        mismo motor de cálculo que "Simulador completo".
       </p>
 
       <ResumenTitular icono={ScrollText}>
         Para los ingresos de <strong className="text-brand">{anio}</strong>, Mario declara{' '}
-        <strong className="text-brand">{fmt(resultado.remuneracionNeta)}</strong> en la casilla 1GB
+        <strong className="text-brand">{fmt(resultado.montante1GB)}</strong> en la casilla 1GB
         {ingresosConyuge > 0 && (
           <>
             {' '}
@@ -148,20 +150,15 @@ export function TabDeclaracionRenta() {
         foyer fiscal.
       </ResumenTitular>
 
-      <div className="bg-amber-50 border border-amber-300 rounded-sm px-3 py-3 flex items-start gap-2 text-xs text-amber-800">
-        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-        <div>
-          <p className="font-semibold mb-1">Única cifra por confirmar antes de presentar la declaración real</p>
-          <p>
-            La casilla 1GB, según la doctrina oficial (BOFiP BOI-RSA-GER-20), es: bruto − cotisations obligatoires −
-            CSG déductible (6,8%) <strong>+ CSG/CRDS no deducible (~2,9%)</strong> + avantages en nature. Este
-            asistente muestra <strong>rémunération − cotisations TNS totales</strong> (mismo cálculo que "Salario vs
-            Dividendos", que usa un taux global único del 45% en vez de desglosar cada cotisation por separado) — le
-            falta sumar de vuelta ese ~2,9% de CSG/CRDS no deducible, así que la cifra real de 1GB será algo mayor que
-            la mostrada aquí. Ajusta a mano ese pequeño margen (o pide la cifra exacta a tu expert-comptable) antes de
-            declarar.
-          </p>
-        </div>
+      <div className="bg-brand-light border border-gray-200 rounded-sm px-3 py-3 text-xs text-gray-700">
+        <p className="font-semibold text-gray-900 mb-1">Casilla 1GB — fórmula completa aplicada (BOFiP BOI-RSA-GER-20)</p>
+        <p>
+          1GB = rémunération − cotisations TNS totales <strong>+ CSG/CRDS no deducible</strong> (2,9% de la assiette,
+          calculado sobre la misma base que usa Cotisations URSSAF). Confirmado 2026-08-26 que ese 2,9% se aplica
+          sobre la assiette TNS (rémunération × 0,74) bajo el régimen "assiette única" 2026, no sobre el bruto —
+          distinto del tratamiento de un salarié normal. El abattement del 10% de frais professionnels, en cambio, lo
+          aplica sola la Administración al procesar la declaración — no lo restes tú.
+        </p>
       </div>
 
       <div className="bg-brand-light border border-gray-200 rounded-sm px-3 py-3 text-xs text-gray-700">
@@ -288,7 +285,7 @@ export function TabDeclaracionRenta() {
           <p className="text-sm font-bold text-gray-900 mb-1">Casillas de dividendos (2DC/2CK)</p>
           <p className="text-xs text-gray-400 mb-3">
             En 0 € — Mario no reparte dividendos actualmente (toda la marge neta se convierte en rémunération, ver
-            "Salario vs Dividendos"). Quedan listas para cuando un ejercicio futuro sí reparta.
+            "Simulador completo"). Quedan listas para cuando un ejercicio futuro sí reparta.
           </p>
           <table className="w-full border-collapse text-sm">
             <tbody>
@@ -349,8 +346,8 @@ export function TabDeclaracionRenta() {
       <Faq
         items={[
           {
-            q: '¿Por qué esto no es la misma pestaña que "Salario vs Dividendos"?',
-            a: 'Esa pestaña es un simulador para decidir cuánto pagarte (sliders, escenarios comparativos) — esta es un asistente de seguimiento de la declaración ANUAL real ya decidida: casillas exactas del formulario 2042, calendario con la fecha límite oficial, y un botón para marcarla como presentada. Ambas usan el mismo motor de cálculo (calcularIRGerante), así que las cifras siempre coinciden.',
+            q: '¿Por qué esto no es la misma pestaña que "Simulador completo"?',
+            a: 'Esa pestaña es un simulador para explorar escenarios de rémunération/dividendos antes de decidir — esta es un asistente de seguimiento de la declaración ANUAL real ya decidida: casillas exactas del formulario 2042, calendario con la fecha límite oficial, y un botón para marcarla como presentada. Ambas usan el mismo motor de cálculo (calcularIRGerante), así que las cifras siempre coinciden.',
           },
           {
             q: '¿Por qué el año 2026 se declara en 2027?',
@@ -366,11 +363,15 @@ export function TabDeclaracionRenta() {
           },
           {
             q: '¿Y si algún año Mario reparte dividendos?',
-            a: 'Las casillas 2DC (dividendos brutos) y 2CK (acompte no liberatorio del 12,8% ya retenido por la société al repartir) ya están preparadas en la tabla de abajo, en 0 € mientras no se repartan. Si se opta por tributar los dividendos al barème progresivo en vez del PFU del 31,4% (rara vez conviene con estos importes, ver el FAQ del simulador "Salario vs Dividendos"), haría falta además marcar la casilla 2OP — no incluida aquí porque no aplica con 0 € de dividendos.',
+            a: 'Las casillas 2DC (dividendos brutos) y 2CK (acompte no liberatorio del 12,8% ya retenido por la société al repartir) ya están preparadas en la tabla de abajo, en 0 € mientras no se repartan. Si se opta por tributar los dividendos al barème progresivo en vez del PFU del 31,4% (rara vez conviene con estos importes, ver el FAQ del "Simulador completo"), haría falta además marcar la casilla 2OP — no incluida aquí porque no aplica con 0 € de dividendos.',
+          },
+          {
+            q: '¿Por qué la 1GB es mayor que "rémunération − cotisations TNS"?',
+            a: 'Porque el abattement forfaitario del 10% (frais professionnels) NO se resta a mano — lo aplica solo la Administración al procesar la declaración. Lo que sí hay que sumar a mano es el CSG/CRDS no deducible (2,9% de la assiette): al calcular las cotisations TNS con un taux global único del 45%, ese 45% ya incluye tanto la parte deducible como la no deducible de la CSG-CRDS, pero solo la parte deducible (6,8% de 9,7%) debería reducir la base fiscal. Por eso la 1GB = rémunération neta + ese 2,9%, no rémunération neta a secas — este asistente ya hace esa suma automáticamente.',
           },
           {
             q: '¿Puedo confiar en los importes de este asistente al 100%?',
-            a: 'Para el barème del IR, la décote, el quotient familial y el abattement 10% (509 €–14.555 €, revenus 2025), sí — verificados contra el simulador oficial de la DGFiP y contra fuentes oficiales (impots.gouv.fr, service-public.gouv.fr) citadas en fiscal_config. La única cifra con un margen conocido es la 1GB, por el matiz de la CSG no deducible explicado en el aviso ámbar de arriba — el resto (formulario correcto, calendario, mecanismo de pago del solde, que no hace falta ningún documento de urssaf.fr) quedó confirmado con fuentes oficiales.',
+            a: 'Sí, con dos rondas de verificación (18 y 20 búsquedas reales, incluyendo BOFiP BOI-RSA-GER-20 directo): el formulario correcto (2042, no 2042-C-PRO), el barème del IR, la décote, el quotient familial, el abattement 10% (509 €–14.555 €, revenus 2025), la fórmula completa de la 1GB con el ajuste de CSG no deducible, el calendario, y que no hace falta ningún documento de urssaf.fr (esa "attestation fiscale" solo existe para autoentrepreneurs) — todo verificado contra fuentes oficiales (impots.gouv.fr, service-public.gouv.fr, BOFiP) citadas en fiscal_config.',
           },
         ]}
       />

@@ -138,8 +138,17 @@ export function TabSimulador() {
   // déclaration commune, no declaraciones separadas (ver FAQ). Los dividendos tributan aparte al
   // PFU (ya incluido en resultado.divCalc.total), no entran aquí.
   const irGerante = useMemo(
-    () => calcularIRGerante(remuneracion, resultado.tns.total, ingresosConyuge, casado, hijosACargo, config),
-    [remuneracion, resultado.tns.total, ingresosConyuge, casado, hijosACargo, config],
+    () =>
+      calcularIRGerante(
+        remuneracion,
+        resultado.tns.total,
+        ingresosConyuge,
+        casado,
+        hijosACargo,
+        config,
+        resultado.tns.csgNoDeducible,
+      ),
+    [remuneracion, resultado.tns.total, resultado.tns.csgNoDeducible, ingresosConyuge, casado, hijosACargo, config],
   );
 
   // El neto disponible "de empresa" (resultado.netoDisponible) todavía no resta el impôt sur le
@@ -156,7 +165,7 @@ export function TabSimulador() {
   // Reparto orientativo del impôt entre los dos, a prorrata de su base imponible — Hacienda NO
   // divide el impuesto así en la práctica (tributáis solidariamente como hogar, un único pago), es
   // solo para entender de dónde sale cada parte del total antes de verlo todo junto.
-  const baseMario = Math.max(0, irGerante.remuneracionNeta - irGerante.abattement);
+  const baseMario = Math.max(0, irGerante.montante1GB - irGerante.abattement);
   const pctImpotMario = irGerante.revenuNetImposable > 0 ? baseMario / irGerante.revenuNetImposable : 1;
   const impotMario = irGerante.impotFinal * pctImpotMario;
   const impotConyuge = irGerante.impotFinal - impotMario;
@@ -612,6 +621,13 @@ export function TabSimulador() {
               </tr>
               <tr className="border-t border-gray-100">
                 <td className="py-1.5 text-gray-600">
+                  + CSG/CRDS no deducible (casilla 1GB real){' '}
+                  <span className="text-gray-400">(no cobras esto, pero hay que declararlo)</span>
+                </td>
+                <td className="py-1.5 text-right text-gray-900 whitespace-nowrap">{fmt(resultado.tns.csgNoDeducible)}</td>
+              </tr>
+              <tr className="border-t border-gray-100">
+                <td className="py-1.5 text-gray-600">
                   − Tu abattement automático 10% frais professionnels <span className="text-gray-400">(no es un pago)</span>
                 </td>
                 <td className="py-1.5 text-right text-red-700 whitespace-nowrap">− {fmt(irGerante.abattement)}</td>
@@ -910,7 +926,7 @@ export function TabSimulador() {
           },
           {
             q: '¿Cómo se calcula el impôt sur le revenu personal y el quotient familial?',
-            a: 'La rémunération neta de Mario (rémunération − sus cotisations TNS) tributa personalmente en la categoría "traitements et salaires", con un abattement forfaitario del 10% (topado entre 495 € y 14.171 € en 2026, aplicado a CADA declarante por separado — igual con el sueldo del cónyuge si lo tiene). Sobre lo que queda entre los dos ("revenu net imposable" del hogar) se aplica el barème progresivo (0% hasta 11.600 €, 11% hasta 29.579 €, 30% hasta 84.577 €, 41% hasta 181.917 €, 45% en adelante) — pero no directamente: primero se divide entre el número de "partes" del foyer fiscal (quotient familial: 2 partes por estar casado + 0,5 por cada uno de los dos primeros hijos a cargo, configurable en "Situación familiar"), se calcula el impôt de esa cifra por parte, y se multiplica de nuevo por el número de partes. Cuantas más partes, menos impôt para el mismo ingreso — con un tope: el ahorro de cada media parte extra por hijos está limitado a 1.807 € (plafonnement, art. 197 CGI). Por último se aplica la décote, una rebaja adicional automática para impôts brutos bajos. Los dividendos NO entran en este cálculo — tributan aparte al PFU (o TNS si superan el umbral), que ya se ve en la tabla como "carga sobre dividendos".',
+            a: 'La rémunération neta de Mario (rémunération − sus cotisations TNS) MÁS el CSG/CRDS no deducible (2,9% de la assiette, que sus cotisations ya restaron de más al usar un taux global único) tributa personalmente en la categoría "traitements et salaires", con un abattement forfaitario del 10% (topado entre 509 € y 14.555 € para revenus 2025, aplicado a CADA declarante por separado — igual con el sueldo del cónyuge si lo tiene). Sobre lo que queda entre los dos ("revenu net imposable" del hogar) se aplica el barème progresivo (0% hasta 11.600 €, 11% hasta 29.579 €, 30% hasta 84.577 €, 41% hasta 181.917 €, 45% en adelante) — pero no directamente: primero se divide entre el número de "partes" del foyer fiscal (quotient familial: 2 partes por estar casado + 0,5 por cada uno de los dos primeros hijos a cargo, configurable en "Situación familiar"), se calcula el impôt de esa cifra por parte, y se multiplica de nuevo por el número de partes. Cuantas más partes, menos impôt para el mismo ingreso — con un tope: el ahorro de cada media parte extra por hijos está limitado a 1.807 € (plafonnement, art. 197 CGI). Por último se aplica la décote, una rebaja adicional automática para impôts brutos bajos. Los dividendos NO entran en este cálculo — tributan aparte al PFU (o TNS si superan el umbral), que ya se ve en la tabla como "carga sobre dividendos".',
           },
           {
             q: '¿Se declara junto con mi mujer, o cada uno por su cuenta?',

@@ -116,6 +116,11 @@ describe('calcularTNS', () => {
     expect(r.assiette).toBeCloseTo(parteAbatida + parteExceso);
     expect(r.total).toBeCloseTo((parteAbatida + parteExceso) * 0.45);
   });
+
+  it('csgNoDeducible es el 2,9% de la assiette (2,9% de los 9,7% totales de CSG-CRDS)', () => {
+    const r = calcularTNS(40000, cfgPorDefecto);
+    expect(r.csgNoDeducible).toBeCloseTo(40000 * 0.74 * 0.029);
+  });
 });
 
 describe('calcularReservaLegal', () => {
@@ -311,6 +316,19 @@ describe('calcularIRGerante', () => {
     expect(r.impotSinPlafon).toBeCloseTo(2554, 0);
     expect(r.decote).toBeCloseTo(327, 0);
     expect(r.impotFinal).toBeCloseTo(2227, 0);
+  });
+
+  it('sin csgNoDeducible (por defecto 0), montante1GB coincide con la rémunération neta — retrocompatible', () => {
+    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto);
+    expect(r.montante1GB).toBeCloseTo(r.remuneracionNeta);
+  });
+
+  it('con csgNoDeducible, se suma a la rémunération neta ANTES del abattement (afecta a montante1GB, abattement y revenuNetImposable)', () => {
+    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto, 500);
+    expect(r.remuneracionNeta).toBeCloseTo(20010);
+    expect(r.montante1GB).toBeCloseTo(20510);
+    expect(r.abattement).toBeCloseTo(2051);
+    expect(r.revenuNetImposable).toBeCloseTo(18459);
   });
 });
 
