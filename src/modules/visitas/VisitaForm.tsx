@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock } from 'lucide-react';
+import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
@@ -22,6 +22,7 @@ import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
 import {
   agruparClientes,
   normalizarTelefono,
+  ETIQUETA_ORIGEN_POTENCIAL,
   type Cliente,
   type ClientePotencial,
 } from '../clientes/types';
@@ -198,6 +199,19 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     nombre: string;
     totalObras: number;
   } | null>(null);
+  // Mismo patrón que IniciarPresupuestoPage.tsx (2026-08-26, a petición de Gabriel): buscar primero
+  // en vez de rellenar celdas directamente al elegir un cliente/potencial — mientras no se elige
+  // nada se muestra el buscador, al elegir se muestra un recuadro (con botón "Cambiar"), y "crear
+  // cliente nuevo" pasa a los campos de texto libre de siempre. Si ya viene de un prefill con
+  // nombre (Solicitud/Planning) o se está editando una visita ya existente, se salta el buscador —
+  // el contacto ya se conoce, no hace falta buscarlo. Elegir aquí NUNCA registra un cliente real
+  // (no existe tabla `clientes` propia — ver [[project_cliente_confirmado_solo_aceptado]]): solo
+  // cuenta como "confirmado" cuando se acepta un presupuesto, esta pantalla no cambia eso.
+  const [estadoCliente, setEstadoCliente] = useState<'buscar' | 'manual' | 'cliente' | 'potencial'>(
+    () => (visita || prefill?.nombre ? 'manual' : 'buscar'),
+  );
+  const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
+  const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
 
   const { data: visitasParaClientes } = useQuery({
     queryKey: ['visitas'],
@@ -234,11 +248,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       pais: ultima?.pais ?? f.pais,
       zona: ultima?.zona ?? f.zona,
     }));
-    setClienteRepetidor({
-      id: cliente.id,
-      nombre: `${cliente.nombre} ${cliente.apellidos}`,
-      totalObras: cliente.visitas.length,
-    });
+    setClienteElegido(cliente);
+    setPotencialElegido(null);
+    setEstadoCliente('cliente');
+    setClienteRepetidor(null);
   };
 
   const handleSeleccionarPotencial = (potencial: ClientePotencial) => {
@@ -250,7 +263,24 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       idioma: potencial.idioma === 'Français' ? 'Français' : f.idioma,
       contacto: potencial.origen === 'solicitud' ? 'Web' : f.contacto,
     }));
+    setPotencialElegido(potencial);
+    setClienteElegido(null);
+    setEstadoCliente('potencial');
     setClienteRepetidor(null);
+  };
+
+  const handleCambiarCliente = () => {
+    setClienteElegido(null);
+    setPotencialElegido(null);
+    setClienteRepetidor(null);
+    setEstadoCliente('buscar');
+    setForm((f) => ({ ...f, nombre: '', apellidos: '', telefono: '', email: '' }));
+  };
+
+  const handleCrearNuevo = () => {
+    setClienteElegido(null);
+    setPotencialElegido(null);
+    setEstadoCliente('manual');
   };
 
   const fechaMinima = useMemo(() => {
@@ -519,68 +549,120 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
       <div className="flex flex-col gap-4">
         <Seccion numero={1} titulo="Cliente" icono={User}>
-          {!visita && (clientesExistentes.length > 0 || potenciales.length > 0) && (
-            <div className="mb-3">
+          {estadoCliente === 'buscar' && (
+            <div>
               <SelectorClienteInline
                 clientes={clientesExistentes}
                 potenciales={potenciales}
                 onSeleccionarCliente={handleSeleccionarCliente}
                 onSeleccionarPotencial={handleSeleccionarPotencial}
-                placeholder="¿Ya es cliente o potencial? Busca por nombre o teléfono..."
+                onCrearNuevo={handleCrearNuevo}
+                placeholder="Buscar cliente o potencial por nombre o teléfono..."
               />
+              <button
+                type="button"
+                onClick={handleCrearNuevo}
+                className="text-xs text-brand hover:underline mt-1.5 flex items-center gap-1"
+              >
+                <UserPlus size={12} />
+                O crea un cliente nuevo directamente
+              </button>
             </div>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Nombre"
-              required
-              value={form.nombre}
-              error={errors.nombre}
-              onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
-            />
-            <Input
-              label="Apellidos"
-              required
-              value={form.apellidos}
-              error={errors.apellidos}
-              onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
-            />
-            <Input
-              label="Teléfono"
-              type="tel"
-              required
-              value={form.telefono}
-              error={errors.telefono}
-              onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
-              onBlur={verificarClienteRepetidor}
-            />
-            <Input
-              label="Email"
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              onBlur={verificarClienteRepetidor}
-            />
-            {clienteRepetidor && (
-              <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
-                <Star size={14} className="shrink-0" />
-                <span>
-                  Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
-                  {clienteRepetidor.totalObras} obra(s) registrada(s). Podrás aplicar un descuento
-                  de fidelidad al crear su presupuesto.
-                </span>
+
+          {estadoCliente === 'cliente' && clienteElegido && (
+            <div className="flex items-center justify-between border border-gray-200 rounded-sm px-3 py-2.5 bg-brand-light">
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {clienteElegido.nombre} {clienteElegido.apellidos}
+                </p>
+                <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
+              </div>
+              <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
+                Cambiar
+              </button>
+            </div>
+          )}
+
+          {estadoCliente === 'potencial' && potencialElegido && (
+            <div className="flex items-center justify-between border border-amber-200 rounded-sm px-3 py-2.5 bg-amber-50">
+              <div>
+                <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
+                <p className="text-xs text-amber-700">
+                  {[potencialElegido.telefono, ETIQUETA_ORIGEN_POTENCIAL[potencialElegido.origen]].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
+                Cambiar
+              </button>
+            </div>
+          )}
+
+          {(estadoCliente === 'manual' || !!visita) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {!visita && (
                 <button
                   type="button"
-                  onClick={() => {
-                    onClose();
-                    navigate(`/clientes/${encodeURIComponent(clienteRepetidor.id)}`);
-                  }}
-                  className="ml-auto font-semibold underline hover:no-underline shrink-0"
+                  onClick={handleCambiarCliente}
+                  className="col-span-2 text-xs text-gray-500 hover:text-brand text-left -mb-1"
                 >
-                  Ver ficha existente
+                  ← Buscar cliente o potencial en vez de escribir a mano
                 </button>
-              </div>
-            )}
+              )}
+              <Input
+                label="Nombre"
+                required
+                value={form.nombre}
+                error={errors.nombre}
+                onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+              />
+              <Input
+                label="Apellidos"
+                required
+                value={form.apellidos}
+                error={errors.apellidos}
+                onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+              />
+              <Input
+                label="Teléfono"
+                type="tel"
+                required
+                value={form.telefono}
+                error={errors.telefono}
+                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                onBlur={verificarClienteRepetidor}
+              />
+              <Input
+                label="Email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                onBlur={verificarClienteRepetidor}
+              />
+              {clienteRepetidor && (
+                <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
+                  <Star size={14} className="shrink-0" />
+                  <span>
+                    Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
+                    {clienteRepetidor.totalObras} obra(s) registrada(s). Podrás aplicar un descuento
+                    de fidelidad al crear su presupuesto.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      navigate(`/clientes/${encodeURIComponent(clienteRepetidor.id)}`);
+                    }}
+                    className="ml-auto font-semibold underline hover:no-underline shrink-0"
+                  >
+                    Ver ficha existente
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
             <Select
               label="Idioma"
               options={[
