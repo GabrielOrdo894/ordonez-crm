@@ -349,12 +349,15 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
   });
   echeances.push({
     tipo: 'DECLARACION_IR_GERANT',
-    titulo: `Déclaration de revenus de Mario (2042-C-PRO) — ingresos ${anio}`,
+    // Corregido 2026-08-26 (investigación con 4 fuentes independientes): es el formulario 2042
+    // (casillas 1GB/1HB, "traitements et salaires" art. 62 CGI) — NO el 2042-C-PRO, que es para
+    // autónomos con ingresos BIC/BNC y no aplica a un gérant majoritaire. Ver TabDeclaracionRenta.tsx.
+    titulo: `Déclaration de revenus de Mario (formulaire 2042, casillas 1GB/1HB) — ingresos ${anio}`,
     fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 5), config('declaracion_ir_dia', 25)),
     organismo: 'DGFiP (IR personal)',
     url_oficial: 'https://www.impots.gouv.fr',
     importe_estimado: null,
-    notas: 'Es la declaración personal de Mario, no de la société — pero incluye la rémunération TNS y los dividendos del ejercicio. La DGFiP fija la fecha exacta cada año por decreto, confirmar antes de mayo.',
+    notas: 'Es la declaración personal de Mario, no de la société — pero incluye la rémunération TNS y los dividendos del ejercicio. La DGFiP fija la fecha exacta cada año por decreto, confirmar antes de mayo. Detalle completo en Fiscalidad → Impôt sur les Sociétés → Renta del gérant (IR).',
   });
 
   return echeances.sort((a, b) => a.fecha_limite.localeCompare(b.fecha_limite));

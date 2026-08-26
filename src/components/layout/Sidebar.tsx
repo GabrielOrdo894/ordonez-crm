@@ -24,6 +24,7 @@ import {
   Scale,
   PiggyBank,
   Banknote,
+  ScrollText,
   ArrowLeftRight,
   NotebookPen,
   Rows3,
@@ -107,6 +108,7 @@ const FISCALIDAD_SECTION: NavSection = {
     { to: '/fiscalidad/is', label: 'Impôt sur les Sociétés', icon: Scale },
     { to: '/fiscalidad/cotisations', label: 'Cotisations URSSAF', icon: PiggyBank },
     { to: '/fiscalidad/salario', label: 'Salario vs Dividendos', icon: Banknote },
+    { to: '/fiscalidad/renta', label: 'Renta del gérant (IR)', icon: ScrollText },
     { to: '/fiscalidad/calendario', label: 'Calendario fiscal', icon: CalendarClock },
   ],
 };

@@ -24,6 +24,7 @@ const TITULOS: Record<string, string> = {
   '/fiscalidad/is': 'Fiscalidad · Impôt sur les Sociétés',
   '/fiscalidad/cotisations': 'Fiscalidad · Cotisations URSSAF',
   '/fiscalidad/salario': 'Fiscalidad · Salario vs Dividendos',
+  '/fiscalidad/renta': 'Fiscalidad · Renta del gérant (IR)',
   '/fiscalidad/calendario': 'Fiscalidad · Calendario',
   '/dashboard': 'Dashboard',
   '/configuracion': 'Configuración',

@@ -13,6 +13,7 @@ import { DashboardFiscal } from './DashboardFiscal';
 import { TabIS } from './TabIS';
 import { TabCotisations } from './TabCotisations';
 import { TabSalarioDividendos } from './TabSalarioDividendos';
+import { TabDeclaracionRenta } from './TabDeclaracionRenta';
 import { TabSimulador } from './TabSimulador';
 import { TabCalendario } from './TabCalendario';
 import { TabDocumentos } from './TabDocumentos';
@@ -27,6 +28,7 @@ type Pestana =
   | 'is'
   | 'cotisations'
   | 'salario'
+  | 'renta'
   | 'simulador'
   | 'calendario'
   | 'documentos'
@@ -40,6 +42,7 @@ const ETIQUETAS: Record<Pestana, string> = {
   is: 'Impôt sur les Sociétés',
   cotisations: 'Cotisations URSSAF',
   salario: 'Salario vs Dividendos',
+  renta: 'Renta del gérant (IR)',
   simulador: 'Simulador completo',
   calendario: 'Calendario fiscal',
   documentos: 'Documentos obligatorios',
@@ -63,7 +66,7 @@ function esGrupo(item: ItemNav): item is ItemGrupo {
 const NAV: ItemNav[] = [
   { tipo: 'standalone', value: 'dashboard', icon: LayoutDashboard },
   { tipo: 'grupo', id: 'obligaciones', label: 'Obligaciones mensuales', icon: CalendarClock, tabs: ['tva', 'cotisations', 'calendario'] },
-  { tipo: 'grupo', id: 'is', label: 'Impôt sur les Sociétés', icon: Landmark, tabs: ['is', 'salario'] },
+  { tipo: 'grupo', id: 'is', label: 'Impôt sur les Sociétés', icon: Landmark, tabs: ['is', 'salario', 'renta'] },
   { tipo: 'standalone', value: 'simulador', icon: Calculator },
   { tipo: 'grupo', id: 'cierre', label: 'Cierre y documentación', icon: ClipboardCheck, tabs: ['inmovilizado', 'cierre', 'liasse', 'documentos'] },
 ];
@@ -85,8 +88,9 @@ export default function FiscalidadPage() {
     <div>
       <h1 className="text-xl font-bold text-gray-900 mb-1">Fiscalidad</h1>
       <p className="text-sm text-gray-500 mb-4">
-        Impôt sur les Sociétés, cotisations TNS del gérant, TVA, calendario de échéances, inmovilizado, preparación de
-        la liasse fiscale y asistente de cierre de ejercicio — EURL Reformas Ordoñez.
+        Impôt sur les Sociétés, cotisations TNS del gérant, declaración de su renta personal, TVA, calendario de
+        échéances, inmovilizado, preparación de la liasse fiscale y asistente de cierre de ejercicio — EURL Reformas
+        Ordoñez.
       </p>
 
       <div className={`flex items-center gap-2 flex-wrap ${grupoActivo ? 'mb-2' : 'mb-4'}`}>
@@ -159,6 +163,7 @@ export default function FiscalidadPage() {
       {pestana === 'is' && <TabIS anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'cotisations' && <TabCotisations anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'salario' && <TabSalarioDividendos anio={anioFiscal} onAnioChange={setAnioFiscal} />}
+      {pestana === 'renta' && <TabDeclaracionRenta />}
       {pestana === 'simulador' && <TabSimulador />}
       {pestana === 'calendario' && <TabCalendario />}
       {pestana === 'documentos' && <TabDocumentos />}
