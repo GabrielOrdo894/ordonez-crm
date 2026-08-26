@@ -5,6 +5,7 @@ export type EtapaFunnel =
   | 'solicitud_entrada'
   | 'solicitud_respondida'
   | 'solicitud_descartada'
+  | 'visita_agendada'
   | 'solicitud_vinculada_presupuesto'
   | 'presupuesto_enviado'
   | 'presupuesto_aceptado'
@@ -37,10 +38,16 @@ export const ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO: Partial<Record<string, EtapaFu
   Rechazado: 'presupuesto_rechazado',
 };
 
+// visita_agendada (2026-08-26) se registra al crear una visita desde una solicitud (ver
+// PrefillVisita.solicitudId en VisitaForm.tsx) — a propósito NO entra en ETAPAS_FUNNEL_SOLICITUD
+// (el embudo visual de barras de /solicitudes y Dashboard), solo se usa para calcular la duración
+// solicitud→visita en la exportación completa del Dashboard (Ajustes), sin tocar un gráfico que ya
+// funciona y que Gabriel no pidió cambiar.
 export const ETIQUETA_ETAPA_FUNNEL: Record<EtapaFunnel, string> = {
   solicitud_entrada: 'Entradas',
   solicitud_respondida: 'Respondidas',
   solicitud_descartada: 'Descartadas',
+  visita_agendada: 'Visita agendada',
   solicitud_vinculada_presupuesto: 'Vinculadas a presupuesto',
   presupuesto_enviado: 'Presupuesto enviado',
   presupuesto_aceptado: 'Presupuesto aceptado',

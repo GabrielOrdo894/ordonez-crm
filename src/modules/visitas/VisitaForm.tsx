@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
+import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -395,6 +396,19 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           ),
         );
       await notaSistema(data.id, `Visita registrada por ${nombreUsuarioActual}`);
+      // Si la visita viene de "Crear visita desde esta solicitud", enlaza de vuelta
+      // solicitudes.visita_id y registra el evento de funnel — permite medir cuánto tarda una
+      // solicitud en convertirse en visita agendada (2026-08-26). Best-effort, no bloqueante,
+      // igual que sincronizarPipelineCliente: un fallo aquí no debe tumbar la visita ya creada.
+      if (prefill?.solicitudId) {
+        const { error: errorEnlace } = await supabase
+          .from('solicitudes')
+          .update({ visita_id: data.id })
+          .eq('id', prefill.solicitudId);
+        if (errorEnlace) console.warn('No se pudo enlazar la solicitud con la visita:', errorEnlace.message);
+        await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
+        queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita registrada correctamente');
       onClose();
@@ -578,7 +592,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             />
             <Select
               label="Cómo nos contactó"
-              options={['Llamada', 'WhatsApp', 'Web', 'Recomendación', 'Otro'].map((v) => ({
+              options={['Llamada', 'WhatsApp', 'Web', 'Email', 'Recomendación', 'Otro'].map((v) => ({
                 value: v,
                 label: v,
               }))}

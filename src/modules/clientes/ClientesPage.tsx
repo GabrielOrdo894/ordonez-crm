@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { Search, ChevronDown, ChevronUp, UserPlus } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, UserPlus, Eye } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -15,11 +15,19 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila } from '../../components/ui/AccionesFila';
-import { agruparClientes, normalizarTelefono, ETAPAS_PIPELINE } from './types';
+import {
+  agruparClientes,
+  normalizarTelefono,
+  ETAPAS_PIPELINE,
+  ETIQUETA_ORIGEN_POTENCIAL,
+  clavesPresupuestosAceptados,
+  esClienteConfirmado,
+  potencialesPorVisita,
+  type ClientePotencial,
+} from './types';
 import { useEtiquetasClientes } from './useEtiquetasClientes';
 import { ETIQUETAS_DISPONIBLES, COLOR_ETIQUETA, type EtiquetaCliente } from './etiquetas';
 import { usePotencialesCliente } from './usePotencialesCliente';
-import { ETIQUETA_ORIGEN_POTENCIAL } from './types';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { calcularTotales } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
@@ -58,11 +66,6 @@ export default function ClientesPage() {
   });
 
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
-  // Antes quien preguntó pero nunca llegó a visita solo se veía indirectamente en el embudo de
-  // Marketing, no en ninguna vista de cartera — misma fuente de datos que ya usaba el aviso de
-  // "cliente conocido" al crear una visita/presupuesto (mejora real, auditoría de Clientes
-  // 2026-08-18).
-  const potenciales = usePotencialesCliente(clientes);
 
   // El cálculo ya existía en la ficha individual de cliente (ClienteDetalleContenido.tsx) — se
   // trae aquí para poder ordenar/consultar por valor de cartera de un vistazo, sin abrir ficha
@@ -79,6 +82,32 @@ export default function ClientesPage() {
     },
   });
 
+  // Un cliente solo cuenta como "confirmado" (y aparece en la tabla principal) cuando tiene al
+  // menos un presupuesto Aceptado — decisión explícita de Gabriel 2026-08-26: hacer una visita no
+  // basta, solo cuenta cuando de verdad se acepta el trabajo. Hasta entonces se muestra abajo como
+  // potencial, con el mismo distintivo que las solicitudes/orientativos, pero sigue disponible
+  // igual como sugerencia al crear un presupuesto.
+  const clavesAceptadas = useMemo(() => clavesPresupuestosAceptados(presupuestos ?? []), [presupuestos]);
+  const clientesConfirmados = useMemo(
+    () => clientes.filter((c) => esClienteConfirmado(c, clavesAceptadas)),
+    [clientes, clavesAceptadas],
+  );
+  const potencialesPorSolicitud = usePotencialesCliente(clientesConfirmados);
+  const potenciales = useMemo(() => {
+    const combinados = new Map<string, ClientePotencial>();
+    const clave = (p: ClientePotencial) => (p.telefono ? normalizarTelefono(p.telefono) : '') || (p.email?.toLowerCase() ?? '');
+    for (const p of potencialesPorSolicitud) {
+      const k = clave(p);
+      if (k) combinados.set(k, p);
+    }
+    // "visita" pisa a solicitud/orientativo si coinciden — es la señal más avanzada de las tres.
+    for (const p of potencialesPorVisita(clientes, clavesAceptadas)) {
+      const k = clave(p);
+      if (k) combinados.set(k, p);
+    }
+    return Array.from(combinados.values());
+  }, [potencialesPorSolicitud, clientes, clavesAceptadas]);
+
   const totalFacturadoPorTelefono = useMemo(() => {
     const map = new Map<string, number>();
     for (const p of presupuestos ?? []) {
@@ -91,7 +120,7 @@ export default function ClientesPage() {
 
   const eliminarVariosMutation = useMutation({
     mutationFn: async (clienteIds: (string | number)[]) => {
-      const idsVisitas = clientes
+      const idsVisitas = clientesConfirmados
         .filter((c) => clienteIds.includes(c.id))
         .flatMap((c) => c.visitas.map((v) => v.id));
       const { error } = await supabase
@@ -110,7 +139,7 @@ export default function ClientesPage() {
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return clientes.filter((c) => {
+    return clientesConfirmados.filter((c) => {
       if (filtroPais !== 'Todos' && c.pais !== filtroPais) return false;
       if (
         filtroPipeline !== 'Todos' &&
@@ -128,30 +157,30 @@ export default function ClientesPage() {
       if (q && !`${c.nombre} ${c.apellidos} ${c.telefono}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [clientes, busqueda, filtroPais, filtroPipeline, filtroEtiqueta, etiquetasDe, desde, hasta]);
+  }, [clientesConfirmados, busqueda, filtroPais, filtroPipeline, filtroEtiqueta, etiquetasDe, desde, hasta]);
 
   const kpis = useMemo(() => {
     const hoy = new Date();
     const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-    const nuevosEsteMes = clientes.filter((c) => {
+    const nuevosEsteMes = clientesConfirmados.filter((c) => {
       const primera = c.visitas[c.visitas.length - 1];
       return primera?.created_at?.slice(0, 7) === mesActual;
     }).length;
-    const pipelineActivo = clientes.filter(
+    const pipelineActivo = clientesConfirmados.filter(
       (c) =>
         c.visitas[0]?.estado_pipeline !== 'Finalizado' &&
         c.visitas[0]?.estado_pipeline !== 'Perdido',
     ).length;
-    const pendienteConfirmar = clientes.filter((c) =>
+    const pendienteConfirmar = clientesConfirmados.filter((c) =>
       c.visitas.some((v) => v.estado === 'Pendiente'),
     ).length;
     return [
-      { label: 'Total clientes', valor: clientes.length },
+      { label: 'Total clientes', valor: clientesConfirmados.length },
       { label: 'Nuevos este mes', valor: nuevosEsteMes },
       { label: 'Pipeline activo', valor: pipelineActivo, acento: true },
       { label: 'Con visita pendiente', valor: pendienteConfirmar },
     ];
-  }, [clientes]);
+  }, [clientesConfirmados]);
 
   return (
     <div>
@@ -268,22 +297,34 @@ export default function ClientesPage() {
                     <p className="text-xs text-gray-500 truncate">{p.telefono || p.email || '—'}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">
                       {ETIQUETA_ORIGEN_POTENCIAL[p.origen]}
+                      {p.detalle ? ` · ${p.detalle}` : ''}
                     </p>
                   </div>
-                  <button
-                    title="Convertir en cliente"
-                    onClick={() =>
-                      abrirNuevoCliente({
-                        nombre: p.nombre,
-                        telefono: p.telefono,
-                        email: p.email ?? undefined,
-                        idioma: p.idioma ?? undefined,
-                      })
-                    }
-                    className="text-brand hover:text-brand-dark shrink-0 mt-0.5"
-                  >
-                    <UserPlus size={15} />
-                  </button>
+                  {p.origen === 'visita' ? (
+                    // Ya tiene historial de visitas — nada que "convertir", va directo a su ficha.
+                    <button
+                      title="Ver ficha"
+                      onClick={() => navigate(`/clientes/${encodeURIComponent(p.id)}`)}
+                      className="text-brand hover:text-brand-dark shrink-0 mt-0.5"
+                    >
+                      <Eye size={15} />
+                    </button>
+                  ) : (
+                    <button
+                      title="Convertir en cliente"
+                      onClick={() =>
+                        abrirNuevoCliente({
+                          nombre: p.nombre,
+                          telefono: p.telefono,
+                          email: p.email ?? undefined,
+                          idioma: p.idioma ?? undefined,
+                        })
+                      }
+                      className="text-brand hover:text-brand-dark shrink-0 mt-0.5"
+                    >
+                      <UserPlus size={15} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

@@ -385,6 +385,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                 contacto: 'Web',
                 tipo: solicitud.tipo_reforma ?? undefined,
                 descripcion: solicitud.comentario_cliente ?? undefined,
+                solicitudId: solicitud.id,
               })
             }
           >

@@ -63,7 +63,7 @@ export function agruparClientes(visitas: Visita[]): Cliente[] {
 // — se calcula al vuelo igual que agruparClientes(), y deja de aparecer aquí en cuanto esa persona
 // tiene su primera visita real (pasa a agruparClientes() de forma automática, sin ninguna
 // "conversión" que mantener).
-export type OrigenPotencial = 'solicitud' | 'orientativo';
+export type OrigenPotencial = 'solicitud' | 'orientativo' | 'visita';
 
 export type ClientePotencial = {
   id: string;
@@ -78,6 +78,7 @@ export type ClientePotencial = {
 export const ETIQUETA_ORIGEN_POTENCIAL: Record<OrigenPotencial, string> = {
   solicitud: 'Potencial · Solicitud web',
   orientativo: 'Potencial · Presupuesto orientativo',
+  visita: 'Potencial · Visita realizada',
 };
 
 export type SolicitudPotencialRow = {
@@ -151,4 +152,44 @@ export function agruparPotenciales(
   }
 
   return Array.from(resultado.values());
+}
+
+// "Cliente confirmado": decisión explícita de Gabriel 2026-08-26 — hacer una visita no basta para
+// considerar a alguien cliente real, solo cuenta cuando acepta un presupuesto (y a partir de ahí se
+// trabaja/factura con él). Hasta entonces se muestra en /clientes como potencial, con el mismo
+// distintivo que las solicitudes/orientativos — pero sigue siendo un Cliente normal (agruparClientes
+// no cambia) para Pipeline, Presupuestos, Facturas y Planning, que necesitan verlo desde el primer
+// contacto para poder trabajar las etapas previas a la aceptación.
+export type PresupuestoParaClaves = { estado: string; cliente_tel: string | null; cliente_email: string | null };
+
+export function clavesPresupuestosAceptados(presupuestos: PresupuestoParaClaves[]): Set<string> {
+  const claves = new Set<string>();
+  for (const p of presupuestos) {
+    if (p.estado !== 'Aceptado') continue;
+    if (p.cliente_tel) claves.add(normalizarTelefono(p.cliente_tel));
+    if (p.cliente_email) claves.add(p.cliente_email.toLowerCase());
+  }
+  return claves;
+}
+
+export function esClienteConfirmado(cliente: Cliente, clavesAceptadas: Set<string>): boolean {
+  const tel = normalizarTelefono(cliente.telefono);
+  return (!!tel && clavesAceptadas.has(tel)) || (!!cliente.email && clavesAceptadas.has(cliente.email.toLowerCase()));
+}
+
+// Clientes (agrupados por visita) que todavía no tienen ningún presupuesto Aceptado — se muestran
+// como potenciales en /clientes, con acceso directo a su ficha real (ya tienen historial de
+// visitas, a diferencia de los potenciales por solicitud/orientativo que aún no tienen ninguna).
+export function potencialesPorVisita(clientes: Cliente[], clavesAceptadas: Set<string>): ClientePotencial[] {
+  return clientes
+    .filter((c) => !esClienteConfirmado(c, clavesAceptadas))
+    .map((c) => ({
+      id: c.id,
+      origen: 'visita' as const,
+      nombre: `${c.nombre} ${c.apellidos}`.trim() || 'Sin nombre',
+      telefono: c.telefono,
+      email: c.email,
+      idioma: c.visitas[0]?.idioma ?? null,
+      detalle: `${c.visitas.length} visita${c.visitas.length === 1 ? '' : 's'} · última ${c.visitas[0]?.fecha_visita ?? '—'}`,
+    }));
 }

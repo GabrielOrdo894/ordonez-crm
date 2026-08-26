@@ -69,4 +69,9 @@ export type PrefillVisita = {
   direccionExtra?: string;
   pais?: string;
   proyectoId?: string;
+  // Id de la solicitud que originó esta visita (botón "Crear visita desde esta solicitud" en
+  // SolicitudDetalle.tsx) — al crear la visita, VisitaForm enlaza solicitudes.visita_id y registra
+  // el evento de funnel 'visita_agendada' para poder medir cuánto tarda una solicitud en convertirse
+  // en visita agendada (2026-08-26).
+  solicitudId?: string;
 };

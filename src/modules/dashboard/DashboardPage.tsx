@@ -31,16 +31,28 @@ import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
 
-type FunnelEventoCompleto = {
+type EventoExport = { id: string; created_at: string; etapa: EtapaFunnel; fuente: string | null; solicitud_id: string | null; presupuesto_id: string | null };
+type SolicitudExport = {
   id: string;
-  created_at: string;
-  etapa: EtapaFunnel;
-  fuente: string | null;
-  solicitud_id: string | null;
-  presupuesto_id: string | null;
-  solicitud: { nombre: string | null; email: string | null; telefono: string | null; tipo_reforma: string | null } | null;
-  presupuesto: { numero: string | null; cliente_nombre: string | null; cliente_email: string | null; estado: string | null; pais: string | null } | null;
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
+  tipo_reforma: string | null;
+  idioma: string;
+  visita_id: string | null;
+  presupuesto_vinculado_id: string | null;
 };
+type PresupuestoExport = {
+  id: string;
+  numero: string | null;
+  cliente_nombre: string | null;
+  cliente_email: string | null;
+  estado: string | null;
+  pais: string | null;
+  idioma: string | null;
+  tipo: string;
+};
+type VisitaExport = { id: string; pais: string | null };
 
 type FunnelEvento = { etapa: EtapaFunnel; solicitud_id: string | null; presupuesto_id: string | null; fuente: string | null };
 
@@ -431,46 +443,100 @@ export default function DashboardPage() {
 
   // Registro completo del embudo para análisis anual — a petición de Gabriel (2026-08-26): un
   // volcado con TODO lo almacenado en funnel_eventos (id único, fecha y hora exactas, cada acción
-  // del recorrido solicitud→firma), enriquecido con los datos de la solicitud/presupuesto de cada
-  // fila para que sea legible fuera del CRM, no solo IDs sueltos. Ignora a propósito el período y
-  // la zona seleccionados arriba — es un histórico completo, pensado para exportarse una vez al
-  // año, no para el filtro del día a día.
+  // del recorrido solicitud→firma), enriquecido con idioma/país y con las duraciones solicitud→
+  // visita agendada / solicitud→presupuesto (normal u orientativo) enviado. Ignora a propósito el
+  // período y la zona seleccionados arriba — es un histórico completo, pensado para exportarse una
+  // vez al año, no para el filtro del día a día.
   const exportarRegistroCompleto = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase
-        .from('funnel_eventos')
-        .select(
-          'id, created_at, etapa, fuente, solicitud_id, presupuesto_id, solicitud:solicitud_id(nombre, email, telefono, tipo_reforma), presupuesto:presupuesto_id(numero, cliente_nombre, cliente_email, estado, pais)',
-        )
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data as unknown as FunnelEventoCompleto[];
+      const [
+        { data: eventos, error: errorEventos },
+        { data: solicitudes, error: errorSolicitudes },
+        { data: presupuestos, error: errorPresupuestos },
+        { data: visitas, error: errorVisitas },
+      ] = await Promise.all([
+        supabase
+          .from('funnel_eventos')
+          .select('id, created_at, etapa, fuente, solicitud_id, presupuesto_id')
+          .order('created_at', { ascending: true }),
+        supabase.from('solicitudes').select('id, nombre, email, telefono, tipo_reforma, idioma, visita_id, presupuesto_vinculado_id'),
+        supabase.from('presupuestos').select('id, numero, cliente_nombre, cliente_email, estado, pais, idioma, tipo'),
+        supabase.from('visitas').select('id, pais'),
+      ]);
+      if (errorEventos) throw errorEventos;
+      if (errorSolicitudes) throw errorSolicitudes;
+      if (errorPresupuestos) throw errorPresupuestos;
+      if (errorVisitas) throw errorVisitas;
+      return {
+        eventos: (eventos ?? []) as EventoExport[],
+        solicitudes: (solicitudes ?? []) as SolicitudExport[],
+        presupuestos: (presupuestos ?? []) as PresupuestoExport[],
+        visitas: (visitas ?? []) as VisitaExport[],
+      };
     },
-    onSuccess: (data) => {
-      if (data.length === 0) {
+    onSuccess: ({ eventos, solicitudes, presupuestos, visitas }) => {
+      if (eventos.length === 0) {
         toast.error('No hay eventos registrados todavía');
         return;
       }
-      const filas = data.map((e) => {
+
+      const solicitudPorId = new Map(solicitudes.map((s) => [s.id, s]));
+      const presupuestoPorId = new Map(presupuestos.map((p) => [p.id, p]));
+      const paisDeVisita = new Map(visitas.map((v) => [v.id, v.pais]));
+      // Para filas cuyo evento solo trae presupuesto_id (aceptado/firmado/rechazado/obra/factura) —
+      // hay que remontar a la solicitud de origen para poder rellenar idioma/país/duraciones igual.
+      const solicitudPorPresupuesto = new Map<string, string>();
+      for (const s of solicitudes) if (s.presupuesto_vinculado_id) solicitudPorPresupuesto.set(s.presupuesto_vinculado_id, s.id);
+
+      const entradaPorSolicitud = new Map<string, string>();
+      const visitaAgendadaPorSolicitud = new Map<string, string>();
+      const enviadoPorPresupuesto = new Map<string, string>();
+      for (const e of eventos) {
+        if (e.etapa === 'solicitud_entrada' && e.solicitud_id) entradaPorSolicitud.set(e.solicitud_id, e.created_at);
+        if (e.etapa === 'visita_agendada' && e.solicitud_id) visitaAgendadaPorSolicitud.set(e.solicitud_id, e.created_at);
+        if (e.etapa === 'presupuesto_enviado' && e.presupuesto_id) enviadoPorPresupuesto.set(e.presupuesto_id, e.created_at);
+      }
+
+      const diasEntre = (desde: string | null, hasta: string | null) => {
+        if (!desde || !hasta) return '';
+        const dias = (new Date(hasta).getTime() - new Date(desde).getTime()) / 86_400_000;
+        return dias >= 0 ? Math.round(dias * 10) / 10 : '';
+      };
+
+      const filas = eventos.map((e) => {
+        const solicitudId = e.solicitud_id ?? (e.presupuesto_id ? solicitudPorPresupuesto.get(e.presupuesto_id) : undefined) ?? null;
+        const s = solicitudId ? solicitudPorId.get(solicitudId) : null;
+        const p = e.presupuesto_id ? presupuestoPorId.get(e.presupuesto_id) : null;
+        const presupuestoVinculado = s?.presupuesto_vinculado_id ? presupuestoPorId.get(s.presupuesto_vinculado_id) : null;
+        const t0 = solicitudId ? (entradaPorSolicitud.get(solicitudId) ?? null) : null;
+        const tVisita = solicitudId ? (visitaAgendadaPorSolicitud.get(solicitudId) ?? null) : null;
+        const tPresupuesto = presupuestoVinculado ? (enviadoPorPresupuesto.get(presupuestoVinculado.id) ?? null) : null;
+        const pais = (s?.visita_id && paisDeVisita.get(s.visita_id)) || presupuestoVinculado?.pais || p?.pais || '';
+        const idioma = s?.idioma || p?.idioma || presupuestoVinculado?.idioma || '';
+
         const d = new Date(e.created_at);
         return {
           id: e.id,
           fecha: d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' }),
           hora: d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
-          etapa: e.etapa,
           etapa_label: ETIQUETA_ETAPA_FUNNEL[e.etapa] ?? e.etapa,
+          etapa: e.etapa,
           fuente: e.fuente ?? '',
+          idioma,
+          pais,
           solicitud_id: e.solicitud_id ?? '',
-          solicitud_nombre: e.solicitud?.nombre ?? '',
-          solicitud_email: e.solicitud?.email ?? '',
-          solicitud_telefono: e.solicitud?.telefono ?? '',
-          solicitud_tipo_reforma: e.solicitud?.tipo_reforma ?? '',
+          solicitud_nombre: s?.nombre ?? '',
+          solicitud_email: s?.email ?? '',
+          solicitud_telefono: s?.telefono ?? '',
+          solicitud_tipo_reforma: s?.tipo_reforma ?? '',
+          dias_solicitud_a_visita: diasEntre(t0, tVisita),
+          dias_solicitud_a_presupuesto: diasEntre(t0, tPresupuesto),
+          tipo_presupuesto_vinculado: presupuestoVinculado?.tipo ?? '',
           presupuesto_id: e.presupuesto_id ?? '',
-          presupuesto_numero: e.presupuesto?.numero ?? '',
-          presupuesto_cliente: e.presupuesto?.cliente_nombre ?? '',
-          presupuesto_email: e.presupuesto?.cliente_email ?? '',
-          presupuesto_estado: e.presupuesto?.estado ?? '',
-          presupuesto_pais: e.presupuesto?.pais ?? '',
+          presupuesto_numero: p?.numero ?? '',
+          presupuesto_cliente: p?.cliente_nombre ?? '',
+          presupuesto_email: p?.cliente_email ?? '',
+          presupuesto_estado: p?.estado ?? '',
         };
       });
       exportarCSV(
@@ -482,17 +548,21 @@ export default function DashboardPage() {
           { key: 'etapa_label', label: 'Etapa' },
           { key: 'etapa', label: 'Etapa (clave)' },
           { key: 'fuente', label: 'Fuente' },
+          { key: 'idioma', label: 'Idioma (ES/FR)' },
+          { key: 'pais', label: 'País' },
           { key: 'solicitud_id', label: 'ID solicitud' },
           { key: 'solicitud_nombre', label: 'Nombre (solicitud)' },
           { key: 'solicitud_email', label: 'Email (solicitud)' },
           { key: 'solicitud_telefono', label: 'Teléfono (solicitud)' },
           { key: 'solicitud_tipo_reforma', label: 'Tipo de reforma' },
+          { key: 'dias_solicitud_a_visita', label: 'Días solicitud→visita agendada' },
+          { key: 'dias_solicitud_a_presupuesto', label: 'Días solicitud→presupuesto enviado' },
+          { key: 'tipo_presupuesto_vinculado', label: 'Tipo de presupuesto (normal/orientativo)' },
           { key: 'presupuesto_id', label: 'ID presupuesto' },
           { key: 'presupuesto_numero', label: 'Nº presupuesto' },
           { key: 'presupuesto_cliente', label: 'Cliente (presupuesto)' },
           { key: 'presupuesto_email', label: 'Email (presupuesto)' },
           { key: 'presupuesto_estado', label: 'Estado presupuesto' },
-          { key: 'presupuesto_pais', label: 'País' },
         ],
         filas,
       );
@@ -542,9 +612,10 @@ export default function DashboardPage() {
             </Button>
             <p className="text-xs text-gray-400 max-w-md">
               Descarga en una sola tabla cada acción registrada del embudo de conversión desde que arrancó el
-              tracking (11/08/2026): fecha y hora exactas, ID único por evento, etapa, fuente y los datos de la
-              solicitud/presupuesto asociados. Incluye todo el histórico, independiente del período y la zona
-              seleccionados arriba — pensado para analizar el año completo.
+              tracking (11/08/2026): fecha y hora exactas, ID único por evento, etapa, fuente, idioma y país del
+              contacto, días desde la solicitud hasta la visita agendada y hasta el presupuesto (normal u
+              orientativo) enviado, y los datos de la solicitud/presupuesto asociados. Incluye todo el histórico,
+              independiente del período y la zona seleccionados arriba — pensado para analizar el año completo.
             </p>
           </div>
         </div>
