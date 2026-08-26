@@ -8,7 +8,9 @@
 //   2. Comprobar si clientes con presupuesto en estado `Pendiente` han respondido, y
 //      actualizar `presupuestos.ultima_respuesta_cliente_resumen` / `_fecha`.
 //   3. Comprobar si clientes han respondido a una solicitud YA ENVIADA que todavía no tiene
-//      presupuesto vinculado, y devolverla a estado `Nueva` con el resumen de la respuesta.
+//      presupuesto vinculado, y guardar el resumen de la respuesta con `ultima_respuesta_revisada
+//      = false` — SIN tocar `estado` (antes se revertía a `Nueva`, pero eso contaba de nuevo como
+//      "solicitud sin responder" en el embudo de conversión; decisión de Gabriel 2026-08-26).
 //   4. Detectar conversaciones directas (autoenvíos manuales de Gabriel y clientes que
 //      escriben directo, ver reference_fuentes_solicitudes_web) que aún no están vinculadas
 //      a ninguna solicitud/presupuesto: la regla de Gabriel es que si él escribe o responde
@@ -16,7 +18,7 @@
 //      cliente real — se crea una solicitud nueva (fuente `email_directo`) para que aparezca
 //      en el CRM y se triage a mano.
 //
-// Ver docs/bloque6-solicitudes-seguimiento.md y docs/directrices-respuesta-clientes.md.
+// Ver docs/producto/bloque6-solicitudes-seguimiento.md y docs/negocio/directrices-respuesta-clientes.md.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 // Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
@@ -162,6 +164,16 @@ function extraerEmail(campoDe: string): string {
   return (match ? match[1] : campoDe).trim().toLowerCase();
 }
 
+// El nombre para mostrar del From ("Ainhoa Etxeberria <correo@dominio.com>") — null si el cliente
+// escribe sin nombre visible (p. ej. "correo@dominio.com" a secas). Landbot nunca captura el nombre
+// del cliente (ver parseLandbot) y WordPress solo a veces, así que esta es la única forma de
+// rellenarlo después: cuando el cliente responde por email, Gmail suele traer su nombre real en el
+// From aunque el formulario no lo haya pedido.
+function extraerNombreDesdeFrom(campoDe: string): string | null {
+  const match = campoDe.match(/^"?([^"<]+?)"?\s*<[^>]+>$/);
+  return match ? match[1].trim() : null;
+}
+
 // --- Parsers por formato conocido ---
 
 function parseLandbot(texto: string) {
@@ -264,6 +276,32 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       continue;
     }
 
+    // Gabriel pidió (2026-08-22, caso real: sandra.ramos.94@hotmail.com) que cada solicitud sea
+    // única — si el formulario reenvía/duplica el mismo envío (mismo contenido exacto, gmail_message_id
+    // distinto porque es un correo nuevo de verdad, no el mismo que onConflict ya cubre), no se cree
+    // una segunda fila: se ignora y se deja la solicitud existente tal cual, sea cual sea su estado
+    // (incluida una ya Descartada — no se reabre, solo no se duplica). El contenido se compara por
+    // email + tipo_reforma + comentario_cliente normalizados; si ambos campos de contenido vienen
+    // vacíos no hay nada fiable que comparar, así que en ese caso se inserta igual.
+    const normaliza = (v: string | null | undefined) => (v ?? '').trim().toLowerCase();
+    const contenidoVacio = !normaliza(datos.tipo_reforma) && !normaliza(datos.comentario_cliente);
+    if (datos.email && !contenidoVacio) {
+      const { data: posiblesDuplicados, error: errorDup } = await supabase
+        .from('solicitudes')
+        .select('id, tipo_reforma, comentario_cliente')
+        .ilike('email', datos.email);
+      if (errorDup) {
+        log.push(`Error comprobando duplicados para ${datos.email}: ${errorDup.message}`);
+      } else if (
+        (posiblesDuplicados ?? []).some(
+          (s) => normaliza(s.tipo_reforma) === normaliza(datos.tipo_reforma) && normaliza(s.comentario_cliente) === normaliza(datos.comentario_cliente),
+        )
+      ) {
+        log.push(`Solicitud duplicada (mismo contenido exacto) de ${datos.email} — se ignora, no se crea una segunda fila.`);
+        continue;
+      }
+    }
+
     const { data: filaInsertada, error } = await supabase
       .from('solicitudes')
       .upsert(
@@ -337,7 +375,7 @@ function quitarCitas(texto: string): string {
 
 // Nuestros propios envíos siempre usan la plantilla con cabecera (logo + "Reformas integrales •
 // Albañileria & Aislamientos") y pie (datos de contacto + redes) — ver
-// modificaciones/plantilla de mensajeria por email de la empresa de refomas ordoñez.png. Gabriel
+// negocio/modificaciones/plantilla de mensajeria por email de la empresa de refomas ordoñez.png. Gabriel
 // pidió no mostrar nunca esa cabecera/pie, solo el cuerpo real: desde el saludo hasta "Cordialement".
 function limpiarPlantillaPropia(texto: string): string {
   let t = texto;
@@ -378,12 +416,21 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
   // uno como `Aceptado` dejaba de revisarse para siempre, así que una respuesta nueva del
   // cliente DESPUÉS de aceptar nunca se detectaba (bug real, 2026-07-29). `Aceptado` entra
   // también en el barrido; `Borrador` (nunca enviado) y `Rechazado` (cerrado) se quedan fuera.
+  //
+  // `seguimiento_concluido = true` (cierre manual "Marcar como Aceptada") también se excluye a
+  // propósito, y esta vez para siempre — decisión explícita de Gabriel 2026-08-19: el fin de
+  // "Solicitudes & Seguimiento" es rastrear hasta conseguir la visita/negociación inicial: una
+  // vez cerrada, el presupuesto definitivo post-visita, sus ajustes y las facturas son
+  // conversación real que sigue por email pero pertenece a Presupuestos/Facturas, no a este
+  // tracking — así que este barrido dejar de tocar la fila es exactamente lo que se busca (antes
+  // se reabría sola si el cliente volvía a escribir; ya no).
   const { data: presupuestos, error } = await supabase
     .from('presupuestos')
     .select(
       'id, numero, cliente_email, fecha_emision, ultima_respuesta_cliente_fecha, gmail_thread_id, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en'
     )
     .in('estado', ['Pendiente', 'Aceptado'])
+    .eq('seguimiento_concluido', false)
     .not('cliente_email', 'is', null)
     .is('eliminado_en', null);
 
@@ -469,7 +516,7 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
   return actualizados;
 }
 
-// Solicitudes "Nueva"/"Borrador" — busca directamente en Gmail si ya existe un correo NUESTRO
+// Solicitudes "Nueva" — busca directamente en Gmail si ya existe un correo NUESTRO
 // dirigido al email del cliente, posterior a la creación de la solicitud, y si lo hay la marca
 // como "Enviada" (mismo efecto que el botón manual "Marcar como enviado" de SolicitudDetalle.tsx).
 // OJO: no se puede reusar el `gmail_thread_id` guardado al ingerir la solicitud — ese hilo es la
@@ -479,25 +526,35 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
 // algo que no se puede confirmar sin verlo). Por eso se busca por destinatario en vez de por hilo
 // — mismo patrón de búsqueda por email que ya usa revisarRespuestasPresupuestos cuando no hay
 // thread_id todavía, pero aplicado siempre aquí, no solo como fallback.
+//
+// OJO — una solicitud "Nueva" puede ser genuinamente nueva (nunca contestada) o una solicitud
+// que YA se había marcado "Enviada" y `revisarRespuestasSolicitudes` volvió a poner en "Nueva"
+// porque el cliente respondió en el mismo hilo. En ese segundo caso, comparar solo contra
+// `created_at` (fecha de creación de la solicitud, no de la respuesta que la reabrió) hacía que
+// el correo ANTIGUO que ya la había marcado "Enviada" la primera vez volviera a contar como
+// respuesta válida en la misma pasada — la solicitud pasaba a "Enviada" otra vez sin que Gabriel
+// hubiera contestado de verdad al mensaje nuevo del cliente (bug real, 2026-08-19). Se compara
+// en su lugar contra la fecha más reciente entre `created_at` y `ultima_respuesta_cliente_fecha`,
+// para que "ya hay una respuesta nuestra" se evalúe siempre contra lo último que dijo el cliente.
 async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, email, fuente, created_at')
-    .in('estado', ['Nueva', 'Borrador'])
+    .select('id, email, fuente, created_at, ultima_respuesta_cliente_fecha')
+    .eq('estado', 'Nueva')
     .not('email', 'is', null);
 
   if (error) {
-    log.push(`Error leyendo solicitudes Nueva/Borrador: ${error.message}`);
+    log.push(`Error leyendo solicitudes Nueva: ${error.message}`);
     return 0;
   }
-  log.push(`Solicitudes Nueva/Borrador con email a revisar: ${solicitudes.length}.`);
+  log.push(`Solicitudes Nueva con email a revisar: ${solicitudes.length}.`);
 
   let actualizadas = 0;
   for (const s of solicitudes) {
     const query = `from:${NUESTRO_EMAIL} to:${s.email} newer_than:30d`;
-    let listado: { messages?: { id: string }[] };
+    let listado: { messages?: { id: string; threadId: string }[] };
     try {
-      listado = await gmailFetch<{ messages?: { id: string }[] }>(
+      listado = await gmailFetch<{ messages?: { id: string; threadId: string }[] }>(
         `messages?q=${encodeURIComponent(query)}&maxResults=3`,
         token,
       );
@@ -508,11 +565,16 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
     const mensajes = listado.messages ?? [];
     if (mensajes.length === 0) continue;
 
-    // Nos quedamos con el más antiguo de los correos NUESTROS posteriores a la creación de la
-    // solicitud — si solo hay correos anteriores (cliente recurrente con historial previo), no
-    // cuenta como respuesta a ESTA solicitud.
+    // Línea base: lo último que dijo el cliente si ya reabrió el hilo, si no la creación de la
+    // solicitud. Nos quedamos con el más antiguo de los correos NUESTROS posteriores a esa fecha
+    // — si solo hay correos anteriores (respuesta vieja, o cliente recurrente con historial
+    // previo), no cuenta como respuesta a lo que el cliente dijo ahora.
+    const desde = s.ultima_respuesta_cliente_fecha && s.ultima_respuesta_cliente_fecha > s.created_at
+      ? s.ultima_respuesta_cliente_fecha
+      : s.created_at;
     let fechaEnvio: string | null = null;
-    for (const { id } of mensajes) {
+    let threadIdEnvio: string | null = null;
+    for (const { id, threadId } of mensajes) {
       let msg: GmailMessage;
       try {
         msg = await gmailFetch<GmailMessage>(`messages/${id}?format=minimal`, token);
@@ -521,23 +583,42 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
         continue;
       }
       const fechaMsg = new Date(Number(msg.internalDate)).toISOString();
-      if (fechaMsg > s.created_at && (!fechaEnvio || fechaMsg < fechaEnvio)) fechaEnvio = fechaMsg;
+      if (fechaMsg > desde && (!fechaEnvio || fechaMsg < fechaEnvio)) {
+        fechaEnvio = fechaMsg;
+        threadIdEnvio = threadId;
+      }
     }
     if (!fechaEnvio) continue;
 
+    // Guarda también el hilo real de esta conversación (distinto del hilo de la notificación
+    // del formulario con el que se ingirió la solicitud) — sin esto, revisarRespuestasSolicitudes
+    // seguía mirando el hilo equivocado y nunca encontraba la respuesta del cliente (bug real,
+    // corregido 2026-08-26; hasta ahora la respuesta solo se detectaba vía detectarConversacionesDirectas).
     const { error: updError } = await supabase
       .from('solicitudes')
-      .update({ estado: 'Enviada', mensaje_enviado_en: fechaEnvio })
+      .update({ estado: 'Enviada', mensaje_enviado_en: fechaEnvio, gmail_thread_id: threadIdEnvio })
       .eq('id', s.id);
     if (updError) {
       log.push(`Error actualizando solicitud ${s.id}: ${updError.message}`);
       continue;
     }
-    const { error: errorFunnel } = await supabase
+    // Evita duplicar el evento si esta misma solicitud ya se marcó "Enviada" por otra vía (p. ej.
+    // la acción manual "Marcar como Enviada" en SolicitudesPage.tsx) — confirmado con duplicados
+    // reales en producción, auditoría 2026-08-18. Mismo criterio que registrarEventoFunnel en
+    // src/lib/funnelTracking.ts, duplicado aquí porque esta función Deno no puede importarlo.
+    const { data: yaRegistrado } = await supabase
       .from('funnel_eventos')
-      .insert({ etapa: 'solicitud_respondida', solicitud_id: s.id, fuente: s.fuente });
-    if (errorFunnel) {
-      log.push(`Error registrando funnel_eventos para solicitud ${s.id}: ${errorFunnel.message}`);
+      .select('id')
+      .eq('etapa', 'solicitud_respondida')
+      .eq('solicitud_id', s.id)
+      .limit(1);
+    if (!yaRegistrado || yaRegistrado.length === 0) {
+      const { error: errorFunnel } = await supabase
+        .from('funnel_eventos')
+        .insert({ etapa: 'solicitud_respondida', solicitud_id: s.id, fuente: s.fuente });
+      if (errorFunnel) {
+        log.push(`Error registrando funnel_eventos para solicitud ${s.id}: ${errorFunnel.message}`);
+      }
     }
     actualizadas++;
     log.push(`Solicitud ${s.id}: correo nuestro a ${s.email} detectado, se marca como Enviada.`);
@@ -547,11 +628,14 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
 
 // Solicitudes ya enviadas (Gabriel ya contestó) que aún no se han convertido en un
 // presupuesto real — comprueba si el cliente respondió dentro del mismo hilo de Gmail y, si
-// es así, guarda el resumen y la devuelve a "Nueva" para que vuelva a aparecer como pendiente.
+// es así, guarda el resumen y marca `ultima_respuesta_revisada: false` para que se vea como
+// pendiente de atender en el CRM. NO toca `estado` (sigue "Enviada") — antes se revertía a
+// "Nueva", pero eso hacía que el embudo contara otra vez la solicitud como sin responder pese a
+// que ya se había contactado al cliente (decisión de Gabriel 2026-08-26).
 async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, gmail_thread_id, ultima_respuesta_cliente_fecha')
+    .select('id, nombre, gmail_thread_id, ultima_respuesta_cliente_fecha')
     .eq('estado', 'Enviada')
     .is('presupuesto_vinculado_id', null)
     .not('gmail_thread_id', 'is', null);
@@ -576,32 +660,39 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
 
     const ultimoMsg = mensajes[mensajes.length - 1];
     const headers = ultimoMsg.payload?.headers ?? [];
-    const de = extraerEmail(cabecera(headers, 'From'));
+    const campoDe = cabecera(headers, 'From');
+    const de = extraerEmail(campoDe);
     if (de === NUESTRO_EMAIL) continue; // el último mensaje del hilo lo escribimos nosotros
 
     const fechaMsg = new Date(Number(ultimoMsg.internalDate)).toISOString();
-    if (s.ultima_respuesta_cliente_fecha && new Date(s.ultima_respuesta_cliente_fecha).getTime() >= new Date(fechaMsg).getTime()) {
-      continue; // ya la teníamos registrada
+    const esRespuestaNueva =
+      !s.ultima_respuesta_cliente_fecha || new Date(fechaMsg).getTime() > new Date(s.ultima_respuesta_cliente_fecha).getTime();
+    // Landbot nunca trae el nombre del cliente (parseLandbot) y WordPress solo a veces — si el
+    // email de respuesta sí trae un nombre visible en el From, se rellena aquí aunque el mensaje
+    // ya estuviera registrado (no hace falta que sea una respuesta nueva para completar el dato).
+    const nombreDetectado = !s.nombre ? extraerNombreDesdeFrom(campoDe) : null;
+    if (!esRespuestaNueva && !nombreDetectado) continue; // ya la teníamos registrada, nada que completar
+
+    const patch: Record<string, unknown> = {};
+    if (esRespuestaNueva) {
+      const texto = htmlATexto(extraerCuerpo(ultimoMsg.payload));
+      patch.ultima_respuesta_cliente_resumen = (ultimoMsg.snippet || texto).slice(0, 500);
+      patch.ultima_respuesta_cliente_fecha = fechaMsg;
+      patch.ultima_respuesta_revisada = false;
     }
+    if (nombreDetectado) patch.nombre = nombreDetectado;
 
-    const texto = htmlATexto(extraerCuerpo(ultimoMsg.payload));
-    const resumen = (ultimoMsg.snippet || texto).slice(0, 500);
-
-    const { error: updError } = await supabase
-      .from('solicitudes')
-      .update({
-        estado: 'Nueva',
-        ultima_respuesta_cliente_resumen: resumen,
-        ultima_respuesta_cliente_fecha: fechaMsg,
-      })
-      .eq('id', s.id);
-
+    const { error: updError } = await supabase.from('solicitudes').update(patch).eq('id', s.id);
     if (updError) {
       log.push(`Error actualizando solicitud ${s.id}: ${updError.message}`);
       continue;
     }
-    actualizadas++;
-    log.push(`Solicitud ${s.id}: respuesta del cliente detectada, vuelve a "Nueva".`);
+    if (esRespuestaNueva) {
+      actualizadas++;
+      log.push(`Solicitud ${s.id}: respuesta del cliente detectada, pendiente de revisar.`);
+    } else {
+      log.push(`Solicitud ${s.id}: nombre completado a partir del email (${nombreDetectado}).`);
+    }
   }
   return actualizadas;
 }
@@ -617,6 +708,21 @@ function estaExcluido(email: string, listaNegra: string[]): boolean {
     if (!v) return false;
     return v.startsWith('@') ? e.endsWith(v) : e === v;
   });
+}
+
+// Convención de asunto (2026-08-26, a petición de Gabriel): cuando el primer contacto es un email
+// NUEVO nuestro (no respuesta a un hilo existente — típicamente un `email_directo` que arranca la
+// propia Gabriel/Claude, no un formulario), el asunto debe empezar por "Solicitud de visita" /
+// "Demande de visite" o "Presupuesto orientativo" / "Devis indicatif" para poder clasificar el tipo
+// de contacto automáticamente. El asunto sobrevive en las respuestas ("Re: ..."), así que basta con
+// buscar la frase en cualquier parte, sin anclar al principio. Los formularios (Landbot/WordPress)
+// se dejan siempre sin clasificar (`null`, "sin determinar") — ahí es el propio CRM quien decide más
+// tarde si ofrece visita u orientativo según disponibilidad, no algo que el cliente elige al pedirlo.
+function detectarTipoSolicitud(asunto: string): 'visita' | 'presupuesto_orientativo' | null {
+  const a = asunto.toLowerCase();
+  if (/solicitud de visita|demande de visite/.test(a)) return 'visita';
+  if (/presupuesto orientativo|devis indicatif/.test(a)) return 'presupuesto_orientativo';
+  return null;
 }
 
 // Conversaciones directas: hilos donde Gabriel escribió (mensaje desde NUESTRO_EMAIL) y la otra
@@ -674,12 +780,71 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
       continue;
     }
 
-    const nombreMatch = cabecera(headersUltimo, 'From').match(/^"?([^"<]+?)"?\s*<[^>]+>$/);
-    const nombre = nombreMatch ? nombreMatch[1].trim() : null;
+    const nombre = extraerNombreDesdeFrom(cabecera(headersUltimo, 'From'));
     const asunto = cabecera(headersUltimo, 'Subject');
     const texto = htmlATexto(extraerCuerpo(ultimoMsg.payload));
     const resumen = (ultimoMsg.snippet || texto).slice(0, 500);
     const fechaUltimo = new Date(Number(ultimoMsg.internalDate)).toISOString();
+
+    // Antes de crear una solicitud nueva, comprueba que este email no tenga YA una solicitud o
+    // un presupuesto en curso — la notificación del formulario web (o el hilo con el que se
+    // ingirió la solicitud) casi siempre vive en un hilo de Gmail distinto al de esta
+    // conversación real, así que dedupear solo por gmail_thread_id (como hacía esto antes)
+    // dejaba pasar duplicados reales del mismo contacto (hallazgo real, auditoría 2026-08-19:
+    // florent.courally@yahoo.fr y rosarito.olabe@gmail.com aparecían dos veces en Solicitudes).
+    // Solo se compara por email — es el único dato fiable que da esta función en este punto (el
+    // teléfono no siempre aparece en la cabecera del email).
+    const { data: presupuestoExistente } = await supabase
+      .from('presupuestos')
+      .select('id')
+      .ilike('cliente_email', deUltimo)
+      .is('eliminado_en', null)
+      .limit(1);
+    if (presupuestoExistente && presupuestoExistente.length > 0) {
+      hilosYaTracked.add(threadId);
+      log.push(`Conversación directa de ${deUltimo} (hilo ${threadId}) ya tiene un presupuesto en curso — no se crea solicitud duplicada.`);
+      continue;
+    }
+
+    const { data: solicitudExistente } = await supabase
+      .from('solicitudes')
+      .select('id, nombre, estado, ultima_respuesta_cliente_fecha, tipo_solicitud')
+      .ilike('email', deUltimo)
+      .neq('estado', 'Descartada')
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (solicitudExistente && solicitudExistente.length > 0) {
+      const existente = solicitudExistente[0];
+      const esMasReciente = !existente.ultima_respuesta_cliente_fecha || fechaUltimo > existente.ultima_respuesta_cliente_fecha;
+      const patch: Record<string, unknown> = {
+        gmail_thread_id: threadId,
+        gmail_message_id: ultimoMsg.id,
+        ultima_respuesta_cliente_resumen: resumen,
+      };
+      // Solo rellena tipo_solicitud si todavía no tenía uno — nunca pisa una corrección manual
+      // hecha a mano en el CRM.
+      if (!existente.tipo_solicitud) {
+        const tipoDetectado = detectarTipoSolicitud(asunto);
+        if (tipoDetectado) patch.tipo_solicitud = tipoDetectado;
+      }
+      // Igual con el nombre — Landbot nunca lo trae, WordPress solo a veces; si el email de
+      // respuesta sí trae un nombre visible en el From, se completa el dato que faltaba.
+      if (!existente.nombre && nombre) patch.nombre = nombre;
+      if (esMasReciente) {
+        patch.ultima_respuesta_cliente_fecha = fechaUltimo;
+        // No revierte `estado` a "Nueva" (decisión de Gabriel 2026-08-26, mismo criterio que
+        // revisarRespuestasSolicitudes) — solo marca la respuesta como pendiente de revisar.
+        if (existente.estado === 'Enviada') patch.ultima_respuesta_revisada = false;
+      }
+      const { error: errorUpdate } = await supabase.from('solicitudes').update(patch).eq('id', existente.id);
+      if (errorUpdate) {
+        log.push(`Error actualizando solicitud existente ${existente.id} (dedupe email_directo): ${errorUpdate.message}`);
+      } else {
+        log.push(`Conversación directa de ${deUltimo} (hilo ${threadId}) enlazada a la solicitud existente ${existente.id} en vez de duplicarla.`);
+      }
+      hilosYaTracked.add(threadId);
+      continue;
+    }
 
     const { data: filaInsertada, error } = await supabase
       .from('solicitudes')
@@ -692,6 +857,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
           email: deUltimo,
           comentario_cliente: asunto ? `Asunto: ${asunto}\n\n${resumen}` : resumen,
           estado: 'Nueva',
+          tipo_solicitud: detectarTipoSolicitud(asunto),
           ultima_respuesta_cliente_resumen: resumen,
           ultima_respuesta_cliente_fecha: fechaUltimo,
         },
@@ -746,6 +912,10 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, log });
   } catch (err) {
+    // console.error (no solo el body de la respuesta) para poder ver el error real en
+    // function_logs — el body de una respuesta no-2xx no queda guardado en los logs de Supabase,
+    // así que sin esto un fallo aquí es invisible salvo que se reproduzca con curl a mano.
+    console.error('revisar-gmail error:', err);
     log.push(String(err instanceof Error ? err.message : err));
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err), log }, 500);
   }

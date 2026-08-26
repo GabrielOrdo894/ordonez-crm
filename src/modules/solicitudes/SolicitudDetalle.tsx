@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Sparkles, Copy, Check, X, Link2, Gauge } from 'lucide-react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { ArrowLeft, Sparkles, Copy, Check, X, Link2, Gauge, CalendarPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
@@ -8,14 +9,22 @@ import { useConfirmar } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
+import type { VisitaModalContext } from '../../components/layout/AppLayout';
 import {
   FUENTE_LABEL,
   MODELOS_IA,
+  TIPO_SOLICITUD_LABEL,
   estadoSeguimiento,
   parseMensaje,
   type PresupuestoConRespuesta,
   type Solicitud,
+  type TipoSolicitud,
 } from './types';
+
+const OPCIONES_TIPO_SOLICITUD = [
+  { value: '', label: 'Sin determinar' },
+  ...(Object.keys(TIPO_SOLICITUD_LABEL) as TipoSolicitud[]).map((v) => ({ value: v, label: TIPO_SOLICITUD_LABEL[v] })),
+];
 
 type SolicitudDetalleProps = {
   tipo: 'solicitud' | 'seguimiento';
@@ -27,9 +36,9 @@ type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'v
 
 const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
-  Borrador: 'confirmada',
   Enviada: 'realizada',
   Descartada: 'cancelada',
+  Aceptada: 'confirmada',
 };
 
 function fecha(f: string | null) {
@@ -43,6 +52,8 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const toast = useToast();
   const confirmar = useConfirmar();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { abrirNuevaVisita } = useOutletContext<VisitaModalContext>();
   const [modelo, setModelo] = useState(MODELOS_IA[0].value);
 
   const { data: solicitud, isLoading: cargandoSolicitud } = useQuery({
@@ -61,7 +72,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       const { data, error } = await supabase
         .from('presupuestos')
         .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, conversacion',
+          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado, conversacion',
         )
         .eq('id', id)
         .single();
@@ -120,7 +131,14 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const generarMutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke('generar-mensaje-ia', { body: { tipo, id, modelo } });
-      if (error) throw error;
+      if (error) {
+        // supabase-js deja error.message genérico ("Edge Function returned a non-2xx status
+        // code") en vez del mensaje real del body — hay que leerlo de error.context (bug real
+        // corregido 2026-08-18, notado al añadir el bloqueo de presupuesto de IA agotado, que
+        // devuelve 429 con un mensaje explícito que antes nunca llegaba a verse).
+        const cuerpo = await (error as { context?: Response }).context?.json?.().catch(() => null);
+        throw new Error(cuerpo?.error ?? error.message);
+      }
       if (data?.error) throw new Error(data.error);
       return data;
     },
@@ -131,9 +149,12 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const marcarEnviadoMutation = useMutation({
     mutationFn: async () => {
       if (tipo === 'solicitud') {
+        // Sirve para el primer envío (estado pasa a "Enviada") y también para responder a una
+        // respuesta posterior del cliente (estado ya era "Enviada" — aquí solo cierra el aviso de
+        // "Nueva respuesta" con ultima_respuesta_revisada, sin volver a tocar el embudo).
         const { error } = await supabase
           .from('solicitudes')
-          .update({ estado: 'Enviada', mensaje_enviado_en: new Date().toISOString() })
+          .update({ estado: 'Enviada', mensaje_enviado_en: new Date().toISOString(), ultima_respuesta_revisada: true })
           .eq('id', id);
         if (error) throw error;
         await registrarEventoFunnel('solicitud_respondida', { solicitudId: id, fuente: solicitud?.fuente });
@@ -166,6 +187,18 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     onError: (error) => toast.error(error.message),
   });
 
+  const tipoSolicitudMutation = useMutation({
+    mutationFn: async (tipo: TipoSolicitud | null) => {
+      const { error } = await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes', id] });
+      toast.success('Tipo de solicitud actualizado');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const vincularMutation = useMutation({
     mutationFn: async (presupuestoId: string | null) => {
       const { error } = await supabase.from('solicitudes').update({ presupuesto_vinculado_id: presupuestoId }).eq('id', id);
@@ -185,6 +218,29 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     onError: (error) => toast.error(error.message),
   });
 
+  // Cierre manual y DEFINITIVO de la conversación de seguimiento, independiente del estado real
+  // del presupuesto (Pendiente/Aceptado/Rechazado) — mismo campo y mismo criterio que las
+  // acciones masivas de SolicitudesPage.tsx. revisar-gmail deja de vigilar este presupuesto en
+  // cuanto se marca — sin reapertura automática (decisión explícita de Gabriel 2026-08-19).
+  // "Reabrir conversación" de abajo es la única forma de volver a activarlo.
+  const concluidoMutation = useMutation({
+    mutationFn: async (concluido: boolean) => {
+      const patch: Record<string, unknown> = { seguimiento_concluido: concluido };
+      if (concluido) {
+        patch.mensaje_seguimiento_enviado = true;
+        patch.mensaje_seguimiento_enviado_en = new Date().toISOString();
+        patch.ultima_respuesta_revisada = true;
+      }
+      const { error } = await supabase.from('presupuestos').update(patch).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, concluido) => {
+      invalidarListas();
+      toast.success(concluido ? 'Conversación dada por concluida' : 'Vuelto a "Nueva" / no leído');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const copiar = (texto: string, etiqueta: string) => {
     navigator.clipboard.writeText(texto);
     toast.success(`${etiqueta} copiado`);
@@ -195,7 +251,11 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const estado = tipo === 'solicitud' ? solicitud?.estado : presupuesto ? estadoSeguimiento(presupuesto) : undefined;
   const mensajeRaw = tipo === 'solicitud' ? solicitud?.mensaje_generado ?? null : presupuesto?.mensaje_seguimiento_generado ?? null;
   const mensaje = parseMensaje(mensajeRaw);
-  const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' : !!presupuesto?.mensaje_seguimiento_enviado;
+  // Si hay una respuesta del cliente sin revisar, se trata como "no enviado" para que reaparezca
+  // el flujo de generar/marcar — aunque `estado` siga "Enviada" (ya no se revierte a "Nueva" al
+  // llegar una respuesta, decisión de Gabriel 2026-08-26, para no distorsionar el embudo).
+  const respuestaSinRevisar = tipo === 'solicitud' && solicitud?.estado === 'Enviada' && solicitud?.ultima_respuesta_revisada === false;
+  const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' && !respuestaSinRevisar : !!presupuesto?.mensaje_seguimiento_enviado;
   const descartada = tipo === 'solicitud' && solicitud?.estado === 'Descartada';
 
   return (
@@ -214,7 +274,10 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
             {tipo === 'solicitud' ? solicitud?.nombre || solicitud?.email || '(sin nombre)' : presupuesto?.cliente_nombre}
           </p>
         </div>
-        {estado && <Badge variant={VARIANTE_ESTADO[estado] ?? 'default'}>{estado}</Badge>}
+        <span className="flex items-center gap-1.5 shrink-0">
+          {estado && <Badge variant={VARIANTE_ESTADO[estado] ?? 'default'}>{estado}</Badge>}
+          {respuestaSinRevisar && <Badge variant="pendiente">Nueva respuesta</Badge>}
+        </span>
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 text-sm text-gray-700 space-y-1.5">
@@ -288,6 +351,67 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         )}
       </div>
 
+      {tipo === 'seguimiento' && presupuesto && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
+          {presupuesto.seguimiento_concluido ? (
+            <Button variant="secondary" onClick={() => concluidoMutation.mutate(false)} disabled={concluidoMutation.isPending}>
+              Reabrir conversación
+            </Button>
+          ) : (
+            <Button onClick={() => concluidoMutation.mutate(true)} disabled={concluidoMutation.isPending}>
+              <span className="flex items-center gap-1.5">
+                <Check size={14} />
+                Marcar como Aceptada (cerrar seguimiento)
+              </span>
+            </Button>
+          )}
+          <span className="text-xs text-gray-400">
+            Cierre definitivo — deja de vigilarse por email (presupuesto definitivo, ajustes, facturas van aparte),
+            independiente de si el presupuesto en sí queda Pendiente, Aceptado o Rechazado.
+          </span>
+        </div>
+      )}
+
+      {tipo === 'solicitud' && solicitud && !descartada && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
+          <Button
+            variant="secondary"
+            onClick={() =>
+              abrirNuevaVisita({
+                nombre: solicitud.nombre ?? undefined,
+                telefono: solicitud.telefono ?? undefined,
+                email: solicitud.email ?? undefined,
+                idioma: solicitud.idioma,
+                contacto: 'Web',
+                tipo: solicitud.tipo_reforma ?? undefined,
+                descripcion: solicitud.comentario_cliente ?? undefined,
+              })
+            }
+          >
+            <span className="flex items-center gap-1.5">
+              <CalendarPlus size={14} />
+              Crear visita desde esta solicitud
+            </span>
+          </Button>
+          <span className="text-xs text-gray-400">Abre "Nueva visita" con los datos de contacto ya rellenados.</span>
+        </div>
+      )}
+
+      {tipo === 'solicitud' && solicitud && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Solicita</span>
+          <div className="w-56">
+            <Select
+              options={OPCIONES_TIPO_SOLICITUD}
+              value={solicitud.tipo_solicitud ?? ''}
+              disabled={tipoSolicitudMutation.isPending}
+              onChange={(e) => tipoSolicitudMutation.mutate((e.target.value || null) as TipoSolicitud | null)}
+            />
+          </div>
+          <span className="text-xs text-gray-400">Se autodetecta por el asunto en conversaciones directas; corrígelo si hace falta.</span>
+        </div>
+      )}
+
       {tipo === 'solicitud' && solicitud && (
         <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
           <Link2 size={14} className="text-gray-400 shrink-0" />
@@ -307,6 +431,18 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
               onChange={(e) => vincularMutation.mutate(e.target.value || null)}
             />
           </div>
+          {solicitud.presupuesto_vinculado_id && (
+            <Button
+              variant="secondary"
+              onClick={() =>
+                navigate('/finanzas/presupuestos', {
+                  state: { verDocId: solicitud.presupuesto_vinculado_id, verDocTipo: 'presupuesto' },
+                })
+              }
+            >
+              Ver presupuesto
+            </Button>
+          )}
           <span className="text-xs text-gray-400">Para poder analizar más adelante qué solicitudes se convierten en negocio real.</span>
         </div>
       )}

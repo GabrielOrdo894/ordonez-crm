@@ -1,6 +1,17 @@
-export type EstadoSolicitud = 'Nueva' | 'Borrador' | 'Enviada' | 'Descartada';
+export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Descartada';
 
-export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Borrador', 'Enviada', 'Descartada'];
+export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Descartada'];
+
+// Etiqueta filtrable, no obligatoria (2026-08-26) — null = "sin determinar", la mayoría de las que
+// llegan por formulario (Landbot/WordPress/EmailJS), donde es el propio CRM quien decide más tarde
+// si ofrece visita u orientativo según disponibilidad. Se autodetecta por el asunto del email en
+// conversaciones directas (ver detectarTipoSolicitud en revisar-gmail) y se puede corregir a mano.
+export type TipoSolicitud = 'visita' | 'presupuesto_orientativo';
+
+export const TIPO_SOLICITUD_LABEL: Record<TipoSolicitud, string> = {
+  visita: 'Visita',
+  presupuesto_orientativo: 'Presupuesto orientativo',
+};
 
 export type Solicitud = {
   id: string;
@@ -18,9 +29,18 @@ export type Solicitud = {
   mensaje_generado_en: string | null;
   mensaje_enviado_en: string | null;
   presupuesto_vinculado_id: string | null;
+  // Embebido vía FK solicitudes_presupuesto_vinculado_id_fkey — solo lo trae la consulta de
+  // SolicitudesPage.tsx (lista), no la de SolicitudDetalle.tsx (que ya tiene su propio desplegable).
+  presupuesto_vinculado?: { id: string; numero: string } | null;
   notas: string | null;
   ultima_respuesta_cliente_resumen: string | null;
   ultima_respuesta_cliente_fecha: string | null;
+  // false cuando el cliente respondió y todavía no se ha atendido — a diferencia del pseudo-estado
+  // de las respuestas a presupuestos, aquí NO revierte `estado` a "Nueva" (decisión de Gabriel
+  // 2026-08-26, para no distorsionar el embudo de conversión: una vez "Enviada", una solicitud ya
+  // contactada no debe volver a contar como "sin responder").
+  ultima_respuesta_revisada: boolean;
+  tipo_solicitud: TipoSolicitud | null;
 };
 
 export type MensajeConversacion = { de: string; fecha: string; texto: string };
@@ -31,6 +51,11 @@ export type PresupuestoConRespuesta = {
   cliente_nombre: string | null;
   cliente_email: string | null;
   idioma: string | null;
+  // Estado real del presupuesto (Pendiente/Aceptado/Rechazado/Borrador) — distinto del pseudo-estado
+  // de seguimiento de abajo (Nueva/Enviada/Aceptada). Se muestra en columna separada en
+  // SolicitudesPage.tsx porque antes "Marcar como Aceptado/Rechazado" cambiaba este campo sin que
+  // se reflejara visualmente en ningún sitio de esa tabla (confusión real de Gabriel, 2026-08-20).
+  estado: string;
   ultima_respuesta_cliente_resumen: string | null;
   ultima_respuesta_cliente_fecha: string | null;
   ultima_respuesta_revisada: boolean;
@@ -38,15 +63,23 @@ export type PresupuestoConRespuesta = {
   mensaje_seguimiento_enviado: boolean;
   mensaje_seguimiento_enviado_en: string | null;
   conversacion: MensajeConversacion[] | null;
+  // Cierre manual de la conversación de seguimiento (2026-08-19) — independiente del estado real
+  // del presupuesto (Pendiente/Aceptado/Rechazado, que se cambia aparte con "Marcar como
+  // Aceptado/Rechazado" y sí afecta al embudo). Se usa para dar por concluidas negociaciones ya
+  // cerradas con un último mensaje, aunque el presupuesto siga técnicamente Pendiente/Rechazado.
+  seguimiento_concluido: boolean;
 };
 
 // El seguimiento no tiene una columna "estado" propia — se deriva de las columnas existentes,
-// con el mismo vocabulario que las solicitudes para que la lista se lea igual.
-export type EstadoSeguimiento = 'Nueva' | 'Borrador' | 'Enviada';
+// con un vocabulario parecido al de las solicitudes pero no idéntico: "Aceptada" aquí es el cierre
+// manual de la conversación (seguimiento_concluido), no el estado real Aceptado/Rechazado del
+// presupuesto — un presupuesto Rechazado puede acabar igualmente en seguimiento "Aceptada" si
+// Gabriel ya mandó su último mensaje y da la negociación por zanjada.
+export type EstadoSeguimiento = 'Nueva' | 'Enviada' | 'Aceptada';
 
 export function estadoSeguimiento(p: PresupuestoConRespuesta): EstadoSeguimiento {
+  if (p.seguimiento_concluido) return 'Aceptada';
   if (p.mensaje_seguimiento_enviado) return 'Enviada';
-  if (p.mensaje_seguimiento_generado) return 'Borrador';
   return 'Nueva';
 }
 

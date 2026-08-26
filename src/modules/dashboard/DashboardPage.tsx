@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Bar,
   BarChart,
@@ -14,11 +14,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Users, TrendingUp, Handshake } from 'lucide-react';
+import { Users, TrendingUp, Handshake, Settings, Download } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
+import { exportarCSV } from '../../lib/exportarCSV';
+import { useToast } from '../../hooks/useToast';
 import { calcularTotales } from '../finanzas/lineas';
 import { ETAPAS_PIPELINE } from '../clientes/types';
 import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, contarUnicosEnFunnel, type EtapaFunnel } from '../../lib/funnelTracking';
@@ -27,6 +30,17 @@ import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
+
+type FunnelEventoCompleto = {
+  id: string;
+  created_at: string;
+  etapa: EtapaFunnel;
+  fuente: string | null;
+  solicitud_id: string | null;
+  presupuesto_id: string | null;
+  solicitud: { nombre: string | null; email: string | null; telefono: string | null; tipo_reforma: string | null } | null;
+  presupuesto: { numero: string | null; cliente_nombre: string | null; cliente_email: string | null; estado: string | null; pais: string | null } | null;
+};
 
 type FunnelEvento = { etapa: EtapaFunnel; solicitud_id: string | null; presupuesto_id: string | null; fuente: string | null };
 
@@ -67,10 +81,12 @@ function rangoPeriodo(periodo: string, desdeCustom: string, hastaCustom: string)
 const anioActual = new Date().getFullYear();
 
 export default function DashboardPage() {
+  const toast = useToast();
   const [periodo, setPeriodo] = useState('anio');
   const [desdeCustom, setDesdeCustom] = useState(iso(new Date(anioActual, 0, 1)));
   const [hastaCustom, setHastaCustom] = useState(iso(new Date()));
   const [zona, setZona] = useState('Todas');
+  const [mostrarAjustes, setMostrarAjustes] = useState(false);
 
   const { desde, hasta } = useMemo(() => rangoPeriodo(periodo, desdeCustom, hastaCustom), [periodo, desdeCustom, hastaCustom]);
 
@@ -413,24 +429,126 @@ export default function DashboardPage() {
     });
   }, [visitas, zona]);
 
+  // Registro completo del embudo para análisis anual — a petición de Gabriel (2026-08-26): un
+  // volcado con TODO lo almacenado en funnel_eventos (id único, fecha y hora exactas, cada acción
+  // del recorrido solicitud→firma), enriquecido con los datos de la solicitud/presupuesto de cada
+  // fila para que sea legible fuera del CRM, no solo IDs sueltos. Ignora a propósito el período y
+  // la zona seleccionados arriba — es un histórico completo, pensado para exportarse una vez al
+  // año, no para el filtro del día a día.
+  const exportarRegistroCompleto = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase
+        .from('funnel_eventos')
+        .select(
+          'id, created_at, etapa, fuente, solicitud_id, presupuesto_id, solicitud:solicitud_id(nombre, email, telefono, tipo_reforma), presupuesto:presupuesto_id(numero, cliente_nombre, cliente_email, estado, pais)',
+        )
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as unknown as FunnelEventoCompleto[];
+    },
+    onSuccess: (data) => {
+      if (data.length === 0) {
+        toast.error('No hay eventos registrados todavía');
+        return;
+      }
+      const filas = data.map((e) => {
+        const d = new Date(e.created_at);
+        return {
+          id: e.id,
+          fecha: d.toLocaleDateString('es', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          hora: d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }),
+          etapa: e.etapa,
+          etapa_label: ETIQUETA_ETAPA_FUNNEL[e.etapa] ?? e.etapa,
+          fuente: e.fuente ?? '',
+          solicitud_id: e.solicitud_id ?? '',
+          solicitud_nombre: e.solicitud?.nombre ?? '',
+          solicitud_email: e.solicitud?.email ?? '',
+          solicitud_telefono: e.solicitud?.telefono ?? '',
+          solicitud_tipo_reforma: e.solicitud?.tipo_reforma ?? '',
+          presupuesto_id: e.presupuesto_id ?? '',
+          presupuesto_numero: e.presupuesto?.numero ?? '',
+          presupuesto_cliente: e.presupuesto?.cliente_nombre ?? '',
+          presupuesto_email: e.presupuesto?.cliente_email ?? '',
+          presupuesto_estado: e.presupuesto?.estado ?? '',
+          presupuesto_pais: e.presupuesto?.pais ?? '',
+        };
+      });
+      exportarCSV(
+        `embudo-completo-${iso(new Date())}.csv`,
+        [
+          { key: 'id', label: 'ID evento' },
+          { key: 'fecha', label: 'Fecha' },
+          { key: 'hora', label: 'Hora' },
+          { key: 'etapa_label', label: 'Etapa' },
+          { key: 'etapa', label: 'Etapa (clave)' },
+          { key: 'fuente', label: 'Fuente' },
+          { key: 'solicitud_id', label: 'ID solicitud' },
+          { key: 'solicitud_nombre', label: 'Nombre (solicitud)' },
+          { key: 'solicitud_email', label: 'Email (solicitud)' },
+          { key: 'solicitud_telefono', label: 'Teléfono (solicitud)' },
+          { key: 'solicitud_tipo_reforma', label: 'Tipo de reforma' },
+          { key: 'presupuesto_id', label: 'ID presupuesto' },
+          { key: 'presupuesto_numero', label: 'Nº presupuesto' },
+          { key: 'presupuesto_cliente', label: 'Cliente (presupuesto)' },
+          { key: 'presupuesto_email', label: 'Email (presupuesto)' },
+          { key: 'presupuesto_estado', label: 'Estado presupuesto' },
+          { key: 'presupuesto_pais', label: 'País' },
+        ],
+        filas,
+      );
+      toast.success(`${filas.length} evento(s) exportado(s)`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-end gap-2 flex-wrap">
-        <Select label="Período" options={PERIODOS} value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="w-44" />
-        {periodo === 'personalizado' && (
-          <>
-            <Input label="Desde" type="date" value={desdeCustom} onChange={(e) => setDesdeCustom(e.target.value)} className="w-40" />
-            <Input label="Hasta" type="date" value={hastaCustom} onChange={(e) => setHastaCustom(e.target.value)} className="w-40" />
-          </>
-        )}
-        <Select
-          label="Zona"
-          options={zonasDisponibles.map((z) => ({ value: z, label: z }))}
-          value={zona}
-          onChange={(e) => setZona(e.target.value)}
-          className="w-48"
-        />
+      <div className="flex items-end justify-between gap-2 flex-wrap">
+        <div className="flex items-end gap-2 flex-wrap">
+          <Select label="Período" options={PERIODOS} value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="w-44" />
+          {periodo === 'personalizado' && (
+            <>
+              <Input label="Desde" type="date" value={desdeCustom} onChange={(e) => setDesdeCustom(e.target.value)} className="w-40" />
+              <Input label="Hasta" type="date" value={hastaCustom} onChange={(e) => setHastaCustom(e.target.value)} className="w-40" />
+            </>
+          )}
+          <Select
+            label="Zona"
+            options={zonasDisponibles.map((z) => ({ value: z, label: z }))}
+            value={zona}
+            onChange={(e) => setZona(e.target.value)}
+            className="w-48"
+          />
+        </div>
+        <Button variant="secondary" onClick={() => setMostrarAjustes((v) => !v)}>
+          <span className="flex items-center gap-1.5">
+            <Settings size={14} />
+            Ajustes
+          </span>
+        </Button>
       </div>
+
+      {mostrarAjustes && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
+            Ajustes · Exportar datos
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button onClick={() => exportarRegistroCompleto.mutate()} disabled={exportarRegistroCompleto.isPending}>
+              <span className="flex items-center gap-1.5">
+                <Download size={14} />
+                {exportarRegistroCompleto.isPending ? 'Generando…' : 'Exportar registro completo del embudo (CSV)'}
+              </span>
+            </Button>
+            <p className="text-xs text-gray-400 max-w-md">
+              Descarga en una sola tabla cada acción registrada del embudo de conversión desde que arrancó el
+              tracking (11/08/2026): fecha y hora exactas, ID único por evento, etapa, fuente y los datos de la
+              solicitud/presupuesto asociados. Incluye todo el histórico, independiente del período y la zona
+              seleccionados arriba — pensado para analizar el año completo.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">

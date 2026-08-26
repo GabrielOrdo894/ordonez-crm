@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
@@ -25,8 +25,8 @@ import { EntradaManualPanel } from './EntradaManualPanel';
 import {
   ESTADOS_SOLICITUD,
   FUENTE_LABEL,
+  TIPO_SOLICITUD_LABEL,
   estadoSeguimiento,
-  type EstadoSeguimiento,
   type PresupuestoConRespuesta,
   type Solicitud,
 } from './types';
@@ -48,13 +48,35 @@ type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'v
 
 const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
-  Borrador: 'confirmada',
   Enviada: 'realizada',
   Descartada: 'cancelada',
+  Aceptada: 'confirmada',
+};
+
+// Estado real del presupuesto, único badge que se muestra en la columna "Estado" de la pestaña
+// de seguimiento (fusionada con el pseudo-estado Nueva/Enviada/Aceptada a petición de Gabriel,
+// 2026-08-20 — ver el "· cerrado" junto al badge más abajo) — mismo mapeo de colores que
+// PresupuestosPage.tsx para que se lea igual en los dos sitios.
+const VARIANTE_ESTADO_PRESUPUESTO: Record<string, VarianteBadge> = {
+  Borrador: 'default',
+  Pendiente: 'pendiente',
+  Aceptado: 'realizada',
+  Rechazado: 'cancelada',
 };
 
 const FILTRO_SOLICITUDES = ['Todas', ...ESTADOS_SOLICITUD];
-const FILTRO_SEGUIMIENTO = ['Todas', 'Nueva', 'Borrador', 'Enviada'];
+// 'sin_determinar' es un valor propio del filtro (no un TipoSolicitud real) — cubre las
+// solicitudes con tipo_solicitud null, la mayoría de las que llegan por formulario.
+const FILTRO_TIPO_SOLICITUD = ['Todas', 'visita', 'presupuesto_orientativo', 'sin_determinar'] as const;
+const FILTRO_TIPO_SOLICITUD_LABEL: Record<(typeof FILTRO_TIPO_SOLICITUD)[number], string> = {
+  Todas: 'Todas',
+  visita: 'Visita',
+  presupuesto_orientativo: 'Presupuesto orientativo',
+  sin_determinar: 'Sin determinar',
+};
+// Filtra por el estado real del presupuesto — igual que muestra ahora la columna "Estado" única
+// de la tabla (fusionada con el pseudo-estado de seguimiento a petición de Gabriel, 2026-08-20).
+const FILTRO_SEGUIMIENTO = ['Todas', 'Pendiente', 'Aceptado', 'Rechazado'];
 
 export default function SolicitudesPage() {
   const toast = useToast();
@@ -65,6 +87,7 @@ export default function SolicitudesPage() {
   const pestana: Pestana = PESTANAS.some((p) => p.value === tab) ? (tab as Pestana) : 'entrantes';
   const [viendo, setViendo] = useState<{ tipo: 'solicitud' | 'seguimiento'; id: string } | null>(null);
   const [filtroSolicitudes, setFiltroSolicitudes] = useState('Todas');
+  const [filtroTipoSolicitud, setFiltroTipoSolicitud] = useState<(typeof FILTRO_TIPO_SOLICITUD)[number]>('Todas');
   const [filtroSeguimiento, setFiltroSeguimiento] = useState('Todas');
   const {
     seleccion: seleccionSolicitudes,
@@ -82,7 +105,10 @@ export default function SolicitudesPage() {
   const { data: solicitudes, isLoading: cargandoSolicitudes } = useQuery({
     queryKey: ['solicitudes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .select('*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero)')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
     },
@@ -94,11 +120,11 @@ export default function SolicitudesPage() {
       const { data, error } = await supabase
         .from('presupuestos')
         .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en',
+          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
         )
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null)
-        .order('ultima_respuesta_cliente_fecha', { ascending: false });
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as PresupuestoConRespuesta[];
     },
@@ -130,6 +156,28 @@ export default function SolicitudesPage() {
       return { etapa, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
   }, [funnelEventos]);
+
+  // Refresco automático al ENTRAR a esta sección (no solo al recargar la pestaña entera) — antes
+  // la revisión de Gmail solo corría una vez por carga de página (AppLayout.tsx, con un ref que
+  // nunca se reinicia), así que salir de Solicitudes y volver a entrar no traía nada nuevo hasta
+  // un F5 completo (hallazgo real de Gabriel, 2026-08-26). Este efecto vive en la propia página, así
+  // que se dispara cada vez que se MONTA (navegar aquí desde otra sección) sin necesidad de ref de
+  // guarda — cambiar de pestaña interna (entrantes/seguimiento/manual) no remonta el componente,
+  // así que no se dispara de más. Silencioso igual que el de AppLayout: si falla, solo consola.
+  useEffect(() => {
+    supabase.functions.invoke('revisar-gmail').then(({ data, error }) => {
+      if (error) {
+        console.error('Revisión automática de Gmail:', error.message);
+        return;
+      }
+      if (data?.ok === false) {
+        console.error('Revisión automática de Gmail:', data.error);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
+    });
+  }, [queryClient]);
 
   const comprobarGmail = useMutation({
     mutationFn: async () => {
@@ -164,11 +212,15 @@ export default function SolicitudesPage() {
   const cambiarEstadoSolicitudesMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const patch: Record<string, unknown> = { estado };
-      if (estado === 'Enviada') patch.mensaje_enviado_en = new Date().toISOString();
+      if (estado === 'Enviada') {
+        patch.mensaje_enviado_en = new Date().toISOString();
+        patch.ultima_respuesta_revisada = true;
+      }
       if (estado === 'Nueva') {
         patch.mensaje_generado = null;
         patch.mensaje_generado_en = null;
         patch.mensaje_enviado_en = null;
+        patch.ultima_respuesta_revisada = true;
       }
       const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
       if (error) throw error;
@@ -180,6 +232,21 @@ export default function SolicitudesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       toast.success('Estado actualizado');
+      limpiarSeleccionSolicitudes();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  // Cierra el aviso de "respuesta sin revisar" sin tocar `estado` (que sigue "Enviada") ni el
+  // embudo — mismo criterio que "Marcar como enviada" en la pestaña de seguimiento a presupuestos.
+  const marcarRespuestaRevisadaMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase.from('solicitudes').update({ ultima_respuesta_revisada: true }).in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      toast.success('Respuesta marcada como revisada');
       limpiarSeleccionSolicitudes();
     },
     onError: (error) => toast.error(error.message),
@@ -201,6 +268,7 @@ export default function SolicitudesPage() {
           mensaje_seguimiento_generado: null,
           mensaje_seguimiento_enviado: false,
           mensaje_seguimiento_enviado_en: null,
+          seguimiento_concluido: false,
         })
         .in('id', ids as string[]);
       if (error) throw error;
@@ -233,6 +301,35 @@ export default function SolicitudesPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  // Cierre manual y DEFINITIVO de la conversación de seguimiento — independiente del estado real
+  // del presupuesto (Pendiente/Aceptado/Rechazado, que se cambia aparte más abajo). Sirve para dar
+  // por zanjada una negociación tras un último mensaje de agradecimiento o aceptación, aunque el
+  // presupuesto en sí siga Pendiente o incluso Rechazado. A partir de aquí revisar-gmail deja de
+  // vigilar este presupuesto por completo (decisión explícita de Gabriel 2026-08-19: el
+  // presupuesto definitivo post-visita, sus ajustes y las facturas siguen por email pero ya no
+  // pertenecen a este tracking) — no hay reapertura automática. Para volver a activarlo hay que
+  // usar "Volver a Nueva" a mano.
+  const marcarAceptadaSeguimientoMutation = useMutation({
+    mutationFn: async (ids: (string | number)[]) => {
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({
+          seguimiento_concluido: true,
+          mensaje_seguimiento_enviado: true,
+          mensaje_seguimiento_enviado_en: new Date().toISOString(),
+          ultima_respuesta_revisada: true,
+        })
+        .in('id', ids as string[]);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidarSeguimiento();
+      toast.success('Conversación dada por concluida');
+      limpiarSeleccionSeguimiento();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const volverNuevaSeguimientoMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
       const { error } = await supabase
@@ -242,6 +339,7 @@ export default function SolicitudesPage() {
           mensaje_seguimiento_enviado: false,
           mensaje_seguimiento_enviado_en: null,
           ultima_respuesta_revisada: false,
+          seguimiento_concluido: false,
         })
         .in('id', ids as string[]);
       if (error) throw error;
@@ -278,13 +376,24 @@ export default function SolicitudesPage() {
     return <SolicitudDetalle tipo={viendo.tipo} id={viendo.id} onClose={() => setViendo(null)} />;
   }
 
-  const solicitudesFiltradas = (solicitudes ?? []).filter((s) => filtroSolicitudes === 'Todas' || s.estado === filtroSolicitudes);
+  const solicitudesFiltradas = (solicitudes ?? []).filter((s) => {
+    if (filtroSolicitudes !== 'Todas' && s.estado !== filtroSolicitudes) return false;
+    if (filtroTipoSolicitud === 'Todas') return true;
+    if (filtroTipoSolicitud === 'sin_determinar') return !s.tipo_solicitud;
+    return s.tipo_solicitud === filtroTipoSolicitud;
+  });
   const seguimientosFiltrados = (seguimientos ?? []).filter(
-    (p) => filtroSeguimiento === 'Todas' || estadoSeguimiento(p) === filtroSeguimiento,
+    (p) => filtroSeguimiento === 'Todas' || p.estado === filtroSeguimiento,
   );
 
   const nuevasSolicitudes = (solicitudes ?? []).filter((s) => s.estado === 'Nueva').length;
-  const borradoresSolicitudes = (solicitudes ?? []).filter((s) => s.estado === 'Borrador').length;
+  // Respuesta de un cliente a una solicitud ya "Enviada", todavía sin atender — no cuenta como
+  // "Nueva" (eso revertía estado y distorsionaba el embudo, ver revisar-gmail) pero sigue
+  // necesitando acción, así que cuenta aparte para el KPI/contador de la pestaña.
+  const respuestasSinRevisarSolicitudes = (solicitudes ?? []).filter(
+    (s) => s.estado === 'Enviada' && !s.ultima_respuesta_revisada,
+  ).length;
+  const pendientesEntrantes = nuevasSolicitudes + respuestasSinRevisarSolicitudes;
   const nuevosSeguimientos = (seguimientos ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
 
   return (
@@ -305,8 +414,12 @@ export default function SolicitudesPage() {
       <KpiRow
         items={[
           { label: 'Solicitudes nuevas', valor: nuevasSolicitudes, acento: nuevasSolicitudes > 0 },
-          { label: 'Borradores sin enviar', valor: borradoresSolicitudes },
-          { label: 'Respuestas nuevas a revisar', valor: nuevosSeguimientos, acento: nuevosSeguimientos > 0 },
+          {
+            label: 'Respuestas de clientes sin revisar',
+            valor: respuestasSinRevisarSolicitudes,
+            acento: respuestasSinRevisarSolicitudes > 0,
+          },
+          { label: 'Respuestas nuevas a presupuestos', valor: nuevosSeguimientos, acento: nuevosSeguimientos > 0 },
         ]}
       />
 
@@ -339,7 +452,7 @@ export default function SolicitudesPage() {
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         {PESTANAS.map((t) => {
-          const contador = t.value === 'entrantes' ? nuevasSolicitudes : t.value === 'seguimiento' ? nuevosSeguimientos : 0;
+          const contador = t.value === 'entrantes' ? pendientesEntrantes : t.value === 'seguimiento' ? nuevosSeguimientos : 0;
           return (
             <button
               key={t.value}
@@ -369,12 +482,21 @@ export default function SolicitudesPage() {
         <>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold">Solicitudes entrantes</h2>
-            <div className="w-48">
-              <Select
-                options={FILTRO_SOLICITUDES.map((e) => ({ value: e, label: e }))}
-                value={filtroSolicitudes}
-                onChange={(e) => setFiltroSolicitudes(e.target.value)}
-              />
+            <div className="flex items-center gap-2">
+              <div className="w-48">
+                <Select
+                  options={FILTRO_TIPO_SOLICITUD.map((v) => ({ value: v, label: FILTRO_TIPO_SOLICITUD_LABEL[v] }))}
+                  value={filtroTipoSolicitud}
+                  onChange={(e) => setFiltroTipoSolicitud(e.target.value as (typeof FILTRO_TIPO_SOLICITUD)[number])}
+                />
+              </div>
+              <div className="w-48">
+                <Select
+                  options={FILTRO_SOLICITUDES.map((e) => ({ value: e, label: e }))}
+                  value={filtroSolicitudes}
+                  onChange={(e) => setFiltroSolicitudes(e.target.value)}
+                />
+              </div>
             </div>
           </div>
           <BulkActionsBar
@@ -384,11 +506,6 @@ export default function SolicitudesPage() {
               {
                 label: 'Marcar como Nueva',
                 onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Nueva' }),
-                disabled: cambiarEstadoSolicitudesMutation.isPending,
-              },
-              {
-                label: 'Marcar como Borrador',
-                onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: Array.from(seleccionSolicitudes), estado: 'Borrador' }),
                 disabled: cambiarEstadoSolicitudesMutation.isPending,
               },
               {
@@ -402,10 +519,25 @@ export default function SolicitudesPage() {
                 disabled: cambiarEstadoSolicitudesMutation.isPending,
               },
               {
+                label: 'Marcar respuesta como revisada',
+                onClick: () => marcarRespuestaRevisadaMutation.mutate(Array.from(seleccionSolicitudes)),
+                disabled: marcarRespuestaRevisadaMutation.isPending,
+              },
+              {
                 label: 'Eliminar',
                 variant: 'danger',
                 onClick: async () => {
-                  if (!(await confirmar(`¿Eliminar ${seleccionSolicitudes.size} solicitud(es)? Esta acción no se puede deshacer.`))) return;
+                  // Aviso explícito del riesgo de reingestión (bug real corregido 2026-08-18,
+                  // confirmado con duplicados reales en producción): las que vienen de Gmail
+                  // (Landbot, noreply@, autoenvíos) tienen un email de origen con id único, y si
+                  // se borra la fila el próximo "Comprobar Gmail" la vuelve a crear como Nueva.
+                  // "Descartada" es la vía segura para dejar de verla sin ese riesgo.
+                  if (
+                    !(await confirmar(
+                      `¿Eliminar ${seleccionSolicitudes.size} solicitud(es)? Esta acción no se puede deshacer, y si vinieron de Gmail pueden volver a aparecer como "Nueva" en la próxima revisión automática. Para descartarlas sin ese riesgo, usa "Marcar como Descartada" en su lugar.`,
+                    ))
+                  )
+                    return;
                   eliminarSolicitudesMutation.mutate(Array.from(seleccionSolicitudes));
                 },
                 disabled: eliminarSolicitudesMutation.isPending,
@@ -418,7 +550,11 @@ export default function SolicitudesPage() {
               data={solicitudesFiltradas}
               emptyMessage="No hay solicitudes"
               onRowClick={(s) => setViendo({ tipo: 'solicitud', id: s.id })}
-              rowClassName={(s) => (s.estado === 'Nueva' ? 'font-semibold text-gray-900' : '')}
+              rowClassName={(s) =>
+                s.estado === 'Nueva' || (s.estado === 'Enviada' && !s.ultima_respuesta_revisada)
+                  ? 'font-semibold text-gray-900'
+                  : ''
+              }
               seleccion={seleccionSolicitudes}
               onToggleFila={toggleFilaSolicitud}
               onToggleTodas={toggleTodasSolicitudes}
@@ -428,9 +564,42 @@ export default function SolicitudesPage() {
                 { key: 'nombre', label: 'Cliente', render: (s) => s.nombre || s.email || '—' },
                 { key: 'tipo_reforma', label: 'Tipo de reforma', render: (s) => s.tipo_reforma || '—' },
                 {
+                  key: 'tipo_solicitud',
+                  label: 'Solicita',
+                  render: (s) => (s.tipo_solicitud ? TIPO_SOLICITUD_LABEL[s.tipo_solicitud] : <span className="text-gray-400">Sin determinar</span>),
+                },
+                {
+                  key: 'presupuesto_vinculado',
+                  label: 'Presupuesto',
+                  sortable: false,
+                  render: (s) =>
+                    s.presupuesto_vinculado ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate('/finanzas/presupuestos', {
+                            state: { verDocId: s.presupuesto_vinculado!.id, verDocTipo: 'presupuesto' },
+                          });
+                        }}
+                        className="text-brand hover:underline font-medium"
+                      >
+                        {s.presupuesto_vinculado.numero}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    ),
+                },
+                {
                   key: 'estado',
                   label: 'Estado',
-                  render: (s) => <Badge variant={VARIANTE_ESTADO[s.estado] ?? 'default'}>{s.estado}</Badge>,
+                  render: (s) => (
+                    <span className="flex items-center gap-1.5">
+                      <Badge variant={VARIANTE_ESTADO[s.estado] ?? 'default'}>{s.estado}</Badge>
+                      {s.estado === 'Enviada' && !s.ultima_respuesta_revisada && (
+                        <Badge variant="pendiente">Nueva respuesta</Badge>
+                      )}
+                    </span>
+                  ),
                 },
               ]}
             />
@@ -470,6 +639,11 @@ export default function SolicitudesPage() {
                 disabled: marcarEnviadoSeguimientoMutation.isPending,
               },
               {
+                label: 'Marcar como Aceptada (cerrar seguimiento)',
+                onClick: () => marcarAceptadaSeguimientoMutation.mutate(Array.from(seleccionSeguimiento)),
+                disabled: marcarAceptadaSeguimientoMutation.isPending,
+              },
+              {
                 label: 'Volver a Nueva / no leído',
                 onClick: () => volverNuevaSeguimientoMutation.mutate(Array.from(seleccionSeguimiento)),
                 disabled: volverNuevaSeguimientoMutation.isPending,
@@ -496,7 +670,21 @@ export default function SolicitudesPage() {
               onToggleFila={toggleFilaSeguimiento}
               onToggleTodas={toggleTodasSeguimiento}
               columns={[
-                { key: 'numero', label: 'Presupuesto' },
+                {
+                  key: 'numero',
+                  label: 'Presupuesto',
+                  render: (p) => (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate('/finanzas/presupuestos', { state: { verDocId: p.id, verDocTipo: 'presupuesto' } });
+                      }}
+                      className="text-brand hover:underline font-medium"
+                    >
+                      {p.numero}
+                    </button>
+                  ),
+                },
                 { key: 'cliente_nombre', label: 'Cliente', render: (p) => p.cliente_nombre || '—' },
                 { key: 'ultima_respuesta_cliente_fecha', label: 'Fecha respuesta', render: (p) => fecha(p.ultima_respuesta_cliente_fecha) },
                 {
@@ -510,11 +698,14 @@ export default function SolicitudesPage() {
                 {
                   key: 'estado',
                   label: 'Estado',
-                  sortValue: (p) => estadoSeguimiento(p),
-                  render: (p) => {
-                    const e: EstadoSeguimiento = estadoSeguimiento(p);
-                    return <Badge variant={VARIANTE_ESTADO[e] ?? 'default'}>{e}</Badge>;
-                  },
+                  render: (p) => (
+                    <span className="flex items-center gap-1.5">
+                      <Badge variant={VARIANTE_ESTADO_PRESUPUESTO[p.estado] ?? 'default'}>{p.estado}</Badge>
+                      {p.seguimiento_concluido && (
+                        <span className="text-[10px] uppercase tracking-wide text-gray-400">· cerrado</span>
+                      )}
+                    </span>
+                  ),
                 },
               ]}
             />
