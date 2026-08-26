@@ -133,8 +133,8 @@ export function calcularQuotientFamiliar(casado: boolean, hijosACargo: number, c
 // tributa la rémunération del gérant majoritaire, art. 62 CGI) — con suelo y techo fijados cada año.
 export function calcularAbattementProfesional(revenuAntesAbattement: number, config: ConfigFn) {
   const pct = config('ir_abattement_pct', 0.1);
-  const minimo = config('ir_abattement_min', 495);
-  const maximo = config('ir_abattement_max', 14171);
+  const minimo = config('ir_abattement_min', 509);
+  const maximo = config('ir_abattement_max', 14555);
   const base = Math.max(0, revenuAntesAbattement);
   return Math.min(maximo, Math.max(base > 0 ? minimo : 0, base * pct));
 }

@@ -22,6 +22,16 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
+// Casillas de dividendos del 2042 — Mario no reparte dividendos actualmente (política vigente:
+// toda la marge neta se convierte en rémunération, ver docs/fiscal/remuneracion-gerant-contexto.md),
+// así que quedan en 0 €. Se dejan ya preparadas (investigación 2026-08-26) para no tener que tocar
+// este asistente si algún ejercicio futuro sí se reparten (ver simulador "Salario vs Dividendos").
+// 2OP (opción por barème progresivo en vez del PFU) no aplica con 0 € de dividendos, no se muestra.
+const CASILLAS_DIVIDENDOS = [
+  { linea: '2DC', label: 'Dividendos brutos repartidos', importe: 0 },
+  { linea: '2CK', label: 'Acompte no liberatorio del 12,8% ya retenido por la société', importe: 0 },
+];
+
 type DeclaracionRenta = { anio: number; declarado: boolean; fecha_declaracion: string | null };
 type EstadoAnio = 'en_curso' | 'disponible' | 'declarado';
 
@@ -104,6 +114,7 @@ export function TabDeclaracionRenta() {
   const filasExportar = useMemo(
     () => [
       ...casillas.map((c) => ({ concepto: `${c.linea} — ${c.label}`, importe: c.importe })),
+      ...CASILLAS_DIVIDENDOS.map((c) => ({ concepto: `${c.linea} — ${c.label}`, importe: c.importe })),
       { concepto: 'Abattement 10% aplicado (Mario)', importe: resultado.abattement },
       ...(ingresosConyuge > 0 ? [{ concepto: 'Abattement 10% aplicado (cónyuge)', importe: resultado.abattementConyuge }] : []),
       { concepto: 'Revenu net imposable du foyer', importe: resultado.revenuNetImposable },
@@ -140,25 +151,35 @@ export function TabDeclaracionRenta() {
       <div className="bg-amber-50 border border-amber-300 rounded-sm px-3 py-3 flex items-start gap-2 text-xs text-amber-800">
         <AlertTriangle size={14} className="shrink-0 mt-0.5" />
         <div>
-          <p className="font-semibold mb-1">Cifras por confirmar antes de presentar la declaración real</p>
-          <ul className="list-disc pl-4 space-y-1">
-            <li>
-              El importe exacto de la casilla 1GB (si hay que sumar algún avantage en nature o restar CSG no
-              deducible) — este cálculo usa la rémunération neta de cotisations TNS, el criterio más citado en la
-              investigación, pero las fuentes no son 100% unánimes.
-            </li>
-            <li>
-              Desde 2026 existe una <strong>"attestation fiscale"</strong> propia en el espacio personal de Mario en
-              urssaf.fr con el importe oficial a reportar — contrástala contra esta cifra antes de declarar. El PDF
-              interno del CRM ("Attestation de rémunération" en Cotisations URSSAF) es prueba interna, no ese
-              documento fiscal oficial.
-            </li>
-            <li>
-              El mecanismo exacto de pago/fraccionamiento del solde de l'IR (si sale a pagar) no se ha podido
-              verificar — se confirma en el espacio personal de impots.gouv.fr al recibir el avis d'imposition.
-            </li>
-          </ul>
+          <p className="font-semibold mb-1">Única cifra por confirmar antes de presentar la declaración real</p>
+          <p>
+            La casilla 1GB, según la doctrina oficial (BOFiP BOI-RSA-GER-20), es: bruto − cotisations obligatoires −
+            CSG déductible (6,8%) <strong>+ CSG/CRDS no deducible (~2,9%)</strong> + avantages en nature. Este
+            asistente muestra <strong>rémunération − cotisations TNS totales</strong> (mismo cálculo que "Salario vs
+            Dividendos", que usa un taux global único del 45% en vez de desglosar cada cotisation por separado) — le
+            falta sumar de vuelta ese ~2,9% de CSG/CRDS no deducible, así que la cifra real de 1GB será algo mayor que
+            la mostrada aquí. Ajusta a mano ese pequeño margen (o pide la cifra exacta a tu expert-comptable) antes de
+            declarar.
+          </p>
         </div>
+      </div>
+
+      <div className="bg-brand-light border border-gray-200 rounded-sm px-3 py-3 text-xs text-gray-700">
+        <p className="font-semibold text-gray-900 mb-1">Cómo se paga el solde, si sale a pagar (confirmado en impots.gouv.fr)</p>
+        <p>
+          Si el solde de l'IR supera 300 €, se cobra automáticamente en <strong>4 plazos iguales</strong> (25 de
+          septiembre, 26 de octubre, 25 de noviembre y 28 de diciembre del año de la declaración). Si es 300 € o
+          menos, se cobra en un único cargo el 25 de septiembre. Es el mecanismo estándar de cualquier particulier —
+          no hay ningún trato distinto para un gérant majoritaire TNS en esta fase final (el "acompte contemporain"
+          solo aplica durante el año, no al solde de regularización).
+        </p>
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-sm px-3 py-2 text-xs text-gray-600">
+        El importe de la 1GB sale siempre de la contabilidad interna (décision de rémunération / Cotisations URSSAF
+        de este CRM) — no existe ninguna "attestation fiscale" de urssaf.fr para un gérant majoritaire (esa solo
+        existe para autoentrepreneurs, un régimen distinto). No hace falta buscar ningún documento externo para
+        obtener esta cifra.
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
@@ -264,6 +285,25 @@ export function TabDeclaracionRenta() {
         </div>
 
         <div className="border-t border-gray-200 pt-5">
+          <p className="text-sm font-bold text-gray-900 mb-1">Casillas de dividendos (2DC/2CK)</p>
+          <p className="text-xs text-gray-400 mb-3">
+            En 0 € — Mario no reparte dividendos actualmente (toda la marge neta se convierte en rémunération, ver
+            "Salario vs Dividendos"). Quedan listas para cuando un ejercicio futuro sí reparta.
+          </p>
+          <table className="w-full border-collapse text-sm">
+            <tbody>
+              {CASILLAS_DIVIDENDOS.map((c) => (
+                <tr key={c.linea} className="border-t border-gray-100">
+                  <td className="py-1.5 text-brand font-semibold w-24">{c.linea}</td>
+                  <td className="py-1.5 text-gray-700">{c.label}</td>
+                  <td className="py-1.5 text-right text-gray-900 font-medium w-32">{fmt(c.importe)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-t border-gray-200 pt-5">
           <p className="text-sm font-bold text-gray-900 mb-3">Cálculo del impôt (abattement automático de la Administración)</p>
           <table className="w-full border-collapse text-sm">
             <tbody>
@@ -322,11 +362,15 @@ export function TabDeclaracionRenta() {
           },
           {
             q: '¿Qué son las casillas DSCA/DSEA?',
-            a: 'Son las casillas donde se declaran las cotisations sociales obligatoires (DSCA) y facultatives (DSEA) que Mario ya pagó a la URSSAF durante el año — estos importes reducen la base declarada en algunos casos y sirven de justificante. El CRM solo rellena DSCA con el total de cotisations TNS calculado (calcularTNS), que ya ves también en "Cotisations URSSAF".',
+            a: 'Son las casillas donde se declaran las cotisations sociales obligatoires (DSCA) y facultatives (DSEA) que Mario ya pagó a la URSSAF durante el año — estos importes reducen la base declarada en algunos casos y sirven de justificante. El CRM solo rellena DSCA con el total de cotisations TNS calculado (calcularTNS), que ya ves también en "Cotisations URSSAF". Confirmado que son las casillas correctas para un gérant majoritaire (no hay ninguna más apropiada para este caso).',
+          },
+          {
+            q: '¿Y si algún año Mario reparte dividendos?',
+            a: 'Las casillas 2DC (dividendos brutos) y 2CK (acompte no liberatorio del 12,8% ya retenido por la société al repartir) ya están preparadas en la tabla de abajo, en 0 € mientras no se repartan. Si se opta por tributar los dividendos al barème progresivo en vez del PFU del 31,4% (rara vez conviene con estos importes, ver el FAQ del simulador "Salario vs Dividendos"), haría falta además marcar la casilla 2OP — no incluida aquí porque no aplica con 0 € de dividendos.',
           },
           {
             q: '¿Puedo confiar en los importes de este asistente al 100%?',
-            a: 'Para el barème del IR, la décote y el quotient familial, sí — están verificados contra el simulador oficial de la DGFiP y contra fiscal_config con fuente citada. Para el criterio exacto de qué entra en la casilla 1GB y para el importe de referencia de la URSSAF, no del todo — revisa el aviso amarillo de arriba antes de declarar de verdad, y contrasta con tu espacio personal en urssaf.fr/impots.gouv.fr.',
+            a: 'Para el barème del IR, la décote, el quotient familial y el abattement 10% (509 €–14.555 €, revenus 2025), sí — verificados contra el simulador oficial de la DGFiP y contra fuentes oficiales (impots.gouv.fr, service-public.gouv.fr) citadas en fiscal_config. La única cifra con un margen conocido es la 1GB, por el matiz de la CSG no deducible explicado en el aviso ámbar de arriba — el resto (formulario correcto, calendario, mecanismo de pago del solde, que no hace falta ningún documento de urssaf.fr) quedó confirmado con fuentes oficiales.',
           },
         ]}
       />

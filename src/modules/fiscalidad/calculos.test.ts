@@ -245,12 +245,12 @@ describe('calcularAbattementProfesional', () => {
     expect(calcularAbattementProfesional(0, cfgPorDefecto)).toBe(0);
   });
 
-  it('respeta el mínimo (495 €) para ingresos bajos', () => {
-    expect(calcularAbattementProfesional(2000, cfgPorDefecto)).toBeCloseTo(495);
+  it('respeta el mínimo (509 €) para ingresos bajos', () => {
+    expect(calcularAbattementProfesional(2000, cfgPorDefecto)).toBeCloseTo(509);
   });
 
-  it('respeta el máximo (14.171 €) para ingresos altos', () => {
-    expect(calcularAbattementProfesional(200000, cfgPorDefecto)).toBeCloseTo(14171);
+  it('respeta el máximo (14.555 €) para ingresos altos', () => {
+    expect(calcularAbattementProfesional(200000, cfgPorDefecto)).toBeCloseTo(14555);
   });
 });
 
