@@ -18,6 +18,11 @@
 //   7. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
 //      no-null — ya se había contestado y el cliente respondió otra vez en el mismo hilo; antes
 //      salía mezclado con la categoría 4 como "solicitud nueva", corregido 2026-08-19).
+//   8. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
+//      in-app desde 2026-08-20 pero nunca se añadió aquí (2026-08-30).
+//   9. Presupuestos en Borrador (cualquier tipo) sin marcar como enviados, 2+ días desde su
+//      creación — antes no se detectaba en ningún sitio: un borrador podía quedarse olvidado
+//      indefinidamente (hallazgo real, 2026-08-30: 3 orientativos en Borrador, uno de 11 días).
 //
 // Idempotente por día (`alerta_diaria_estado`, fila única con `ultima_fecha_enviada`) — si se
 // dispara más de una vez el mismo día (reintento, prueba manual) no se duplica el email
@@ -61,6 +66,9 @@ type SeguimientoNuevo = {
   mensaje_seguimiento_generado: string | null;
   mensaje_seguimiento_enviado: boolean | null;
 };
+type VisitaRealizada = { id: string; nombre: string | null; apellidos: string | null; fecha_visita: string | null };
+type PresupuestoVinculado = { visita_id: string | null; estado: string };
+type PresupuestoBorrador = { numero: string | null; cliente_nombre: string | null; created_at: string };
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -189,7 +197,9 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, enviado: false, motivo: 'ya se envió hoy' });
     }
 
-    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes] = await Promise.all([
+    const limite2dBorrador = isoEnDias(-2);
+
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, presupuestosBorradorRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -204,6 +214,9 @@ Deno.serve(async (req: Request) => {
         .select('numero, cliente_nombre, ultima_respuesta_cliente_fecha, mensaje_seguimiento_generado, mensaje_seguimiento_enviado')
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null),
+      supabase.from('visitas').select('id, nombre, apellidos, fecha_visita').eq('estado', 'Realizada').is('eliminado_en', null),
+      supabase.from('presupuestos').select('visita_id, estado').is('eliminado_en', null).not('visita_id', 'is', null),
+      supabase.from('presupuestos').select('numero, cliente_nombre, created_at').eq('estado', 'Borrador').is('eliminado_en', null),
     ]);
 
     for (const [nombre, res] of Object.entries({
@@ -212,6 +225,9 @@ Deno.serve(async (req: Request) => {
       solicitudes: solicitudesRes,
       gastos: gastosRes,
       seguimientos: seguimientosRes,
+      visitasRealizadas: visitasRealizadasRes,
+      presupuestosVinculados: presupuestosVinculadosRes,
+      presupuestosBorrador: presupuestosBorradorRes,
     })) {
       if ((res as { error: { message: string } | null }).error) {
         return jsonResponse({ ok: false, error: `${nombre}: ${(res as { error: { message: string } }).error.message}` }, 500);
@@ -237,6 +253,22 @@ Deno.serve(async (req: Request) => {
       (p) => !p.mensaje_seguimiento_enviado && !p.mensaje_seguimiento_generado,
     );
 
+    // Mismo criterio que "Presupuesto pendiente de enviar" en src/modules/notificaciones/useNotificaciones.ts:
+    // visita Realizada sin ningún presupuesto no-Borrador vinculado (un borrador ya creado para esa
+    // visita no cuenta como "enviado" — sigue pendiente de mandarse).
+    const visitaIdsConPresupuestoEnviado = new Set(
+      ((presupuestosVinculadosRes.data ?? []) as PresupuestoVinculado[])
+        .filter((p) => p.estado !== 'Borrador' && p.visita_id)
+        .map((p) => p.visita_id as string),
+    );
+    const visitasSinPresupuesto = ((visitasRealizadasRes.data ?? []) as VisitaRealizada[]).filter(
+      (v) => !visitaIdsConPresupuestoEnviado.has(v.id),
+    );
+
+    const borradoresSinEnviar = ((presupuestosBorradorRes.data ?? []) as PresupuestoBorrador[]).filter(
+      (p) => p.created_at.slice(0, 10) <= limite2dBorrador,
+    );
+
     const totalUrgentes =
       facturasVencidas.length +
       presupuestosCaducados.length +
@@ -244,7 +276,9 @@ Deno.serve(async (req: Request) => {
       solicitudesNuevas.length +
       solicitudesConRespuesta.length +
       gastosPendientes.length +
-      seguimientosNuevos.length;
+      seguimientosNuevos.length +
+      visitasSinPresupuesto.length +
+      borradoresSinEnviar.length;
 
     if (totalUrgentes === 0) {
       return jsonResponse({ ok: true, enviado: false, motivo: 'nada urgente pendiente hoy' });
@@ -300,6 +334,20 @@ Deno.serve(async (req: Request) => {
           detalle: `${p.cliente_nombre ?? '—'} · respondió el ${p.ultima_respuesta_cliente_fecha ?? '—'}`,
         })),
       ),
+      seccionHtml(
+        'Visitas realizadas sin presupuesto enviado',
+        visitasSinPresupuesto.map((v) => ({
+          titulo: `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim() || 'Sin nombre',
+          detalle: v.fecha_visita ? `Visita del ${v.fecha_visita}` : 'Fecha de visita sin registrar',
+        })),
+      ),
+      seccionHtml(
+        'Presupuestos en Borrador sin enviar (2+ días)',
+        borradoresSinEnviar.map((p) => ({
+          titulo: p.numero ?? 'Sin número',
+          detalle: `${p.cliente_nombre ?? '—'} · en Borrador desde ${p.created_at.slice(0, 10)}`,
+        })),
+      ),
     ];
 
     const cuerpo = construirHtml(secciones);
@@ -346,6 +394,8 @@ Deno.serve(async (req: Request) => {
         solicitudesConRespuesta: solicitudesConRespuesta.length,
         gastosPendientes: gastosPendientes.length,
         seguimientosNuevos: seguimientosNuevos.length,
+        visitasSinPresupuesto: visitasSinPresupuesto.length,
+        borradoresSinEnviar: borradoresSinEnviar.length,
       },
     });
   } catch (err) {

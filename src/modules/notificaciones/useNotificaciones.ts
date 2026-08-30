@@ -107,10 +107,10 @@ export function useNotificaciones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select('id, visita_id, estado, numero, cliente_nombre, fecha_validez')
+        .select('id, visita_id, estado, numero, cliente_nombre, fecha_validez, created_at')
         .is('eliminado_en', null);
       if (error) throw error;
-      return data as { id: string; visita_id: string | null; estado: string; numero: string | null; cliente_nombre: string | null; fecha_validez: string | null }[];
+      return data as { id: string; visita_id: string | null; estado: string; numero: string | null; cliente_nombre: string | null; fecha_validez: string | null; created_at: string }[];
     },
   });
 
@@ -258,6 +258,28 @@ export function useNotificaciones() {
         titulo: `Envía el presupuesto a ${v.nombre} ${v.apellidos}`,
         resumen: `Visita realizada${v.fecha_visita ? ` el ${v.fecha_visita}` : ''} — todavía no se ha enviado presupuesto.`,
         to: '/finanzas/presupuestos',
+      });
+    }
+
+    // Presupuesto en Borrador sin enviar — el borrador se creó (a mano o vía agente) pero nadie lo
+    // marcó todavía como enviado (Pendiente). Umbral: 2 días de margen normal, urgente a partir de
+    // 5 días (Gabriel, 2026-08-30) — antes esto no se detectaba en ningún sitio y un borrador podía
+    // quedarse olvidado indefinidamente (hallazgo real: 3 orientativos en Borrador, uno de 11 días
+    // sin enviar). Aplica a cualquier tipo (orientativo o normal), tenga o no visita vinculada.
+    const limite2dBorrador = isoHaceDias(2);
+    const limite5dBorrador = isoHaceDias(5);
+    const borradoresSinEnviar = (presupuestos ?? []).filter(
+      (p) => p.estado === 'Borrador' && p.created_at.slice(0, 10) <= limite2dBorrador,
+    );
+    for (const p of borradoresSinEnviar) {
+      const fechaCreacion = p.created_at.slice(0, 10);
+      lista.push({
+        id: `presupuesto-borrador-${p.id}`,
+        categoria: 'presupuesto',
+        titulo: `Presupuesto sin enviar: ${p.numero ?? 'S/N'}`,
+        resumen: `${p.cliente_nombre ?? 'Cliente sin nombre'} — en Borrador desde ${fechaCreacion}, márcalo como enviado en cuanto se lo mandes.`,
+        to: '/finanzas/presupuestos',
+        urgente: fechaCreacion <= limite5dBorrador,
       });
     }
 
