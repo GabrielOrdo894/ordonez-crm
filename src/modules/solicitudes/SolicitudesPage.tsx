@@ -22,6 +22,7 @@ import { KpiRow } from '../../components/ui/Kpi';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { SolicitudDetalle } from './SolicitudDetalle';
 import { EntradaManualPanel } from './EntradaManualPanel';
+import { AvisosPanel } from './AvisosPanel';
 import {
   ESTADOS_SOLICITUD,
   FUENTE_LABEL,
@@ -31,11 +32,12 @@ import {
   type Solicitud,
 } from './types';
 
-type Pestana = 'entrantes' | 'seguimiento' | 'manual';
+type Pestana = 'entrantes' | 'seguimiento' | 'avisos' | 'manual';
 
 const PESTANAS: { value: Pestana; label: string }[] = [
   { value: 'entrantes', label: 'Solicitudes entrantes' },
   { value: 'seguimiento', label: 'Respuestas a presupuestos' },
+  { value: 'avisos', label: 'Avisos' },
   { value: 'manual', label: 'Entrada manual' },
 ];
 
@@ -401,7 +403,7 @@ export default function SolicitudesPage() {
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
           <h1 className="text-lg font-semibold text-gray-900">Solicitudes & Seguimiento</h1>
-          <p className="text-sm text-gray-500">Solicitudes entrantes, respuestas de clientes a presupuestos y entrada manual — todo en un sitio.</p>
+          <p className="text-sm text-gray-500">Solicitudes entrantes, respuestas de clientes a presupuestos, avisos de pendientes y entrada manual — todo en un sitio.</p>
         </div>
         <Button variant="secondary" onClick={() => comprobarGmail.mutate()} disabled={comprobarGmail.isPending}>
           <span className="flex items-center gap-1.5">
@@ -712,6 +714,8 @@ export default function SolicitudesPage() {
           </div>
         </>
       )}
+
+      {pestana === 'avisos' && <AvisosPanel onAbrirSolicitud={(id) => setViendo({ tipo: 'solicitud', id })} />}
 
       {pestana === 'manual' && <EntradaManualPanel onCreada={() => navigate('/solicitudes/entrantes')} />}
     </div>

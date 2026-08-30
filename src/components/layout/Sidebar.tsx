@@ -7,6 +7,7 @@ import {
   Wrench,
   Inbox,
   Reply,
+  AlertCircle,
   PenLine,
   Calendar,
   Users,
@@ -65,6 +66,7 @@ const SOLICITUDES_SECTION: NavSection = {
   items: [
     { to: '/solicitudes/entrantes', label: 'Solicitudes entrantes', icon: Inbox },
     { to: '/solicitudes/seguimiento', label: 'Respuestas a presupuestos', icon: Reply },
+    { to: '/solicitudes/avisos', label: 'Avisos', icon: AlertCircle },
     { to: '/solicitudes/manual', label: 'Entrada manual', icon: PenLine },
   ],
 };
