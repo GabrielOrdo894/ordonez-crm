@@ -90,7 +90,10 @@ function ActivoForm({ open, onClose, activo }: { open: boolean; onClose: () => v
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={() => guardarMutation.mutate()} disabled={guardarMutation.isPending || !form.descripcion.trim()}>
+          <Button
+            onClick={() => guardarMutation.mutate()}
+            disabled={guardarMutation.isPending || !form.descripcion.trim() || form.duracion_anios < 1}
+          >
             {guardarMutation.isPending ? 'Guardando...' : 'Guardar'}
           </Button>
         </>
@@ -121,8 +124,9 @@ function ActivoForm({ open, onClose, activo }: { open: boolean; onClose: () => v
         <Input
           label="Duración de amortización (años)"
           type="number"
+          min={1}
           value={form.duracion_anios}
-          onChange={(e) => setForm((f) => ({ ...f, duracion_anios: Number(e.target.value) }))}
+          onChange={(e) => setForm((f) => ({ ...f, duracion_anios: Math.max(1, Number(e.target.value)) }))}
         />
       </div>
     </Modal>

@@ -65,8 +65,15 @@ async function obtenerAccessToken(forzarRenovacion = false): Promise<string> {
 export type EventoDelDia = { inicio: string; fin: string; titulo: string };
 
 function horaLocal(dateTime: string) {
-  const d = new Date(dateTime);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  // Los eventos se crean con timeZone: 'Europe/Paris' (construirEventoPayload). Usar
+  // d.getHours()/d.getMinutes() aquí mostraba la hora según el huso horario del dispositivo
+  // que ejecuta el navegador, no la hora real de la visita, si ese huso no era Europe/Paris.
+  return new Date(dateTime).toLocaleTimeString('es', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Europe/Paris',
+  });
 }
 
 export async function listarEventosDelMes(desde: Date, hasta: Date): Promise<Record<string, EventoDelDia[]>> {
@@ -127,7 +134,25 @@ type EventoVisita = {
   fecha_visita: string | null;
   hora_visita: string | null;
   hora_fin_visita?: string | null;
+  fotos_previas?: string[] | null;
 };
+
+// Calendar no admite adjuntar imágenes directamente sin pasar por Google Drive, así que las fotos
+// previas del cliente (bucket privado `fotos-visita`) se enlazan como URLs firmadas de larga
+// duración (1 año) en la descripción del evento — Calendar las detecta y las muestra clicables
+// (2026-08-28).
+async function urlsFotosPrevias(paths: string[] | null | undefined): Promise<string[]> {
+  if (!paths || paths.length === 0) return [];
+  const { data, error } = await supabase.storage.from('fotos-visita').createSignedUrls(paths, 60 * 60 * 24 * 365);
+  if (error || !data) {
+    // Best-effort: si fallan las URLs firmadas, el evento de Calendar se crea igual sin la sección
+    // de fotos en vez de bloquear toda la visita — pero se deja rastro en consola (antes se
+    // silenciaba del todo, bug real corregido 2026-08-31).
+    if (error) console.error('urlsFotosPrevias: no se pudieron firmar las URLs de fotos-visita', error);
+    return [];
+  }
+  return data.map((d) => d.signedUrl).filter((url): url is string => !!url);
+}
 
 function horaFinDefecto(hora: string) {
   const [h, m] = hora.split(':').map(Number);
@@ -152,7 +177,7 @@ function recordatoriosVisita(hora: string) {
 // una visita que ya tenía evento (fecha, hora o dirección distintas) dejaba el Calendar con los
 // datos viejos y el equipo podía llegar al sitio o a la hora equivocada (mejora real, auditoría de
 // Visitas 2026-08-18).
-function construirEventoPayload(v: EventoVisita, hora: string) {
+function construirEventoPayload(v: EventoVisita, hora: string, fotosUrls: string[] = []) {
   return {
     summary: `Visita Tecnica - ${v.tipo ?? 'Sin especificar'}`,
     location: v.direccion ?? '',
@@ -170,6 +195,7 @@ function construirEventoPayload(v: EventoVisita, hora: string) {
       `Descripción: ${v.descripcion || 'Sin descripción'}`,
       '',
       `Asignado: ${v.empleado ?? 'Sin asignar'}`,
+      ...(fotosUrls.length > 0 ? ['', 'FOTOS PREVIAS DEL CLIENTE', ...fotosUrls] : []),
     ].join('\n'),
     start: { dateTime: `${v.fecha_visita}T${hora}:00`, timeZone: 'Europe/Paris' },
     end: { dateTime: `${v.fecha_visita}T${(v.hora_fin_visita?.slice(0, 5)) || horaFinDefecto(hora)}:00`, timeZone: 'Europe/Paris' },
@@ -185,7 +211,8 @@ export async function crearEventoVisita(v: EventoVisita): Promise<string | null>
   // Supabase/PostgREST devuelve las columnas `time` como "HH:MM:SS" — hay que recortar
   // los segundos antes de componer el dateTime ISO, si no la API de Google la rechaza.
   const hora = v.hora_visita.slice(0, 5);
-  const evento = construirEventoPayload(v, hora);
+  const fotosUrls = await urlsFotosPrevias(v.fotos_previas);
+  const evento = construirEventoPayload(v, hora, fotosUrls);
 
   const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
@@ -208,7 +235,8 @@ export async function actualizarEventoVisita(eventId: string, v: EventoVisita): 
   if (!v.fecha_visita || !v.hora_visita) return;
   let token = await obtenerAccessToken();
   const hora = v.hora_visita.slice(0, 5);
-  const evento = construirEventoPayload(v, hora);
+  const fotosUrls = await urlsFotosPrevias(v.fotos_previas);
+  const evento = construirEventoPayload(v, hora, fotosUrls);
 
   const hacerPatch = (t: string) =>
     fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`, {

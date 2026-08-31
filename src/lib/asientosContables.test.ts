@@ -47,7 +47,7 @@ describe('construirAsientosGasto', () => {
     expect(asientos.some((a) => a.cuenta === '44566')).toBe(false);
   });
 
-  it('gasto de amortización (cuenta 68x) va contra amortissements acumulados, no contra banco', () => {
+  it('gasto de amortización (cuenta 681) va contra amortissements acumulados, no contra banco', () => {
     const asientos = construirAsientosGasto({
       id: 'g3',
       fecha: '2026-12-31',
@@ -59,6 +59,21 @@ describe('construirAsientosGasto', () => {
     });
     expect(asientos.some((a) => a.cuenta === '512')).toBe(false);
     expect(asientos.find((a) => a.cuenta === '2801')?.haber).toBe(400);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('gasto de dotations financières (cuenta 686) NO es amortización — sí sale del banco (bug real corregido 2026-08-31)', () => {
+    const asientos = construirAsientosGasto({
+      id: 'g3b',
+      fecha: '2026-12-31',
+      descripcion: 'Dotation financière',
+      proveedor: null,
+      cuenta_contable: '686',
+      importe_base: 120,
+      importe_iva: 0,
+    });
+    expect(asientos.find((a) => a.cuenta === '512')?.haber).toBe(120);
+    expect(asientos.some((a) => a.cuenta === '2801')).toBe(false);
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
   });
 

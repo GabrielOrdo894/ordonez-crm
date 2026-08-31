@@ -1,7 +1,11 @@
 # Precios de mercado — referencia externa para el revisor de presupuestos
 
-**Última actualización general:** 2026-08-05 (investigación inicial + ampliación de tejados/cubiertas + familia CAR
-nueva de carpintería general, agente `vigia-precios-mercado`).
+**Última actualización general:** 2026-08-28 (familia ALI ampliada dos veces el mismo día: primero con mano de
+obra sola de alicatado/solado en España, hasta entonces inexistente — hallazgo real en presupuesto P-2026-0045;
+después con precio de marca real por m² de las 8 marcas de cerámica/gres que distribuye Alkain — Quick-Step,
+Keraben, Porcelanosa, Durstone, STN Cerámica, Cerdomus, Apavisa y Marazzi — para comparar contra el material
+genérico CYPE ya existente en la familia. Agente `vigia-precios-mercado`). Actualización anterior: 2026-08-05
+(investigación inicial + ampliación de tejados/cubiertas + familia CAR nueva de carpintería general).
 
 **Resumen de lo cubierto:** reforma integral de vivienda, demolición/albañilería, reforma de baño, reforma de
 cocina, alicatado/solado, suelos (parquet/laminado), fachadas (SATE/ITE), techos (falso techo/cubiertas), pintura
@@ -76,6 +80,8 @@ media nacional francesa que en esta cifra concreta.
 | SdB 5 m², total, milieu de gamme | € total HT | 6.000 | 7.000 | 8.000 | Francia, nacional | [architecteo.com](https://architecteo.com/prix-renovation-salle-de-bains.html) | 2026-07-25 | ALTA |
 | SdB petite (<4 m²), total | € total HT | 3.500 | — | 8.000 | Francia, nacional | [lecoinrenov.fr](https://lecoinrenov.fr/guide-prix/prix-renovation-salle-de-bain) | 2026-07-25 | MEDIA |
 | Main d'œuvre plomberie/SdB (tarif horaire) | €/h HT | 45 | 62 | 80 | Francia, nacional (+20-30% en zone chère) | [france-accessoires-piscines.fr](https://www.france-accessoires-piscines.fr/prix-renov-sdb/) | 2026-07-25 | ALTA |
+| Remplacement receveur de douche résine, fourniture + pose | €/ud HT | 270 | 600 | 1.100 | Francia, nacional | [prix-pose.com](https://www.prix-pose.com/receveur-douche) | 2026-08-31 | MEDIA |
+| Paroi de douche coulissante verre trempé, fourniture + pose (pack complet) | €/ud HT | 600 | 800 | 1.000 | Francia, nacional | [proetco.fr](https://www.proetco.fr/prix-paroi-douche-2026/) | 2026-08-31 | MEDIA |
 
 **Nota BAN:** aplicar el ajuste de zona (+15-30% España / +15-25% Francia) sobre las filas nacionales "ALTA" da un
 rango de zona más fiable que el dato directo de Gipuzkoa encontrado (BAJA, poco desglosado): baño completo gama
@@ -103,11 +109,86 @@ rango nacional francés como estimación provisional.
 
 | Partida | Unidad | Mín | Medio | Máx | País/Zona | Fuente | Fecha | Fiabilidad |
 |---|---|---|---|---|---|---|---|---|
-| Suelo/pared cerámico, material | €/m² | 7 | 15 | 20 | España, nacional | [cronoshare.com](https://www.cronoshare.com/cuanto-cuesta/cambiar-suelo-casa) | 2026-07-25 | MEDIA |
+| Suelo/pared cerámico, material — aplica a cerámico/gres estándar, no a gran formato (ver filas CYPE de gran formato) | €/m² | 7 | 15 | 20 | España, nacional | [cronoshare.com](https://www.cronoshare.com/cuanto-cuesta/cambiar-suelo-casa) | 2026-07-25 | MEDIA |
 | Suelo cerámico, material (rango amplio) | €/m² | 15 | — | 60 | España, nacional | [cronoshare.com](https://www.cronoshare.com/cuanto-cuesta/cambiar-suelo-casa) | 2026-07-25 | BAJA |
+| Material, alicatado pared, pieza cerámica 20x20cm (pieza+adhesivo+junta+cruceta), capa gruesa | €/m² | 17,99 | 17,99 | 17,99 | España, nacional (CYPE) | [generadordeprecios.info RAG110](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_azulejo/RAG110_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| Material, alicatado pared, pieza cerámica 20x40cm, capa fina | €/m² | 18,47 | 18,47 | 18,47 | España, nacional (CYPE) | [generadordeprecios.info RAG140](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_azulejo/RAG140_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| Material, alicatado pared, gres porcelánico gran formato, gama media (pieza 33x66cm) | €/m² | 59,61 | 59,61 | 59,61 | España, nacional (CYPE) | [generadordeprecios.info RAC012](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_gres_porcelanico/RAC012_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| ⚠ Material, solado gres porcelánico técnico gran formato, gama media (pieza 100x100cm) — usar solo como techo, no como referencia central (ver nota) | €/m² | 202,42 | 202,42 | 202,42 | España, nacional (CYPE) | [generadordeprecios.info RSG150](https://generadordeprecios.info/rehabilitacion/Revestimientos_y_trasdosados/Pavimentos/Ceramicos/RSG150_Pavimento_interior_de_piezas_de_gre.html) | 2026-08-28 | ALTA |
+| Alicatado pared, mano de obra sola (pieza ≤20x20cm, capa gruesa) | €/m² | 16,18 | 16,18 | 16,18 | España, nacional (CYPE) | [generadordeprecios.info RAG110](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_azulejo/RAG110_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| Alicatado pared, mano de obra sola (pieza 20x40cm, capa fina) | €/m² | 14,28 | 14,28 | 14,28 | España, nacional (CYPE) | [generadordeprecios.info RAG140](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_azulejo/RAG140_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| Alicatado pared, mano de obra sola, gres porcelánico gran formato (pieza 33x66cm, capa fina) | €/m² | 14,28 | 14,28 | 14,28 | España, nacional (CYPE) | [generadordeprecios.info RAC012](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/RA_De_piezas_rigidas_en_paramento/De_gres_porcelanico/RAC012_Revestimiento_interior_con_piezas_d.html) | 2026-08-28 | ALTA |
+| Alicatado pared, mano de obra sola, azulejo estándar <30x30cm | €/m² | 12 | 15 | 18 | España, nacional | [preciom2.com](https://www.preciom2.com/reformas/alicatado-mano-obra/) | 2026-08-28 | MEDIA |
+| Alicatado pared, mano de obra sola, gres rectificado 30x60cm+ | €/m² | 16 | 20 | 24 | España, nacional | [preciom2.com](https://www.preciom2.com/reformas/alicatado-mano-obra/) | 2026-08-28 | MEDIA |
+| Alicatado pared, mano de obra sola, gran formato 60x120cm+ | €/m² | 22 | 28 | 35 | España, nacional | [preciom2.com](https://www.preciom2.com/reformas/alicatado-mano-obra/) | 2026-08-28 | MEDIA |
+| Solado, mano de obra sola (baldosa 25x25cm gres esmaltado, capa fina) | €/m² | 12,63 | 12,63 | 12,63 | España, nacional (CYPE) | [generadordeprecios.info RSG010](http://www.generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/Pavimentos/De_baldosas_ceramicas/RSG010_Solado_de_baldosas_ceramicas_coloca.html) | 2026-08-28 | ALTA |
+| Solado, mano de obra sola, gres porcelánico técnico gran formato (pieza 100x100cm, capa fina) | €/m² | 16,52 | 16,52 | 16,52 | España, nacional (CYPE) | [generadordeprecios.info RSG150](https://generadordeprecios.info/rehabilitacion/Revestimientos_y_trasdosados/Pavimentos/Ceramicos/RSG150_Pavimento_interior_de_piezas_de_gre.html) | 2026-08-28 | ALTA |
+| Alicatado de baño, material + mano de obra combinados (competidor directo) | €/m² | 25 | 40 | 100 | España, Donostia/San Sebastián (zona) | [tejadosansebastian.com](https://www.tejadosansebastian.com/reformas-y-albanileria) | 2026-08-28 | MEDIA |
 | Pose carrelage, main d'œuvre sola | €/m² HT | 25 | 42 | 60 | Francia, nacional | [hemea.com](https://www.hemea.com/fr/renovation/revetement-sol/carrelage/prix) | 2026-07-25 | ALTA |
 | Pose carrelage, fourniture + pose | €/m² HT | 60 | 125 | 190 | Francia, nacional | [hemea.com](https://www.hemea.com/fr/renovation/revetement-sol/carrelage/prix) | 2026-07-25 | ALTA |
 | Pose carrelage 60x60, posé | €/m² HT | 60 | 95 | 130 | Francia, nacional | [angelino-carrelages.com](https://angelino-carrelages.com/pose-et-technique/tarif-pose-carrelage-m2/) | 2026-07-25 | MEDIA |
+
+**Nota ALI (añadida 2026-08-28):** hasta ahora esta familia no tenía dato de mano de obra sola para
+España (solo el combinado nacional de Francia, 42€/m² de media, que se había colado por error como si
+fuera un precio combinado de España en el presupuesto P-2026-0045 — origen del hallazgo que motivó esta
+ampliación). Las filas CYPE (ALTA, desglose oficial material/mano de obra) y preciom2.com (MEDIA,
+agregador por formato) confirman ambas la misma tendencia: la mano de obra sola en pared ronda
+14-18€/m² en formato estándar y sube a 22-35€/m² en gran formato (60x120cm+); en suelo, 12,6€/m²
+estándar y 16,5€/m² en gran formato técnico. Sumando material+mano de obra CYPE por formato sale un
+combinado aproximado de ~30-33€/m² (estándar) hasta ~74-90€/m² (gran formato pared) — coherente con el
+rango de zona de Donostia (25-100€/m², tejadosansebastian.com) y muy por encima del 21€/m² que tenía
+`tarifas-referencia.md`, confirmando que esa tarifa interna estaba desfasada por abajo.
+**Sin dato de zona (Gipuzkoa/Costa Vasca) de mano de obra sola** — ningún competidor de la zona la
+publica desglosada, solo el combinado de Donostia de arriba; aplicar el ajuste de zona estándar del
+documento (+15-30%) sobre las cifras nacionales CYPE como mejor aproximación, igual que en BAN/COC.
+**Aviso sobre la fila ⚠ de 202,42€/m²** (material suelo gres porcelánico "técnico" gran formato,
+RSG150): es ~3,4 veces más cara que la de pared gran formato (RAC012, 59,61€/m²) pese a que CYPE
+etiqueta ambas como "gama media" — probablemente porque "técnico" (absorción E<0,1%) es una línea de
+producto más premium que el "esmaltado" (E<0,5%) de RAC012, no un gran formato normal de reforma. Se
+deja documentada pero marcada como techo, no como referencia central; pendiente de una ronda futura
+para buscar un dato CYPE intermedio (gres porcelánico esmaltado gran formato, no "técnico") que la
+sustituya.
+
+**Precio de marca real por marca (añadido 2026-08-28, misma fecha) — PVP público tienda online, no tarifa
+de fabricante ni precio negociado por Alkain.** Gabriel confirmó que Alkain distribuye 8 marcas de
+cerámica/gres a Reformas Ordoñez: Quick-Step, Keraben, Porcelanosa, Durstone, STN Cerámica, Cerdomus,
+Apavisa y Marazzi. Ninguna de las 8 publica una tarifa PVP oficial en PDF (comprobado en su web oficial:
+catálogos técnicos/estéticos sin precio, venta gestionada vía distribuidor o "área reservada" profesional
+— a diferencia de Gamma/Roca en la familia SAN, por eso no se ha creado ningún índice nuevo en
+`negocio/catalogo/`). Las cifras de abajo son de ficha de producto de tienda online española que revende
+cada marca con precio público real (2-3 referencias de gama media por marca y formato, evitando la gama
+más baja y la más lujosa de catálogo) — precio de escaparate/competidor, no precio negociado por Alkain
+como cliente habitual ni tarifa de fabricante, mismo criterio de fiabilidad MEDIA que el resto de precio
+de zona de este documento. **Quick-Step no aplica a esta familia**: no es fabricante de azulejo/gres, es
+marca de suelo laminado/vinílico/parquet (grupo Unilin/Mohawk) — confirmado en su web oficial
+(quick-step.com) y en el revendedor azulejossola.com, que solo la vende en esa categoría; por eso no
+tiene fila propia en la tabla de abajo.
+
+| Partida | Unidad | Mín | Medio | Máx | País/Zona | Fuente | Fecha | Fiabilidad |
+|---|---|---|---|---|---|---|---|---|
+| Keraben, material pared ~30x90 (3 refs: Essen Beige, Mood Blanco, Boreal Beige) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 13,89 | 21,65 | 26,09 | España | [pereda.com](https://pereda.com/pasta-blanca-rectificada/9119-revestimiento-pasta-blanca-rectificada-essen-beige-30x90-cm-keraben.html), [brikum.com](https://www.brikum.com/products/caja-4-piezas-revestimiento-mood-blanco-30x90-keraben-caja-108m2), [brikum.com](https://www.brikum.com/products/caja-4-piezas-revestimiento-boreal-beige-30x90-keraben-caja-108m2) | 2026-08-28 | MEDIA |
+| Keraben, material suelo 120x60 (Masaya Beige, efecto piedra) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 25,88 | 25,88 | 25,88 | España | [ondacer.com](https://ondacer.com/es/azulejos-imitacion-piedra/160605-porcelanico-efecto-piedra-kb-masaya-beige-120x60-keraben) | 2026-08-28 | MEDIA — precio sin IVA (31,31 €/m² IVA incl.) |
+| STN Cerámica, material pared 33x90 (Aral Blanco, Japón Roble) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 19,95 | 20,29 | 20,63 | España | [bigmat.es](https://www.bigmat.es/es/b2c/m/675/stn-ceramica) | 2026-08-28 | MEDIA |
+| STN Cerámica, material suelo 23x120, Volte Roble — formato exacto usado por la empresa — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 15,56 | 17,27 | 18,98 | España | [materialesluisa.com](https://materialesluisa.com/product/volte-roble-23x120-rect/) (IVA incl.), [misazulejos.com](https://www.misazulejos.com/brand/stn-ceramica) | 2026-08-28 | MEDIA |
+| Durstone, material pared 31x98 (Casa Chic Sand) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 33,95 | 33,95 | 33,95 | España | [interazulejo.com](https://www.interazulejo.com/azulejos-para-banos/8262-azulejo-casa-chic-sand-1-31x98-rect.html) | 2026-08-28 | MEDIA |
+| Durstone, material suelo 60x120 (Denver Natural / Antideslizante) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 42,89 | 44,55 | 46,20 | España | [ferrolan.es](https://ferrolan.es/azulejos/zona-de-uso-ceramica/cocina-zona-de-uso/durstone-denver-cocina) | 2026-08-28 | MEDIA |
+| Marazzi, material pared 30x90 (Work White, Pure) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 22,86 | 25,04 | 29,52 | España | [azulejosperales.com](https://www.azulejosperales.com/producto/azulejos-para-pared/marazzi-work-30x90/), [azulejosperales.com](https://azulejosperales.com/producto/pared/azulejos-para-pared/marazzi-pure-30x90/) (IVA incl.) | 2026-08-28 | MEDIA |
+| Cerdomus, material pared/suelo 30x60 (Karnis Mate, efecto mármol) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 38,90 | 38,90 | 38,90 | España | [azulejoslamorenica.com](https://www.azulejoslamorenica.com/producto/suelo-azulejo-porcelanico-rectificado-efecto-marmol-cerdomus-karnis-mate-30x60/) | 2026-08-28 | MEDIA |
+| Cerdomus, material suelo gran formato 60x120 (Karnis Mate/Safe) — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 43,90 | 44,40 | 44,90 | España | [azulejoslamorenica.com](https://www.azulejoslamorenica.com/) | 2026-08-28 | MEDIA |
+| ⚠ Porcelanosa, material pared gran formato (Marmi China 33x100, Ascot 19x120) — marca premium, no representativa de gama media general — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 77,68 | 92,27 | 106,85 | España | El Corte Inglés (búsqueda; fetch directo bloqueado 403) | 2026-08-28 | MEDIA |
+| ⚠ Porcelanosa, material suelo 59x59 (Matt) — marca premium — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 89,30 | 89,30 | 89,30 | España | El Corte Inglés (búsqueda) | 2026-08-28 | MEDIA |
+| ⚠ Apavisa, material gran formato ~45x120/50x100 (Calacatta Gold, Calacatta Viola, Corten Copper) — marca premium, sin referencia de gama más económica encontrada — precio de marca real (PVP público tienda online, no tarifa de fabricante ni precio negociado por Alkain) | €/m² | 54,25 | 66,07 | 77,72 | España | [azulejosindigar.es](https://www.azulejosindigar.es/tienda-online/manufacturer/apavisa.html) | 2026-08-28 | MEDIA |
+
+**Nota ALI — precio de marca real vs. tarifa interna (añadida 2026-08-28):** comparando contra la tarifa
+interna actual de `tarifas-referencia.md` (material estándar 28€/m², material gran formato 104€/m², ambas
+calibradas sobre CYPE nacional, no sobre marca real): en formato estándar/pared, el material actual del
+presupuesto P-2026-0045 (19-28€/m²) es razonable frente a las marcas "de catálogo general" (Keraben
+13,89-26,09€/m², STN 19,95-20,63€/m², Marazzi 22,86-29,52€/m², Durstone 33,95€/m²) — solo se queda corto
+con Cerdomus (38,90€/m²) y muy corto con Porcelanosa/Apavisa (54-107€/m²). En gran formato, la tarifa
+interna de 104€/m² es 2,2 a 6,7 veces más alta que el PVP real de Keraben/STN/Durstone/Cerdomus
+(16-47€/m²) y solo se acerca a Porcelanosa/Apavisa (54-107€/m²) — posible sobrevaloración del material de
+gran formato en la calibración actual salvo que el cliente elija marca premium explícitamente; pendiente
+de revisión por `calibrador-tarifas`.
 
 ## SOL — Suelos (parquet / laminado)
 
@@ -333,6 +414,12 @@ margen.
   completa de tejas e impermeabilización; humedades.com (España — ALTA) para impermeabilización bajo/sobre teja;
   helloartisan.com (Francia — MEDIA, fuente única) para tuiles/ardoise/charpente; prix-pose.com (Francia — ALTA)
   para étanchéité toit terrasse; renovationettravaux.fr (Francia — MEDIA) para zinc, con dispersión alta señalada.
+- **Precio de marca real ALI (ampliación 2026-08-28):** tiendas online españolas que revenden cada marca con
+  precio público (Brikum, Pereda, Ondacer, Interazulejo, Ferrolan, BigMat, Materiales Luisa, Misazulejos, Azulejos
+  La Morenica, Azulejos Indigar, Azulejos Perales, El Corte Inglés) — precio de escaparate/competidor (MEDIA), no
+  tarifa oficial de fabricante ni precio negociado por Alkain; ninguna de las 8 marcas (Quick-Step, Keraben,
+  Porcelanosa, Durstone, STN Cerámica, Cerdomus, Apavisa, Marazzi) publica tarifa PVP oficial en PDF para
+  azulejo/gres.
 
 ## Próxima actualización recomendada
 
@@ -347,6 +434,11 @@ margen.
   poco desglosado) y de Hendaye/Urrugne/Saint-Jean-de-Luz (hoy solo ravalement de façade tiene dato de zona sólido).
 - **Buscar dato de zona para CAR** (carpintería general) en Gipuzkoa y Pays Basque — hoy solo hay precio nacional
   con ajuste porcentual, ninguna fuente de competidor local para puertas/armarios/montaje de cocina.
+- **Revisar la calibración de material gran formato en ALI (hallazgo 2026-08-28):** la tarifa interna de 104€/m²
+  (`tarifas-referencia.md`, calibrada sobre CYPE) es 2,2 a 6,7 veces más alta que el PVP real de marca de catálogo
+  general (Keraben/STN/Durstone/Cerdomus, 16-47€/m²) — pendiente de que `calibrador-tarifas` decida si recalibra
+  a la baja para el caso general, o si mantiene 104€/m² solo para cuando el cliente elige marca premium
+  (Porcelanosa/Apavisa, 54-107€/m² real).
 - Revisar en 3 meses o cuando la empresa entre en un tipo de obra nuevo no cubierto aquí.
 - Cuando lleguen los catálogos nuevos de Alkain (Gamma/Roca u otra marca que empiecen a distribuir), actualizar la
   familia SAN con los precios vigentes — y si en ese momento el catálogo Roca sí trae PVP explícito por producto,

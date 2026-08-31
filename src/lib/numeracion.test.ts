@@ -8,7 +8,7 @@ const { numeroOrdenable } = await import('./numeracion');
 
 describe('numeroOrdenable', () => {
   it('combina año y secuencia para que ordene cronológicamente', () => {
-    expect(numeroOrdenable('P-2026-0015')).toBe(202600015);
+    expect(numeroOrdenable('P-2026-0015')).toBe(2026000150);
   });
 
   it('un número de secuencia mayor del mismo año ordena por delante', () => {
@@ -20,8 +20,15 @@ describe('numeroOrdenable', () => {
   });
 
   it('funciona con prefijos de más de una letra (acomptes, rectificativas)', () => {
-    expect(numeroOrdenable('AC-2026-0003')).toBe(202600003);
-    expect(numeroOrdenable('R-2026-0001')).toBe(202600001);
+    expect(numeroOrdenable('AC-2026-0003')).toBe(2026000031);
+    expect(numeroOrdenable('R-2026-0001')).toBe(2026000012);
+  });
+
+  it('regresión: F/AC/R con el mismo año y número no colisionan al mismo valor (secuencias independientes, corregido 2026-08-31)', () => {
+    const f = numeroOrdenable('F-2026-0007');
+    const ac = numeroOrdenable('AC-2026-0007');
+    const r = numeroOrdenable('R-2026-0007');
+    expect(new Set([f, ac, r]).size).toBe(3);
   });
 
   it('sin formato reconocible, cae al número tal cual o a 0', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Star,
@@ -61,6 +62,7 @@ type PresupuestoResumen = {
   visita_id: string | null;
   fecha_emision: string | null;
   estado: string;
+  tipo: string | null;
   cliente_tel: string | null;
   lineas: Linea[];
 };
@@ -176,6 +178,7 @@ export function ClienteDetalleContenido({
   tabInicial,
   onPurgado,
 }: ClienteDetalleContenidoProps) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -302,7 +305,7 @@ export function ClienteDetalleContenido({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select('id, numero, visita_id, fecha_emision, estado, cliente_tel, lineas')
+        .select('id, numero, visita_id, fecha_emision, estado, tipo, cliente_tel, lineas')
         .is('eliminado_en', null)
         .not('cliente_tel', 'is', null);
       if (error) throw error;
@@ -355,12 +358,28 @@ export function ClienteDetalleContenido({
     [facturas, telefonoCliente],
   );
 
-  const totalFacturado = useMemo(
+  // "Facturado" solo puede significar que existe una factura real vinculada (facturas.presupuesto_id)
+  // Y que ese dinero está confirmado — no basta con que la factura exista (podría seguir Pendiente
+  // o Vencida, sin cobrar un céntimo todavía). Antes esta cifra sumaba presupuestos Aceptado y se
+  // etiquetaba "Total facturado", así que un orientativo aceptado (que por diseño nunca se factura,
+  // ver PresupuestosPage.tsx) aparecía como si estuviera facturado (bug real reportado por Gabriel
+  // 2026-08-28, caso Xabier Urtizbere: P-2026-0042 orientativo/Aceptado, 0 facturas reales).
+  // `monto_pagado` solo se rellena (RegistrarPagoModal.tsx) al registrar un cobro real — es la única
+  // constancia fiable de que el dinero ha entrado, independiente del texto exacto de estado_cobro
+  // (corrección 2026-08-28: al principio bastaba con que existiera la factura, sin comprobar cobro).
+  const presupuestoIdsFacturados = useMemo(
     () =>
-      presupuestosCliente
-        .filter((p) => p.estado === 'Aceptado')
-        .reduce((s, p) => s + calcularTotales(p.lineas).totalConIva, 0),
-    [presupuestosCliente],
+      new Set(
+        (facturasCliente ?? [])
+          .filter((f) => (f.monto_pagado ?? 0) > 0)
+          .map((f) => f.presupuesto_id)
+          .filter((id): id is string => !!id),
+      ),
+    [facturasCliente],
+  );
+  const totalFacturado = useMemo(
+    () => facturasCliente.reduce((s, f) => s + calcularTotales(f.lineas).totalConIva, 0),
+    [facturasCliente],
   );
 
   // Intercala visitas, notas, presupuestos, facturas y fases de planning por fecha en una sola
@@ -441,7 +460,7 @@ export function ClienteDetalleContenido({
             .order('created_at', { ascending: false }),
           supabase
             .from('presupuestos')
-            .select('id, numero, fecha_emision, estado, cliente_tel, lineas')
+            .select('id, numero, fecha_emision, estado, tipo, cliente_tel, lineas')
             .is('eliminado_en', null)
             .eq('cliente_tel', cliente.telefono),
           supabase
@@ -453,9 +472,10 @@ export function ClienteDetalleContenido({
         if (errorNotas) throw errorNotas;
         if (errorPres) throw errorPres;
         if (errorFact) throw errorFact;
-        const totalFacturadoFresco = ((presFrescos ?? []) as PresupuestoResumen[])
-          .filter((p) => p.estado === 'Aceptado')
-          .reduce((s, p) => s + calcularTotales(p.lineas).totalConIva, 0);
+        const totalFacturadoFresco = ((factFrescas ?? []) as Factura[]).reduce(
+          (s, f) => s + calcularTotales(f.lineas).totalConIva,
+          0,
+        );
         await generarPdfFichaCliente({
           nombre: cliente.nombre,
           apellidos: cliente.apellidos,
@@ -497,11 +517,12 @@ export function ClienteDetalleContenido({
     }
   };
 
-  const importePorVisita = (visitaId: string) => {
-    const p = presupuestosCliente.find(
-      (pp) => pp.visita_id === visitaId && pp.estado === 'Aceptado',
-    );
-    return p ? calcularTotales(p.lineas).totalConIva : null;
+  const importePorVisita = (visitaId: string): { total: number; esOrientativo: boolean } | null => {
+    const aceptados = presupuestosCliente.filter((pp) => pp.visita_id === visitaId && pp.estado === 'Aceptado');
+    // Si hay un normal y un orientativo aceptados para la misma visita, el normal es el importe real.
+    const p = aceptados.find((pp) => pp.tipo !== 'orientativo') ?? aceptados[0];
+    if (!p) return null;
+    return { total: calcularTotales(p.lineas).totalConIva, esOrientativo: p.tipo === 'orientativo' };
   };
 
   if (!ultimaVisita) return null;
@@ -571,7 +592,8 @@ export function ClienteDetalleContenido({
               {cliente.visitas.map((v) => (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors"
+                  onClick={() => navigate(`/visitas/${v.id}`)}
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{fechaVisitaCorta(v.fecha_visita)}</p>
@@ -606,19 +628,30 @@ export function ClienteDetalleContenido({
               {presupuestosCliente.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors"
+                  onClick={() =>
+                    navigate('/finanzas/presupuestos', { state: { verDocId: p.id, verDocTipo: 'presupuesto' } })
+                  }
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{p.numero ?? 'Sin número'}</p>
                     <p className="text-xs text-gray-500">{p.fecha_emision ?? 'Sin fecha'}</p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {p.tipo === 'orientativo' ? (
+                      <Badge variant="pendiente">Orientativo</Badge>
+                    ) : (
+                      <span className="text-xs text-gray-400">Normal</span>
+                    )}
                     <span className="text-gray-700">
                       {calcularTotales(p.lineas).totalConIva.toFixed(2)} €
                     </span>
                     <Badge variant={VARIANTE_ESTADO_PRESUPUESTO[p.estado] ?? 'default'}>
                       {p.estado}
                     </Badge>
+                    {presupuestoIdsFacturados.has(p.id) && (
+                      <Badge variant="confirmada">Facturado</Badge>
+                    )}
                   </div>
                 </div>
               ))}
@@ -646,7 +679,10 @@ export function ClienteDetalleContenido({
               {facturasCliente.map((f) => (
                 <div
                   key={f.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors"
+                  onClick={() =>
+                    navigate('/finanzas/facturas', { state: { verDocId: f.id, verDocTipo: 'factura' } })
+                  }
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{f.numero ?? 'Sin número'}</p>
@@ -935,7 +971,7 @@ export function ClienteDetalleContenido({
           </div>
           {totalFacturado > 0 && (
             <p className="text-xs text-gray-500 mb-2">
-              Total facturado (presupuestos aceptados):{' '}
+              Total facturado (facturas reales):{' '}
               <span className="font-semibold text-gray-800">{totalFacturado.toFixed(2)} €</span>
             </p>
           )}
@@ -945,7 +981,8 @@ export function ClienteDetalleContenido({
               return (
                 <div
                   key={v.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2"
+                  onClick={() => navigate(`/visitas/${v.id}`)}
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{fechaVisitaCorta(v.fecha_visita)}</p>
@@ -955,7 +992,9 @@ export function ClienteDetalleContenido({
                   </div>
                   <div className="flex items-center gap-3">
                     {importe != null && (
-                      <span className="text-xs text-gray-600">{importe.toFixed(2)} €</span>
+                      <span className="text-xs text-gray-600">
+                        {importe.total.toFixed(2)} €{importe.esOrientativo ? ' (orientativo)' : ''}
+                      </span>
                     )}
                     <Badge variant={estadoToVariant(v.estado)}>{v.estado}</Badge>
                   </div>
@@ -1087,19 +1126,30 @@ export function ClienteDetalleContenido({
               {presupuestosCliente.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2"
+                  onClick={() =>
+                    navigate('/finanzas/presupuestos', { state: { verDocId: p.id, verDocTipo: 'presupuesto' } })
+                  }
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{p.numero ?? 'Sin número'}</p>
                     <p className="text-xs text-gray-500">{p.fecha_emision ?? 'Sin fecha'}</p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {p.tipo === 'orientativo' ? (
+                      <Badge variant="pendiente">Orientativo</Badge>
+                    ) : (
+                      <span className="text-xs text-gray-400">Normal</span>
+                    )}
                     <span className="text-gray-700">
                       {calcularTotales(p.lineas).totalConIva.toFixed(2)} €
                     </span>
                     <Badge variant={VARIANTE_ESTADO_PRESUPUESTO[p.estado] ?? 'default'}>
                       {p.estado}
                     </Badge>
+                    {presupuestoIdsFacturados.has(p.id) && (
+                      <Badge variant="confirmada">Facturado</Badge>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1118,7 +1168,10 @@ export function ClienteDetalleContenido({
               {facturasCliente.map((f) => (
                 <div
                   key={f.id}
-                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2"
+                  onClick={() =>
+                    navigate('/finanzas/facturas', { state: { verDocId: f.id, verDocTipo: 'factura' } })
+                  }
+                  className="flex items-center justify-between gap-2 flex-wrap text-sm border border-gray-200 rounded-sm px-3 py-2 hover:bg-brand-light/40 transition-colors cursor-pointer"
                 >
                   <div>
                     <p className="text-gray-900">{f.numero ?? 'Sin número'}</p>
@@ -1133,7 +1186,10 @@ export function ClienteDetalleContenido({
                     </Badge>
                     {f.estado_cobro !== 'Cobrada' && (
                       <button
-                        onClick={() => setRecordandoPago(f)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRecordandoPago(f);
+                        }}
                         className="text-xs text-brand hover:underline"
                       >
                         Recordar pago

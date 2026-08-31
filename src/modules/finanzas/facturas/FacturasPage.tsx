@@ -108,18 +108,24 @@ export default function FacturasPage() {
 
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
 
-  const { data: facturas, isLoading } = useQuery({
+  // La queryKey ['facturas'] la comparten ~10 pantallas más (dashboards, pipeline, clientes...),
+  // cada una con su propio queryFn — Tanstack Query solo ejecuta el queryFn de quien llega primero
+  // y cachea ese resultado para el resto, así que el orden no puede depender de este queryFn (bug
+  // real corregido 2026-08-31: quien entrara primero a otra pantalla dejaba esta tabla desordenada
+  // hasta el siguiente refetch). Se ordena aparte, en el propio componente, sea cual sea el orden
+  // con el que llegaron los datos a la caché.
+  const { data: facturasSinOrdenar, isLoading } = useQuery({
     queryKey: ['facturas'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('facturas')
-        .select('*')
-        .is('eliminado_en', null)
-        .order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
       if (error) throw error;
       return data as Factura[];
     },
   });
+  const facturas = useMemo(
+    () => (facturasSinOrdenar ? [...facturasSinOrdenar].sort((a, b) => numeroOrdenable(b.numero) - numeroOrdenable(a.numero)) : facturasSinOrdenar),
+    [facturasSinOrdenar],
+  );
 
   const eliminarMutation = useMutation({
     mutationFn: async (id: string) => {

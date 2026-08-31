@@ -601,3 +601,71 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `gmail_thread_id`, resumen, y si estaba `Enviada` vuelve a `Nueva` — en vez de crear otra). Los 2
   duplicados históricos ya existentes se marcaron `Descartada` con nota explicativa y se limpió su
   `funnel_eventos`/`presupuesto_vinculado_id` para no inflar el embudo.
+- **`facturas.estructura_anterior`** (2026-08-22): antes de constituirse en EURL, Gabriel operaba
+  como autónomo — algunas facturas/acomptes de esa etapa (ej. `AC-2026-0020`, Bea Vangheluwe) se
+  registran igualmente en el CRM porque forman parte de una serie de pagos/acomptes de un proyecto
+  cuya factura final sí es ya de la société, y `lineaDeduccionAcomptes` necesita esa factura previa
+  para descontarla correctamente. Pero su importe **no es ingreso real de la EURL**: el checkbox
+  "Cobro de una estructura anterior a la EURL actual" en `FacturaForm.tsx` marca esa factura con
+  `estructura_anterior = true`, y entonces no genera (ni regenera al editar) apuntes en
+  `asientos_contables`, y queda excluida de `AsistenteIvaPage.tsx` (Asistente de IVA),
+  `RentabilidadPage.tsx`, `DashboardGeneralPage.tsx` y `VincularFacturaModal.tsx`. Las facturas
+  marcadas así que ya habían generado apuntes por error antes de que existiera el checkbox se
+  corrigen insertando la reversa exacta de esos apuntes (mismo patrón que `rectificarAsientos`,
+  hecho a mano para esas facturas puntuales) — el libro sigue cuadrando y sigue siendo insert-only,
+  simplemente el efecto neto de esa factura en la contabilidad de la société es cero. **Auditoría
+  2026-08-31:** una revisión encontró exactamente este patrón en `AC-2026-0020` (asientos del
+  14/08 revertidos el 22/08) y lo marcó como hallazgo crítico por no estar documentado aquí — no es
+  un error, es este mecanismo funcionando como está diseñado.
+- **Cuenta PCG 686 (dotations financières) no es amortización** (corregido 2026-08-31): tanto
+  `asientosContables.ts` (`esAmortizacion`) como `useComptaFrancia.ts` (`cargasExplotacion`)
+  trataban cualquier cuenta que empezara por `68` como amortización de inmovilizado (contrapartida
+  2801, dentro del resultado de explotación) — la 686 sí existe como opción real en
+  `categorias.ts` y es una dotation financière, no de explotación: su contrapartida debe ser el
+  banco (512) como cualquier gasto, y en el compte de résultat va en `cargasFinancieras`, no en
+  `cargasExplotacion`. Corregido a comprobar `681` exactamente en vez de `68` como prefijo; añadido
+  test de regresión en ambos ficheros.
+- **Cita legal del IVA reducido español corregida** (2026-08-31): `mencionIvaReducida('IVA_10')`
+  en `src/modules/finanzas/iva.ts` citaba *"artículo 279-0 bis del Código Fiscal Español"* — ese
+  artículo es del Code Général des Impôts **francés** (copy-paste de la línea de TVA_10 sin
+  actualizar), España no tiene un "Código Fiscal Español" con ese número. Corregido a
+  **artículo 91.Uno.2.10º de la Ley 37/1992 del IVA**, la base legal real del tipo reducido para
+  obras de renovación de vivienda en España. Este texto sale impreso en facturas/presupuestos
+  reales con IVA_10 — revisar si algún documento ya enviado a un cliente español con IVA_10 antes
+  de esta fecha lleva la cita antigua.
+- **`normalizarTelefono` unifica formato nacional e internacional** (corregido 2026-08-31): antes
+  solo quitaba caracteres no numéricos (`tel.replace(/\D/g, '')`), así que un mismo cliente
+  guardado como `"0612345678"` en un sitio y `"+33612345678"` en otro generaba dos claves
+  distintas y no cruzaba — la misma categoría de bug que ya se corrigió varias veces en el funnel
+  de Solicitudes (ver más arriba, 2026-08-19). Ahora se queda con los últimos 9 dígitos (núcleo
+  del número, igual en España y Francia), lo que unifica automáticamente nacional/internacional de
+  ambos países sin necesidad de detectar el prefijo.
+- **Auditoría profunda del CRM, primera ronda** (2026-08-31): primera auditoría completa (código +
+  seguridad + integridad de datos + lógica de negocio + fiscalidad) hecha con 4 subagentes en
+  paralelo. Sin hallazgos críticos ni altos de seguridad (RLS, CORS, secretos, inyección — todo
+  limpio). Corregido en esta ronda, además de lo ya documentado arriba: precio unitario negativo
+  sin validar en líneas de presupuesto/factura normal (ahora clamped a 0, igual que ya se hacía con
+  cantidad); export anual del embudo (`DashboardPage.tsx`, `exportarRegistroCompleto`) no filtraba
+  `eliminado_en` en presupuestos, podía sacar nombre/email real de un presupuesto ya en papelera;
+  3 sitios que limpian `visitas.google_event_id` sin comprobar el error de Supabase (violaba la
+  regla obligatoria del §1 de este documento); Inmovilizado no validaba `duracion_anios > 0` en el
+  formulario (podía romper "Generar dotación" con un error de división por cero). **Documentado
+  como ya conocido, no se tocó:** `documento_eventos`/`movimientos_banco` de una factura no se
+  borran en la purga RGPD (`ClientePrivacidadTab.tsx`) a propósito, ligados a la factura
+  anonimizada en vez de eliminarse — mismo criterio que "facturas nunca se borran" de arriba.
+- **`/code-review ultra` en la misma auditoría** (2026-08-31): encontró además una regresión real
+  del propio fix de precio negativo de arriba — `lineaDeduccionAcomptes` (factura final tras
+  acomptes) inserta a propósito una línea con `precio_unit` negativo y `referencia: 'ACOMPTE'`
+  incluso en una factura `normal`, y la validación nueva la bloqueaba; corregido excluyendo esa
+  referencia del check tanto en `validarLineas` como en el clamp de `LineasEditor.tsx`. También:
+  mismo problema de `precio_unit_max` (input "Precio hasta" de un presupuesto orientativo) sin
+  clamp ni validación — corregido igual que `precio_unit`, más el check de que el máximo no sea
+  menor que el mínimo. Y `documenso-webhook/index.ts` tiene su propia copia de
+  `normalizarTelefono` (Deno no puede importar `clientes/types.ts`) que se había quedado con la
+  versión antigua sin `.slice(-9)` — corregida igual que el resto.
+  **Falso positivo del review en la nube, a corregir por higiene de git:** marcó
+  `src/modules/visitas/horarioVisita.ts` y `VisitaReprogramarPage.tsx` como inexistentes/build
+  roto — ambos existen y compilan bien en local (`tsc -b` + `vite build` verificados), pero nunca
+  se han comiteado (`git status` los marca `??`); el review en la nube solo ve lo comiteado. Si se
+  hace push tal cual sin añadirlos, CI y el despliegue sí fallarían de verdad por esto — hay que
+  comitearlos antes de empujar la rama.

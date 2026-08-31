@@ -460,7 +460,11 @@ export default function DashboardPage() {
           .select('id, created_at, etapa, fuente, solicitud_id, presupuesto_id')
           .order('created_at', { ascending: true }),
         supabase.from('solicitudes').select('id, nombre, email, telefono, tipo_reforma, idioma, visita_id, presupuesto_vinculado_id'),
-        supabase.from('presupuestos').select('id, numero, cliente_nombre, cliente_email, estado, pais, idioma, tipo'),
+        // presupuestos sí filtra papelera (a diferencia de solicitudes/visitas arriba, que se dejan
+        // como histórico completo a propósito): lleva cliente_nombre/cliente_email reales, y un
+        // presupuesto ya purgado por RGPD no debe reaparecer con esos datos en este volcado anual
+        // (bug real corregido 2026-08-31).
+        supabase.from('presupuestos').select('id, numero, cliente_nombre, cliente_email, estado, pais, idioma, tipo').is('eliminado_en', null),
         supabase.from('visitas').select('id, pais'),
       ]);
       if (errorEventos) throw errorEventos;

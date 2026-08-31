@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus } from 'lucide-react';
+import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
@@ -27,6 +27,7 @@ import {
   type ClientePotencial,
 } from '../clientes/types';
 import { useCatalogosVisitas } from './useCatalogosVisitas';
+import { esSabado, DURACIONES_MIN, etiquetaDuracion, OTRO_HORARIO } from './horarioVisita';
 import type { Visita, NuevaVisita, EstadoVisita, PrefillVisita } from './types';
 
 function Seccion({
@@ -55,12 +56,6 @@ function Seccion({
 }
 
 const ESTADOS: EstadoVisita[] = ['Pendiente', 'Realizada', 'Cancelada'];
-const OTRO_HORARIO = 'otro';
-
-function esSabado(fecha: string) {
-  if (!fecha) return false;
-  return new Date(`${fecha}T00:00:00`).getDay() === 6;
-}
 
 type FormState = {
   nombre: string;
@@ -107,17 +102,6 @@ const EMPTY: FormState = {
   estado: 'Pendiente',
   notas: '',
 };
-
-// Duraciones ofrecidas para "Duración" — antes las visitas no tenían hora de fin, así que ninguna
-// vista podía dibujar bloques de tiempo proporcionales ni detectar solapamientos (mejora real,
-// auditoría de Calendario 2026-08-18). 60 min es el valor por defecto/histórico.
-const DURACIONES_MIN = [30, 60, 90, 120];
-function etiquetaDuracion(min: number) {
-  if (min < 60) return `${min} min`;
-  const horas = Math.floor(min / 60);
-  const resto = min % 60;
-  return resto ? `${horas} h ${resto} min` : `${horas} h`;
-}
 
 function estadoFiscal(pais: string) {
   if (pais === 'España') return 'Régimen fiscal: IVA 21%';
@@ -213,6 +197,57 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
   const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
 
+  // Fotos del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) — se
+  // suben a mano al bucket privado `fotos-visita` y se enlazan luego en el email de confirmación
+  // y en la descripción del evento de Calendar (2026-08-28). Mismo patrón que el adjunto de
+  // GastoForm.tsx: se sube al elegir el archivo, no al guardar el formulario.
+  const [fotos, setFotos] = useState<string[]>(visita?.fotos_previas ?? []);
+  const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({});
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
+
+  useEffect(() => {
+    const faltantes = fotos.filter((path) => !fotoUrls[path]);
+    if (faltantes.length === 0) return;
+    Promise.all(
+      faltantes.map((path) => supabase.storage.from('fotos-visita').createSignedUrl(path, 3600)),
+    ).then((resultados) => {
+      setFotoUrls((prev) => {
+        const next = { ...prev };
+        resultados.forEach(({ data }, i) => {
+          if (data) next[faltantes[i]] = data.signedUrl;
+        });
+        return next;
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fotos]);
+
+  const TAMANO_MAX_FOTO = 10 * 1024 * 1024; // 10 MB, mismo límite que justificantes de gastos
+
+  const handleSubirFotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSubiendoFoto(true);
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) {
+        toast.error(`"${file.name}" no es una imagen`);
+        continue;
+      }
+      if (file.size > TAMANO_MAX_FOTO) {
+        toast.error(`"${file.name}" pesa demasiado (máximo 10 MB)`);
+        continue;
+      }
+      const extension = file.name.split('.').pop() ?? 'jpg';
+      const path = `visitas/${crypto.randomUUID()}.${extension}`;
+      const { error } = await supabase.storage.from('fotos-visita').upload(path, file, { contentType: file.type });
+      if (error) {
+        toast.error(error.message);
+        continue;
+      }
+      setFotos((f) => [...f, path]);
+    }
+    setSubiendoFoto(false);
+  };
+
   const { data: visitasParaClientes } = useQuery({
     queryKey: ['visitas'],
     queryFn: async () => {
@@ -296,11 +331,14 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   // Cambiar la hora de inicio mantiene la duración ya elegida (desplaza hora_fin_visita en vez de
   // dejarla fija) — si no, cambiar la hora de inicio podría dejar una duración negativa o absurda.
   const cambiarHoraInicio = (nuevaHora: string) =>
-    setForm((f) => ({
-      ...f,
-      hora_visita: nuevaHora,
-      hora_fin_visita: sumarMinutos(nuevaHora, minutosEntre(f.hora_visita, f.hora_fin_visita)),
-    }));
+    setForm((f) =>
+      // nuevaHora vacía = el usuario acaba de elegir "Otro horario…" y aún no ha escrito una hora
+      // real en el <Input type="time"> que aparece debajo — no hay nada que desplazar todavía
+      // (bug real corregido 2026-08-31: sumarMinutos('', ...) generaba "NaN:NaN").
+      nuevaHora
+        ? { ...f, hora_visita: nuevaHora, hora_fin_visita: sumarMinutos(nuevaHora, minutosEntre(f.hora_visita, f.hora_fin_visita)) }
+        : { ...f, hora_visita: nuevaHora },
+    );
 
   const duracionActual = minutosEntre(form.hora_visita, form.hora_fin_visita);
   const opcionesDuracion = DURACIONES_MIN.includes(duracionActual)
@@ -389,6 +427,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         direccion_extra: form.direccion_extra || null,
         descripcion: form.descripcion || null,
         notas: form.notas || null,
+        fotos_previas: fotos,
         google_event_id: null,
         estado_pipeline: 'Contacto',
         pipeline_etapa_maxima: 'Contacto',
@@ -457,13 +496,14 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           direccion_extra: form.direccion_extra || null,
           descripcion: form.descripcion || null,
           notas: form.notas || null,
+          fotos_previas: fotos,
         })
         .eq('id', visita.id);
       if (error) throw error;
     },
     onSuccess: async () => {
       if (visita && !visita.google_event_id) {
-        crearEventoVisita({ ...visita, ...form })
+        crearEventoVisita({ ...visita, ...form, fotos_previas: fotos })
           .then(async (eventId) => {
             if (!eventId) return;
             const { error: errorGuardarEventId } = await supabase
@@ -492,7 +532,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         // Antes solo se creaba el evento la primera vez — reprogramar (fecha, hora o dirección
         // distintas) dejaba el Calendar con los datos viejos, sin ningún aviso (mejora real,
         // auditoría de Visitas 2026-08-18).
-        actualizarEventoVisita(visita.google_event_id, { ...visita, ...form }).catch((error) =>
+        actualizarEventoVisita(visita.google_event_id, { ...visita, ...form, fotos_previas: fotos }).catch((error) =>
           toast.warning(
             `Visita actualizada, pero no se sincronizó el cambio con Google Calendar: ${error.message}`,
           ),
@@ -760,6 +800,51 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 value={form.descripcion}
                 onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                Fotos previas del cliente (opcional)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {fotos.map((path) => (
+                  <div key={path} className="relative w-16 h-16 shrink-0">
+                    {fotoUrls[path] ? (
+                      <img
+                        src={fotoUrls[path]}
+                        alt="Foto previa"
+                        className="w-16 h-16 object-cover rounded-sm border border-gray-200"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-sm border border-gray-200 bg-gray-50 animate-pulse" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFotos((f) => f.filter((p) => p !== path))}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-gray-300 text-gray-500 hover:text-red-600 flex items-center justify-center"
+                      title="Quitar foto"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+                <label
+                  className={`w-16 h-16 shrink-0 flex flex-col items-center justify-center gap-0.5 border border-dashed rounded-sm cursor-pointer text-gray-400 hover:border-brand hover:text-brand ${subiendoFoto ? 'opacity-50' : ''}`}
+                >
+                  <Camera size={16} />
+                  <span className="text-[10px]">{subiendoFoto ? '...' : 'Añadir'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={subiendoFoto}
+                    onChange={(e) => {
+                      handleSubirFotos(e.target.files);
+                      e.target.value = '';
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
           </div>
         </Seccion>

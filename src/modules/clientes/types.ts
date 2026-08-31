@@ -22,7 +22,11 @@ export const ETAPAS_PIPELINE = [
 ] as const;
 
 export function normalizarTelefono(tel: string) {
-  return tel.replace(/\D/g, '');
+  // Se queda con los últimos 9 dígitos (núcleo del número en España y Francia) para que el mismo
+  // teléfono cruce sin importar si está guardado en formato nacional (0612345678) o internacional
+  // (+33612345678 / 33612345678) — antes ambos formatos generaban claves distintas y no cruzaban
+  // (bug real, ver funnelTracking.ts / pipelineSync.ts).
+  return tel.replace(/\D/g, '').slice(-9);
 }
 
 export function agruparClientes(visitas: Visita[]): Cliente[] {

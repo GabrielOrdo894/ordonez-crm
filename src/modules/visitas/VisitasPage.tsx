@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Search, Check, Ban, Clock3 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
@@ -29,6 +29,7 @@ const ESTADOS = ['Todos', 'Pendiente', 'Realizada', 'Cancelada'];
 const PAISES = ['Todos', 'España', 'Francia'];
 
 export default function VisitasPage() {
+  const navigate = useNavigate();
   const { abrirNuevaVisita, abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const { user } = useAuth();
   const catalogos = useCatalogosVisitas();
@@ -55,7 +56,8 @@ export default function VisitasPage() {
         .from('visitas')
         .select('*')
         .is('eliminado_en', null)
-        .order('created_at', { ascending: false });
+        .order('fecha_visita', { ascending: false })
+        .order('hora_visita', { ascending: false });
       if (error) throw error;
       return data as Visita[];
     },
@@ -121,10 +123,11 @@ export default function VisitasPage() {
           // (google_event_id seguía relleno) aunque el real ya se hubiera borrado en Google —
           // corregido junto con "reprogramar actualiza Calendar" (mejora real, auditoría de
           // Visitas 2026-08-18).
-          await supabase
+          const { error: errorLimpiar } = await supabase
             .from('visitas')
             .update({ google_event_id: null })
             .in('id', conEvento.map((v) => v.id));
+          if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en alguna visita: ${errorLimpiar.message}`);
         }
       }
       if (estado === 'Realizada') {
@@ -161,6 +164,10 @@ export default function VisitasPage() {
       return true;
     });
   }, [visitas, busqueda, filtroEstado, filtroPais, filtroEmpleado, desde, hasta]);
+
+  const abrirReprogramarVisita = (v: Visita) => {
+    navigate(`/visitas/${v.id}/reprogramar`);
+  };
 
   const handleEliminar = async (v: Visita) => {
     const aviso = await avisoDocumentosActivosDeVisita(v.id);
@@ -381,6 +388,7 @@ export default function VisitasPage() {
                   rapidas={v.estado ? accionesRapidas(v) : []}
                   menu={[
                     { label: 'Modificar', onClick: () => abrirEditarVisita(v) },
+                    { label: 'Reprogramar', onClick: () => abrirReprogramarVisita(v) },
                     { label: 'Eliminar', onClick: () => handleEliminar(v), destructivo: true },
                   ]}
                 />

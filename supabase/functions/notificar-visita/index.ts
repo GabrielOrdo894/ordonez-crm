@@ -6,7 +6,10 @@
 // Usa refresh_token_gmail de `google_config`, separado del de Calendar desde 2026-08-05 —
 // ver src/lib/googleCalendar.ts. Ver también docs/producto/bloque6-solicitudes-seguimiento.md.
 //
-// Body esperado: { "visitaId": "<uuid>" }
+// Body esperado: { "visitaId": "<uuid>", "motivo"?: "reprogramacion" }
+// motivo: "reprogramacion" solo cambia los textos del asunto/cuerpo ("reprogramada" en vez de
+// "agendada"/"confirmada") — los destinatarios son siempre los mismos. Lo usa
+// VisitaReprogramarPage.tsx tras mover fecha/hora/duración/empleado de una visita ya agendada.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -203,6 +206,7 @@ function seccion(titulo: string): string {
 // auditoría de Visitas 2026-08-18).
 function construirHtmlCliente(opts: {
   fr: boolean;
+  reprogramada: boolean;
   nombreCliente: string;
   fechaTxt: string;
   hora: string;
@@ -219,9 +223,11 @@ function construirHtmlCliente(opts: {
     : '';
   const t = opts.fr
     ? {
-        eyebrow: 'Visite technique confirmée',
+        eyebrow: opts.reprogramada ? 'Visite technique reprogrammée' : 'Visite technique confirmée',
         saludo: `Bonjour${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
-        intro: 'Nous vous confirmons votre visite technique :',
+        intro: opts.reprogramada
+          ? 'La date de votre visite technique a été modifiée. Voici la nouvelle date :'
+          : 'Nous vous confirmons votre visite technique :',
         adresse: 'Adresse',
         verMaps: 'Voir sur Google Maps',
         trabajo: 'Type de travaux',
@@ -229,9 +235,11 @@ function construirHtmlCliente(opts: {
         firma: 'À bientôt,<br/>L\'équipe Reformas Ordoñez',
       }
     : {
-        eyebrow: 'Visita técnica confirmada',
+        eyebrow: opts.reprogramada ? 'Visita técnica reprogramada' : 'Visita técnica confirmada',
         saludo: `Hola${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
-        intro: 'Te confirmamos tu visita técnica:',
+        intro: opts.reprogramada
+          ? 'La fecha de tu visita técnica ha cambiado. Esta es la nueva fecha:'
+          : 'Te confirmamos tu visita técnica:',
         adresse: 'Dirección',
         verMaps: 'Ver en Google Maps',
         trabajo: 'Tipo de trabajo',
@@ -276,6 +284,7 @@ function construirHtmlCliente(opts: {
 // plano anterior — tabla HTML con estilos inline (necesario para que se vea bien en clientes de
 // correo, que no soportan CSS externo/embebido de forma fiable).
 function construirHtml(opts: {
+  reprogramada: boolean;
   fechaTxt: string;
   hora: string;
   nombreCliente: string;
@@ -289,12 +298,13 @@ function construirHtml(opts: {
   descripcion: string;
   zonaTexto: string;
   empleado: string;
+  fotosUrls: string[];
 }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif">
   <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
     <tr><td style="background:#0f3d24;padding:20px 24px;border-radius:10px 10px 0 0">
       <div style="color:#ffffff;font-size:16px;font-weight:600">Reformas Ordoñez</div>
-      <div style="color:#cdddd5;font-size:12px;margin-top:2px">Visita técnica agendada</div>
+      <div style="color:#cdddd5;font-size:12px;margin-top:2px">${opts.reprogramada ? 'Visita técnica reprogramada' : 'Visita técnica agendada'}</div>
     </td></tr>
     <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
       <div style="background:#eaf2ed;border-radius:10px;padding:14px 16px;margin-bottom:6px">
@@ -325,6 +335,20 @@ function construirHtml(opts: {
         ${fila('Zona', opts.zonaTexto)}
         ${fila('Asignado', opts.empleado)}
       </table>
+
+      ${
+        opts.fotosUrls.length > 0
+          ? `${seccion('Fotos previas del cliente')}
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        ${opts.fotosUrls
+          .map(
+            (url) =>
+              `<a href="${url}"><img src="${url}" width="90" height="90" style="object-fit:cover;border-radius:6px;border:1px solid #e5e7eb" /></a>`,
+          )
+          .join('')}
+      </div>`
+          : ''
+      }
     </td></tr>
     <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
       <div style="color:#9ca3af;font-size:11px">Notificación automática del CRM Reformas Ordoñez</div>
@@ -338,8 +362,9 @@ Deno.serve(async (req: Request) => {
   if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
-    const { visitaId } = await req.json();
+    const { visitaId, motivo } = await req.json();
     if (!visitaId) return jsonResponse({ error: 'Falta "visitaId" en el body' }, 400);
+    const reprogramada = motivo === 'reprogramacion';
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
@@ -357,7 +382,7 @@ Deno.serve(async (req: Request) => {
     const destinatarios = Array.from(new Set([REMITENTE_BASE, ...extra].filter(Boolean)));
 
     const hora = String(v.hora_visita).slice(0, 5);
-    const asunto = `Visita agendada — ${v.nombre ?? ''} ${v.apellidos ?? ''} · ${v.fecha_visita} ${hora}`.trim();
+    const asunto = `${reprogramada ? 'Visita reprogramada' : 'Visita agendada'} — ${v.nombre ?? ''} ${v.apellidos ?? ''} · ${v.fecha_visita} ${hora}`.trim();
 
     const direccionTexto = [v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'No indicada';
     const tieneCoords = typeof v.lat === 'number' && typeof v.lng === 'number';
@@ -365,7 +390,20 @@ Deno.serve(async (req: Request) => {
     const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat, v.lng) : null;
     const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
 
+    // Fotos previas del cliente (bucket privado `fotos-visita`) — solo en el aviso interno del
+    // equipo, no en la confirmación al cliente (no le aporta nada ver sus propias fotos). Firmadas
+    // con service role (bypass RLS), larga duración porque el email queda guardado indefinidamente.
+    let fotosUrls: string[] = [];
+    if (Array.isArray(v.fotos_previas) && v.fotos_previas.length > 0) {
+      const { data: firmadas, error: errorFirmadas } = await supabase.storage
+        .from('fotos-visita')
+        .createSignedUrls(v.fotos_previas, 60 * 60 * 24 * 365);
+      if (errorFirmadas) console.error('notificar-visita: no se pudieron firmar las URLs de fotos-visita', errorFirmadas);
+      fotosUrls = (firmadas ?? []).map((f) => f.signedUrl).filter((u): u is string => !!u);
+    }
+
     const cuerpo = construirHtml({
+      reprogramada,
       fechaTxt: fechaLegible(v.fecha_visita),
       hora,
       nombreCliente: `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim(),
@@ -379,6 +417,7 @@ Deno.serve(async (req: Request) => {
       descripcion: v.descripcion || 'Sin descripción',
       zonaTexto: `${v.zona ?? ''} · ${v.pais ?? ''}`,
       empleado: v.empleado || 'Sin asignar',
+      fotosUrls,
     });
 
     const token = await obtenerAccessToken(supabase);
@@ -396,10 +435,11 @@ Deno.serve(async (req: Request) => {
         const fr = v.idioma === 'Français';
         const contactoEmpresa = fr ? datos.fr : datos.es;
         const asuntoCliente = fr
-          ? `Confirmation de votre visite technique — ${v.fecha_visita} ${hora}`
-          : `Confirmación de tu visita técnica — ${v.fecha_visita} ${hora}`;
+          ? `${reprogramada ? 'Nouvelle date de votre visite technique' : 'Confirmation de votre visite technique'} — ${v.fecha_visita} ${hora}`
+          : `${reprogramada ? 'Nueva fecha de tu visita técnica' : 'Confirmación de tu visita técnica'} — ${v.fecha_visita} ${hora}`;
         const cuerpoCliente = construirHtmlCliente({
           fr,
+          reprogramada,
           nombreCliente: v.nombre ?? '',
           fechaTxt: fechaLegible(v.fecha_visita),
           hora,

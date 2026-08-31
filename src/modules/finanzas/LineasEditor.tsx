@@ -279,17 +279,27 @@ export function LineasEditor({
                 <Input
                   label={rango ? 'Precio desde (sin IVA)' : 'Precio unit. (sin IVA)'}
                   type="number"
+                  min={permitirCantidadNegativa || linea.referencia === 'ACOMPTE' ? undefined : 0}
                   value={linea.precio_unit}
-                  onChange={(e) => handleCambiarLinea(i, { precio_unit: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const precioBruto = Number(e.target.value);
+                    // 'ACOMPTE' (deducción de anticipos, lineaDeduccionAcomptes) es negativa a
+                    // propósito incluso en factura normal — no clampear a 0 (bug real corregido).
+                    const permiteNegativo = permitirCantidadNegativa || linea.referencia === 'ACOMPTE';
+                    const precio_unit = permiteNegativo ? precioBruto : Math.max(0, precioBruto);
+                    handleCambiarLinea(i, { precio_unit });
+                  }}
                 />
                 {rango && (
                   <Input
                     label="Precio hasta (opcional)"
                     type="number"
+                    min={0}
                     value={linea.precio_unit_max ?? ''}
-                    onChange={(e) =>
-                      handleCambiarLinea(i, { precio_unit_max: e.target.value === '' ? undefined : Number(e.target.value) })
-                    }
+                    onChange={(e) => {
+                      if (e.target.value === '') return handleCambiarLinea(i, { precio_unit_max: undefined });
+                      handleCambiarLinea(i, { precio_unit_max: Math.max(0, Number(e.target.value)) });
+                    }}
                   />
                 )}
               </div>

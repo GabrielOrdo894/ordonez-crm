@@ -40,7 +40,8 @@ export default function VisitaDetallePage() {
         } catch (error) {
           toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
         }
-        await supabase.from('visitas').update({ google_event_id: null }).eq('id', v.id);
+        const { error: errorLimpiar } = await supabase.from('visitas').update({ google_event_id: null }).eq('id', v.id);
+        if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en la visita: ${errorLimpiar.message}`);
       }
     },
     onSuccess: () => {
@@ -64,6 +65,9 @@ export default function VisitaDetallePage() {
     <div className="flex items-center gap-2">
       <Button variant="secondary" onClick={() => abrirEditarVisita(visita)}>
         Modificar
+      </Button>
+      <Button variant="secondary" onClick={() => navigate(`/visitas/${visita.id}/reprogramar`)}>
+        Reprogramar
       </Button>
       {puedeCancelar && (
         <Button

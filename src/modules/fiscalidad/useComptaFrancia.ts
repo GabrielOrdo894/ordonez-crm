@@ -28,10 +28,13 @@ export function calcularCompteResultat(asientos: AsientoContable[]) {
   // niega el saldo neto para mostrarlas en positivo. Cuentas de gasto son de saldo deudor, el
   // saldo neto ya sale en positivo directamente.
   const ventas = -saldoNeto(['70']);
-  const cargasExplotacion = saldoNeto(['60', '61', '62', '63', '64', '65', '68']);
+  // Solo 681 (dotations amortissements d'exploitation) es carga de explotación — 686 (dotations
+  // financières) va en cargasFinancieras de abajo, no aquí (bug real corregido 2026-08-31, "68"
+  // como prefijo metía las dos cuentas juntas).
+  const cargasExplotacion = saldoNeto(['60', '61', '62', '63', '64', '65', '681']);
   const resultadoExplotacion = ventas - cargasExplotacion;
   const productosFinancieros = -saldoNeto(['76']);
-  const cargasFinancieras = saldoNeto(['66']);
+  const cargasFinancieras = saldoNeto(['66', '686']);
   const resultadoFinanciero = productosFinancieros - cargasFinancieras;
   const productosExcepcionales = -saldoNeto(['77']);
   const cargasExcepcionales = saldoNeto(['67']);

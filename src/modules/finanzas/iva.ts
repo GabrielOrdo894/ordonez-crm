@@ -35,7 +35,7 @@ export function etiquetaCortaIva(tipo: string | null): string {
 }
 
 export function mencionIvaReducida(tipo: string | null): string | null {
-  if (tipo === 'IVA_10') return 'Tasa de IVA reducida, artículo 279-0 bis del Código Fiscal Español';
+  if (tipo === 'IVA_10') return 'Tasa de IVA reducida, artículo 91.Uno.2.10º de la Ley 37/1992 del IVA';
   if (tipo === 'TVA_10') return 'Taux de TVA réduit, article 279-0 bis du Code Général des Impôts';
   return null;
 }

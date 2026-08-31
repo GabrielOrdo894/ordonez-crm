@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { VisitaDetalleContenido, urlGoogleMaps } from './VisitaDetalleContenido';
@@ -13,8 +14,14 @@ type VisitaResumenModalProps = {
 };
 
 export function VisitaResumenModal({ visita, onClose, onModificar, onCancelar }: VisitaResumenModalProps) {
+  const navigate = useNavigate();
   if (!visita) return null;
   const puedeCancelar = visita.estado !== 'Cancelada';
+
+  const abrirReprogramar = () => {
+    onClose();
+    navigate(`/visitas/${visita.id}/reprogramar`);
+  };
 
   const acciones = (
     <>
@@ -23,6 +30,9 @@ export function VisitaResumenModal({ visita, onClose, onModificar, onCancelar }:
           Cancelar visita
         </Button>
       )}
+      <Button variant="secondary" onClick={abrirReprogramar}>
+        Reprogramar
+      </Button>
       <Button variant="secondary" onClick={() => onModificar(visita)}>
         Modificar
       </Button>

@@ -333,7 +333,8 @@ export default function InicioPage() {
         } catch (error) {
           toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
         }
-        await supabase.from('visitas').update({ google_event_id: null }).eq('id', visita.id);
+        const { error: errorLimpiar } = await supabase.from('visitas').update({ google_event_id: null }).eq('id', visita.id);
+        if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en la visita: ${errorLimpiar.message}`);
       }
     },
     onSuccess: () => {

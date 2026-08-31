@@ -49,7 +49,7 @@ export default function GastosPage() {
   const { data: gastos, isLoading } = useQuery({
     queryKey: ['gastos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
       if (error) throw error;
       return data as Gasto[];
     },

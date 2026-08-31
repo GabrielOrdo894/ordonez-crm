@@ -32,6 +32,7 @@ import { fechaVisitaCorta } from '../../lib/fechas';
 import { calcularTotales } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
+import type { Factura } from '../finanzas/facturas/types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 
 export default function ClientesPage() {
@@ -108,15 +109,30 @@ export default function ClientesPage() {
     return Array.from(combinados.values());
   }, [potencialesPorSolicitud, clientes, clavesAceptadas]);
 
+  // "Facturado" solo puede significar factura real emitida — antes esta columna sumaba
+  // presupuestos.estado === 'Aceptado' (cualquier tipo, incluidos los orientativos, que por diseño
+  // nunca se facturan, ver PresupuestosPage.tsx), así que un presupuesto orientativo aceptado
+  // aparecía como si estuviera facturado sin haberse emitido ninguna factura (bug real reportado
+  // por Gabriel 2026-08-28, caso Xabier Urtizbere). Se suma directamente sobre `facturas`, la única
+  // fuente real de lo facturado — mismo criterio que ClienteDetalleContenido.tsx.
+  const { data: facturas } = useQuery({
+    queryKey: ['facturas'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
+      if (error) throw error;
+      return data as Factura[];
+    },
+  });
+
   const totalFacturadoPorTelefono = useMemo(() => {
     const map = new Map<string, number>();
-    for (const p of presupuestos ?? []) {
-      if (p.estado !== 'Aceptado' || !p.cliente_tel) continue;
-      const tel = normalizarTelefono(p.cliente_tel);
-      map.set(tel, (map.get(tel) ?? 0) + calcularTotales(p.lineas).totalConIva);
+    for (const f of facturas ?? []) {
+      if (!f.cliente_tel) continue;
+      const tel = normalizarTelefono(f.cliente_tel);
+      map.set(tel, (map.get(tel) ?? 0) + calcularTotales(f.lineas).totalConIva);
     }
     return map;
-  }, [presupuestos]);
+  }, [facturas]);
 
   const eliminarVariosMutation = useMutation({
     mutationFn: async (clienteIds: (string | number)[]) => {

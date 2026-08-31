@@ -10,6 +10,7 @@ const VisitasPage = lazy(() => import('./modules/visitas/VisitasPage'));
 const SolicitudesPage = lazy(() => import('./modules/solicitudes/SolicitudesPage'));
 const CalendarioPage = lazy(() => import('./modules/visitas/CalendarioPage'));
 const VisitaDetallePage = lazy(() => import('./modules/visitas/VisitaDetallePage'));
+const VisitaReprogramarPage = lazy(() => import('./modules/visitas/VisitaReprogramarPage'));
 const ClientesPage = lazy(() => import('./modules/clientes/ClientesPage'));
 const ClienteDetallePage = lazy(() => import('./modules/clientes/ClienteDetallePage'));
 const PipelinePage = lazy(() => import('./modules/pipeline/PipelinePage'));
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />
           <Route path="/calendario" element={<CalendarioPage />} />
           <Route path="/visitas/:id" element={<VisitaDetallePage />} />
+          <Route path="/visitas/:id/reprogramar" element={<VisitaReprogramarPage />} />
           <Route path="/clientes" element={<ClientesPage />} />
           <Route path="/clientes/:id" element={<ClienteDetallePage />} />
           <Route path="/pipeline" element={<PipelinePage />} />

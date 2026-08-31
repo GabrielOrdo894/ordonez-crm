@@ -28,7 +28,7 @@ describe('saldoNetoCuentas', () => {
 });
 
 describe('calcularCompteResultat', () => {
-  it('ventas (70x) en positivo, cargas (60-65x, 68x) en positivo, resultado = ventas - cargas', () => {
+  it('ventas (70x) en positivo, cargas (60-65x, 681) en positivo, resultado = ventas - cargas', () => {
     const asientos: AsientoContable[] = [
       { cuenta: '706', debe: 0, haber: 1000 },
       { cuenta: '606', debe: 300, haber: 0 },
@@ -39,6 +39,18 @@ describe('calcularCompteResultat', () => {
     expect(r.cargasExplotacion).toBe(400);
     expect(r.resultadoExplotacion).toBe(600);
     expect(r.resultadoAntesIS).toBe(600);
+  });
+
+  it('regresión: 686 (dotations financières) va a cargasFinancieras, no a cargasExplotacion (bug real corregido 2026-08-31)', () => {
+    const asientos: AsientoContable[] = [
+      { cuenta: '706', debe: 0, haber: 1000 },
+      { cuenta: '681', debe: 100, haber: 0 },
+      { cuenta: '686', debe: 50, haber: 0 },
+    ];
+    const r = calcularCompteResultat(asientos);
+    expect(r.cargasExplotacion).toBe(100);
+    expect(r.cargasFinancieras).toBe(50);
+    expect(r.resultadoAntesIS).toBe(850);
   });
 
   it('sin movimientos financieros ni excepcionales, esos resultados quedan a 0', () => {

@@ -466,7 +466,7 @@ export function FacturaForm({
   });
 
   const handleGuardar = () => {
-    const mensaje = validarLineas(form.lineas);
+    const mensaje = validarLineas(form.lineas, form.tipo === 'rectificativa');
     if (mensaje) {
       toast.error(mensaje);
       setErroresVisibles(true);

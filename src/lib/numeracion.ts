@@ -18,11 +18,20 @@ export async function siguienteNumero(campo: keyof typeof PREFIJOS): Promise<str
   return `${PREFIJOS[campo]}-${año}-${String(siguiente).padStart(4, '0')}`;
 }
 
-// Para ordenar por número en las tablas — "P-2026-0015" → 20260015 (año+secuencia, ordena
-// cronológicamente incluso al cambiar de año). Si no sigue el formato, cae a 0.
+// Rango de desempate cuando dos secuencias independientes (facturas normales F, acomptes AC,
+// rectificativas R) comparten año+número — cada una tiene su propio contador en Postgres, así que
+// eso sí puede pasar. P (presupuestos) no convive con las de factura, se deja en el mismo rango
+// que F por simplicidad.
+const RANGO_PREFIJO: Record<string, number> = { F: 0, P: 0, AC: 1, R: 2 };
+
+// Para ordenar por número en las tablas — "P-2026-0015" → año+secuencia+prefijo (ordena
+// cronológicamente incluso al cambiar de año, y desempata entre secuencias distintas del mismo
+// año+número). Si no sigue el formato, cae a 0.
 export function numeroOrdenable(numero: string | null | undefined): number {
   if (!numero) return 0;
-  const match = numero.match(/(\d{4})-(\d+)$/);
+  const match = numero.match(/^([A-Z]+)-(\d{4})-(\d+)$/);
   if (!match) return Number(numero) || 0;
-  return Number(match[1]) * 100000 + Number(match[2]);
+  const [, prefijo, año, seq] = match;
+  const rango = RANGO_PREFIJO[prefijo] ?? 9;
+  return Number(año) * 1000000 + Number(seq) * 10 + rango;
 }

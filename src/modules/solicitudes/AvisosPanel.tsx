@@ -130,7 +130,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
           </h2>
           <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
             <Table
-              loading={cargandoVisitas}
+              loading={cargandoVisitas || cargandoPresupuestos}
               data={visitasSinPresupuesto}
               emptyMessage="Ninguna"
               onRowClick={(v) => navigate(`/visitas/${v.id}`)}

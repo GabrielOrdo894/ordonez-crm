@@ -34,7 +34,10 @@ function etapaAutomatica(s: SenalesPipeline): string {
 }
 
 function normalizarTelefono(tel: string): string {
-  return tel.replace(/[^\d]/g, '');
+  // Se queda con los últimos 9 dígitos, igual que src/modules/clientes/types.ts (Deno no puede
+  // importar ese módulo, así que se duplica) — cruza formato nacional e internacional del mismo
+  // número (bug real corregido 2026-08-31, esta copia se había quedado desactualizada).
+  return tel.replace(/[^\d]/g, '').slice(-9);
 }
 
 Deno.serve(async (req: Request) => {

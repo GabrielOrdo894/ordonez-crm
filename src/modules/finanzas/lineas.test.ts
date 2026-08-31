@@ -81,4 +81,29 @@ describe('lineaInvalida / validarLineas', () => {
     const lineas = [{ ...lineaVacia(), designacion: 'ok', referencia: 'ok', tipo_servicio: 'Obra' }];
     expect(validarLineas(lineas)).toBeNull();
   });
+
+  it('rechaza precio unitario negativo en una línea normal', () => {
+    const lineas = [{ ...lineaVacia(), designacion: 'ok', referencia: 'ok', tipo_servicio: 'Obra', precio_unit: -50 }];
+    expect(validarLineas(lineas)).toMatch(/no puede ser negativo/);
+  });
+
+  it('permite precio unitario negativo en una factura rectificativa', () => {
+    const lineas = [{ ...lineaVacia(), designacion: 'ok', referencia: 'ok', tipo_servicio: 'Obra', precio_unit: -50 }];
+    expect(validarLineas(lineas, true)).toBeNull();
+  });
+
+  it('regresión: permite precio negativo en la línea ACOMPTE aunque la factura sea normal (lineaDeduccionAcomptes, corregido 2026-08-31)', () => {
+    const lineas = [{ ...lineaVacia(), designacion: 'Deducción de anticipo(s)', referencia: 'ACOMPTE', tipo_servicio: 'Obra', precio_unit: -500 }];
+    expect(validarLineas(lineas, false)).toBeNull();
+  });
+
+  it('rechaza precio_unit_max negativo en una línea con rango (presupuesto orientativo)', () => {
+    const lineas = [{ ...lineaVacia(), designacion: 'ok', referencia: 'ok', tipo_servicio: 'Obra', precio_unit: 100, precio_unit_max: -50 }];
+    expect(validarLineas(lineas)).toMatch(/precio máximo no puede ser negativo/);
+  });
+
+  it('rechaza precio_unit_max menor que precio_unit', () => {
+    const lineas = [{ ...lineaVacia(), designacion: 'ok', referencia: 'ok', tipo_servicio: 'Obra', precio_unit: 100, precio_unit_max: 50 }];
+    expect(validarLineas(lineas)).toMatch(/precio máximo no puede ser menor/);
+  });
 });

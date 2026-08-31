@@ -128,12 +128,24 @@ export function lineaInvalida(linea: Linea): boolean {
   return !linea.designacion.trim() || !linea.referencia.trim() || !linea.tipo_servicio || linea.tipo_servicio === '—';
 }
 
-export function validarLineas(lineas: Linea[]): string | null {
+export function validarLineas(lineas: Linea[], permitirNegativo = false): string | null {
   for (let i = 0; i < lineas.length; i++) {
     const l = lineas[i];
     if (!l.designacion.trim()) return `Línea ${i + 1}: falta la designación`;
     if (!l.referencia.trim()) return `Línea ${i + 1}: falta la referencia`;
     if (!l.tipo_servicio || l.tipo_servicio === '—') return `Línea ${i + 1}: falta el tipo de servicio`;
+    // 'ACOMPTE' es la línea que lineaDeduccionAcomptes() auto-inserta en la factura final para
+    // descontar los anticipos ya cobrados (facturas/types.ts) — negativa a propósito, incluso en
+    // una factura normal (bug real corregido 2026-08-31: bloqueaba facturar tras cualquier acompte).
+    if (!permitirNegativo && l.precio_unit < 0 && l.referencia !== 'ACOMPTE') {
+      return `Línea ${i + 1}: el precio unitario no puede ser negativo`;
+    }
+    if (l.precio_unit_max != null && l.precio_unit_max < 0) {
+      return `Línea ${i + 1}: el precio máximo no puede ser negativo`;
+    }
+    if (l.precio_unit_max != null && l.precio_unit_max < l.precio_unit) {
+      return `Línea ${i + 1}: el precio máximo no puede ser menor que el mínimo`;
+    }
   }
   return null;
 }

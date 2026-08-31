@@ -86,8 +86,10 @@ export function construirAsientosGasto(gasto: {
   const iva = gasto.importe_iva ?? 0;
   const concepto = [gasto.descripcion, gasto.proveedor].filter(Boolean).join(' — ') || 'Gasto';
   // Las cuentas 681x (amortización, ya sin IVA por diseño de GastoForm) no salen del banco — su
-  // contrapartida es el compte global de amortissements acumulados, no 512.
-  const esAmortizacion = cuenta.startsWith('68');
+  // contrapartida es el compte global de amortissements acumulados, no 512. Ojo: solo 681x, no
+  // toda la familia 68x — 686 (dotations financières) es un gasto distinto, sí sale del banco
+  // como cualquier otro (bug real corregido 2026-08-31, confundía ambas cuentas).
+  const esAmortizacion = cuenta.startsWith('681');
 
   const asientos: NuevoAsiento[] = [
     { fecha, cuenta, debe: base, haber: 0, concepto, documento_tipo: 'gasto', documento_id: gasto.id, tipo_evento: 'creacion' },
