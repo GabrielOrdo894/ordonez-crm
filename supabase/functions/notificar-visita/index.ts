@@ -191,12 +191,88 @@ function esc(s: string): string {
 function fila(etiqueta: string, valor: string): string {
   return `<tr>
     <td style="padding:5px 12px 5px 0;color:#9ca3af;font-size:12px;white-space:nowrap;vertical-align:top">${esc(etiqueta)}</td>
-    <td style="padding:5px 0;color:#111827;font-size:13px">${esc(valor)}</td>
+    <td style="padding:5px 0;color:#111827;font-size:13px;word-break:break-word;overflow-wrap:break-word">${esc(valor)}</td>
   </tr>`;
 }
 
 function seccion(titulo: string): string {
   return `<div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;font-weight:600;margin:18px 0 6px">${esc(titulo)}</div>`;
+}
+
+// Réplica en Deno de la sintaxis ligera de src/lib/textoEnriquecido.ts ("- texto" = viñeta,
+// "#. texto" = numerada, "**texto**" = negrita, "*texto*"/"_texto_" = cursiva, línea en blanco =
+// espaciado) — un Edge Function no puede importar código del frontend, así que se duplica aquí
+// (mismo patrón que esLlamadaAutorizada). Antes "Descripción"/"Notas" pasaban por fila(), que solo
+// hace esc() plano: los saltos de línea y viñetas que el usuario escribe en VisitaForm con
+// EditorTexto se perdían del todo en el email del equipo (bug real corregido 2026-09-01,
+// encontrado al inspeccionar el email real enviado para la visita de Urrugne).
+function textoEnriquecidoHtml(valor: string | null | undefined): string {
+  const lineas = (valor ?? '').split('\n').map((l) => l.trim());
+  const partes: string[] = [];
+  let listaAbierta: 'ul' | 'ol' | null = null;
+  let ultimaFueEspacio = true;
+
+  const cerrarLista = () => {
+    if (listaAbierta) {
+      partes.push(listaAbierta === 'ul' ? '</ul>' : '</ol>');
+      listaAbierta = null;
+    }
+  };
+
+  for (const lineaOriginal of lineas) {
+    if (!lineaOriginal) {
+      cerrarLista();
+      if (!ultimaFueEspacio) partes.push('<div style="height:8px"></div>');
+      ultimaFueEspacio = true;
+      continue;
+    }
+    ultimaFueEspacio = false;
+
+    let texto = lineaOriginal;
+    let tipo: 'normal' | 'lista' | 'numerada' = 'normal';
+    if (texto.startsWith('- ') || texto.startsWith('* ')) {
+      tipo = 'lista';
+      texto = texto.slice(2).trim();
+    } else if (texto.startsWith('#. ')) {
+      tipo = 'numerada';
+      texto = texto.slice(3).trim();
+    }
+
+    let negrita = false;
+    let cursiva = false;
+    if (texto.startsWith('**') && texto.endsWith('**') && texto.length > 4) {
+      negrita = true;
+      texto = texto.slice(2, -2).trim();
+    } else if ((texto.startsWith('*') && texto.endsWith('*') && texto.length > 2) || (texto.startsWith('_') && texto.endsWith('_') && texto.length > 2)) {
+      cursiva = true;
+      texto = texto.slice(1, -1).trim();
+    }
+
+    let html = esc(texto);
+    if (negrita) html = `<strong>${html}</strong>`;
+    if (cursiva) html = `<em>${html}</em>`;
+
+    if (tipo === 'lista') {
+      if (listaAbierta !== 'ul') {
+        cerrarLista();
+        partes.push('<ul style="margin:0 0 6px;padding-left:18px">');
+        listaAbierta = 'ul';
+      }
+      partes.push(`<li style="font-size:13px;color:#111827">${html}</li>`);
+    } else if (tipo === 'numerada') {
+      if (listaAbierta !== 'ol') {
+        cerrarLista();
+        partes.push('<ol style="margin:0 0 6px;padding-left:18px">');
+        listaAbierta = 'ol';
+      }
+      partes.push(`<li style="font-size:13px;color:#111827">${html}</li>`);
+    } else {
+      cerrarLista();
+      partes.push(`<p style="margin:0 0 6px;font-size:13px;color:#111827">${html}</p>`);
+    }
+  }
+  cerrarLista();
+  return partes.join('') || '<p style="margin:0;font-size:13px;color:#111827">—</p>';
 }
 
 // Confirmación al CLIENTE — hasta ahora esta función solo avisaba al equipo interno, nunca al
@@ -296,23 +372,24 @@ function construirHtml(opts: {
   distanciaTexto: string | null;
   tipo: string;
   descripcion: string;
+  notas: string;
   zonaTexto: string;
   empleado: string;
   archivosPrevios: { etiqueta: string; url: string; esPdf: boolean }[];
 }): string {
-  return `<div style="font-family:Helvetica,Arial,sans-serif">
-  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
+  return `<div style="font-family:Helvetica,Arial,sans-serif;word-break:break-word;overflow-wrap:break-word">
+  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto;table-layout:fixed" cellpadding="0" cellspacing="0">
     <tr><td style="background:#0f3d24;padding:20px 24px;border-radius:10px 10px 0 0">
       <div style="color:#ffffff;font-size:16px;font-weight:600">Reformas Ordoñez</div>
       <div style="color:#cdddd5;font-size:12px;margin-top:2px">${opts.reprogramada ? 'Visita técnica reprogramada' : 'Visita técnica agendada'}</div>
     </td></tr>
-    <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+    <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;word-break:break-word;overflow-wrap:break-word">
       <div style="background:#eaf2ed;border-radius:10px;padding:14px 16px;margin-bottom:6px">
         <div style="color:#1a5c38;font-weight:600;font-size:15px">${esc(opts.fechaTxt)} · ${esc(opts.hora)}</div>
       </div>
 
       ${seccion('Cliente')}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed">
         ${fila('Nombre', opts.nombreCliente || '—')}
         ${fila('Teléfono', opts.telefono)}
         ${fila('Email', opts.email)}
@@ -329,12 +406,24 @@ function construirHtml(opts: {
       ${opts.distanciaTexto ? `<div style="font-size:12px;color:#6b7280;margin-top:8px">${esc(opts.distanciaTexto)}</div>` : ''}
 
       ${seccion('Trabajo')}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed">
         ${fila('Tipo', opts.tipo)}
-        ${fila('Descripción', opts.descripcion)}
         ${fila('Zona', opts.zonaTexto)}
         ${fila('Asignado', opts.empleado)}
       </table>
+      <div style="margin-top:6px">
+        <div style="font-size:12px;color:#9ca3af;margin-bottom:2px">Descripción</div>
+        ${textoEnriquecidoHtml(opts.descripcion)}
+      </div>
+
+      ${
+        opts.notas.trim()
+          ? `<div style="margin-top:12px">
+        ${seccion('Notas internas')}
+        ${textoEnriquecidoHtml(opts.notas)}
+      </div>`
+          : ''
+      }
 
       ${
         opts.archivosPrevios.length > 0
@@ -343,8 +432,8 @@ function construirHtml(opts: {
         ${opts.archivosPrevios
           .map((a) =>
             a.esPdf
-              ? `<a href="${a.url}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:90px;height:90px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;background:#f8fafc;font-size:11px;color:#374151;text-align:center;box-sizing:border-box"><span style="font-size:20px;line-height:1">📄</span>${esc(a.etiqueta)}</a>`
-              : `<a href="${a.url}" style="text-decoration:none;color:#374151;text-align:center;font-size:10px;display:block;width:90px"><img src="${a.url}" width="90" height="90" style="object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block;margin-bottom:2px" />${esc(a.etiqueta)}</a>`,
+              ? `<a href="${a.url}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:90px;height:90px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;background:#f8fafc;font-size:11px;color:#374151;text-align:center;box-sizing:border-box;overflow-wrap:break-word"><span style="font-size:20px;line-height:1">📄</span>${esc(a.etiqueta)}</a>`
+              : `<a href="${a.url}" style="text-decoration:none;color:#374151;text-align:center;font-size:10px;display:block;width:90px;overflow-wrap:break-word"><img src="${a.url}" width="90" height="90" style="object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block;margin-bottom:2px" />${esc(a.etiqueta)}</a>`,
           )
           .join('')}
       </div>`
@@ -394,23 +483,29 @@ Deno.serve(async (req: Request) => {
     // Fotos y PDFs previos del cliente (bucket privado `fotos-visita`) — solo en el aviso interno
     // del equipo, no en la confirmación al cliente (no le aporta nada ver sus propios archivos).
     // Firmadas con service role (bypass RLS), larga duración porque el email queda guardado
-    // indefinidamente. Cada una lleva "Imagen N"/"Documento N" delante — con varias seguidas y sin
-    // nombre de archivo legible no había forma de distinguirlas (bug real corregido 2026-09-01,
-    // ampliado a PDF el mismo día).
+    // indefinidamente. `fotos_previas` es jsonb `{path, etiqueta}[]` desde 2026-09-01 (antes era
+    // text[] de solo paths) — se usa el nombre que puso el usuario en VisitaForm si lo hay
+    // ("Estado del baño", "Planos de la reforma"...), si no cae a "Imagen N"/"Documento N" — antes
+    // era siempre genérico, sin forma de distinguir varios archivos seguidos (bug real corregido
+    // 2026-09-01, ampliado a PDF y a nombres personalizados el mismo día).
+    type FotoPreviaDb = { path: string; etiqueta: string | null };
     let archivosPrevios: { etiqueta: string; url: string; esPdf: boolean }[] = [];
-    if (Array.isArray(v.fotos_previas) && v.fotos_previas.length > 0) {
+    const fotosPreviasRaw = Array.isArray(v.fotos_previas) ? (v.fotos_previas as FotoPreviaDb[]) : [];
+    if (fotosPreviasRaw.length > 0) {
+      const paths = fotosPreviasRaw.map((f) => f.path);
       const { data: firmadas, error: errorFirmadas } = await supabase.storage
         .from('fotos-visita')
-        .createSignedUrls(v.fotos_previas, 60 * 60 * 24 * 365);
+        .createSignedUrls(paths, 60 * 60 * 24 * 365);
       if (errorFirmadas) console.error('notificar-visita: no se pudieron firmar las URLs de fotos-visita', errorFirmadas);
       let numImagen = 0;
       let numDocumento = 0;
-      archivosPrevios = (v.fotos_previas as string[])
-        .map((path: string, i: number) => {
+      archivosPrevios = fotosPreviasRaw
+        .map((f, i) => {
           const url = firmadas?.[i]?.signedUrl;
           if (!url) return null;
-          const esPdf = path.toLowerCase().endsWith('.pdf');
-          const etiqueta = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
+          const esPdf = f.path.toLowerCase().endsWith('.pdf');
+          const etiquetaDefecto = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
+          const etiqueta = f.etiqueta?.trim() || etiquetaDefecto;
           return { etiqueta, url, esPdf };
         })
         .filter((a): a is { etiqueta: string; url: string; esPdf: boolean } => !!a);
@@ -429,6 +524,7 @@ Deno.serve(async (req: Request) => {
       distanciaTexto,
       tipo: v.tipo || 'Sin especificar',
       descripcion: v.descripcion || 'Sin descripción',
+      notas: v.notas || '',
       zonaTexto: `${v.zona ?? ''} · ${v.pais ?? ''}`,
       empleado: v.empleado || 'Sin asignar',
       archivosPrevios,

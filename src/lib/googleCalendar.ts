@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { ArchivoPrevio } from '../modules/visitas/types';
 
 const CLIENT_ID = import.meta.env.VITE_GCAL_CLIENT_ID;
 
@@ -134,19 +135,25 @@ type EventoVisita = {
   fecha_visita: string | null;
   hora_visita: string | null;
   hora_fin_visita?: string | null;
-  fotos_previas?: string[] | null;
+  fotos_previas?: ArchivoPrevio[] | null;
 };
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // Calendar no admite adjuntar imágenes/PDFs directamente sin pasar por Google Drive, así que los
 // archivos previos del cliente (bucket privado `fotos-visita`, imágenes y PDF) se enlazan como
 // URLs firmadas de larga duración (1 año) en la descripción del evento. La descripción de un
 // evento de Calendar admite un subconjunto de HTML — un <a href> se ve como texto clicable
 // normal en vez del enlace en bruto (2026-09-01, antes salía el CSV entero de la URL firmada,
-// ilegible). Cada uno lleva "Imagen N"/"Documento N" como texto del enlace — con varios seguidos
-// y sin nombre de archivo legible, no había forma de saber cuál era cuál (bug real corregido
-// 2026-09-01, ampliado a PDF el mismo día).
-async function urlsFotosPrevias(paths: string[] | null | undefined): Promise<string[]> {
-  if (!paths || paths.length === 0) return [];
+// ilegible). El texto del enlace es la etiqueta que puso el usuario en VisitaForm ("Estado del
+// baño", "Planos de la reforma"...); si no le puso nombre, cae a "Imagen N"/"Documento N" — antes
+// era siempre genérico, sin forma de saber cuál era cuál con varios seguidos (bug real corregido
+// 2026-09-01, ampliado a PDF y a nombres personalizados el mismo día).
+async function urlsFotosPrevias(archivos: ArchivoPrevio[] | null | undefined): Promise<string[]> {
+  if (!archivos || archivos.length === 0) return [];
+  const paths = archivos.map((a) => a.path);
   const { data, error } = await supabase.storage.from('fotos-visita').createSignedUrls(paths, 60 * 60 * 24 * 365);
   if (error || !data) {
     // Best-effort: si fallan las URLs firmadas, el evento de Calendar se crea igual sin la sección
@@ -157,13 +164,14 @@ async function urlsFotosPrevias(paths: string[] | null | undefined): Promise<str
   }
   let numImagen = 0;
   let numDocumento = 0;
-  return paths
-    .map((path, i) => {
+  return archivos
+    .map((a, i) => {
       const url = data[i]?.signedUrl;
       if (!url) return null;
-      const esPdf = path.toLowerCase().endsWith('.pdf');
-      const etiqueta = esPdf ? `Documento ${++numDocumento} (abrir PDF)` : `Imagen ${++numImagen} (abrir imagen)`;
-      return `<a href="${url}">${etiqueta}</a>`;
+      const esPdf = a.path.toLowerCase().endsWith('.pdf');
+      const etiquetaDefecto = esPdf ? `Documento ${++numDocumento} (abrir PDF)` : `Imagen ${++numImagen} (abrir imagen)`;
+      const etiqueta = a.etiqueta?.trim() || etiquetaDefecto;
+      return `<a href="${url}">${escHtml(etiqueta)}</a>`;
     })
     .filter((linea): linea is string => !!linea);
 }

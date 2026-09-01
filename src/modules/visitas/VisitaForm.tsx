@@ -12,6 +12,7 @@ import { useToast } from '../../hooks/useToast';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
+import { EditorTexto } from '../../components/ui/EditorTexto';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
 import { CalendarPicker } from '../google/CalendarPicker';
 import { crearEventoVisita, actualizarEventoVisita } from '../../lib/googleCalendar';
@@ -19,16 +20,10 @@ import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { sumarMinutos, minutosEntre } from '../../lib/horas';
 import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
 import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
-import {
-  agruparClientes,
-  normalizarTelefono,
-  ETIQUETA_ORIGEN_POTENCIAL,
-  type Cliente,
-  type ClientePotencial,
-} from '../clientes/types';
+import { agruparClientes, normalizarTelefono, type Cliente, type ClientePotencial } from '../clientes/types';
 import { useCatalogosVisitas } from './useCatalogosVisitas';
 import { esSabado, DURACIONES_MIN, etiquetaDuracion, OTRO_HORARIO } from './horarioVisita';
-import type { Visita, NuevaVisita, EstadoVisita, PrefillVisita } from './types';
+import type { Visita, NuevaVisita, EstadoVisita, PrefillVisita, ArchivoPrevio } from './types';
 
 function Seccion({
   numero,
@@ -191,11 +186,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   // el contacto ya se conoce, no hace falta buscarlo. Elegir aquí NUNCA registra un cliente real
   // (no existe tabla `clientes` propia — ver [[project_cliente_confirmado_solo_aceptado]]): solo
   // cuenta como "confirmado" cuando se acepta un presupuesto, esta pantalla no cambia eso.
-  const [estadoCliente, setEstadoCliente] = useState<'buscar' | 'manual' | 'cliente' | 'potencial'>(
+  const [estadoCliente, setEstadoCliente] = useState<'buscar' | 'manual' | 'cliente'>(
     () => (visita || prefill?.nombre ? 'manual' : 'buscar'),
   );
   const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
-  const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
 
   // Fotos y PDFs del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) —
   // se suben a mano al bucket privado `fotos-visita` y se enlazan luego, numerados ("Imagen 1",
@@ -203,20 +197,20 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   // (2026-08-28, ampliado a PDF 2026-09-01 — antes solo se distinguía por el nombre de archivo
   // real en el enlace, imposible de leer en Calendar con varios seguidos). Mismo patrón que el
   // adjunto de GastoForm.tsx: se sube al elegir el archivo, no al guardar el formulario.
-  const [fotos, setFotos] = useState<string[]>(visita?.fotos_previas ?? []);
+  const [fotos, setFotos] = useState<ArchivoPrevio[]>(visita?.fotos_previas ?? []);
   const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({});
   const [subiendoFoto, setSubiendoFoto] = useState(false);
 
   useEffect(() => {
-    const faltantes = fotos.filter((path) => !fotoUrls[path]);
+    const faltantes = fotos.filter((a) => !fotoUrls[a.path]);
     if (faltantes.length === 0) return;
     Promise.all(
-      faltantes.map((path) => supabase.storage.from('fotos-visita').createSignedUrl(path, 3600)),
+      faltantes.map((a) => supabase.storage.from('fotos-visita').createSignedUrl(a.path, 3600)),
     ).then((resultados) => {
       setFotoUrls((prev) => {
         const next = { ...prev };
         resultados.forEach(({ data }, i) => {
-          if (data) next[faltantes[i]] = data.signedUrl;
+          if (data) next[faltantes[i].path] = data.signedUrl;
         });
         return next;
       });
@@ -245,9 +239,13 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         toast.error(error.message);
         continue;
       }
-      setFotos((f) => [...f, path]);
+      setFotos((f) => [...f, { path, etiqueta: null }]);
     }
     setSubiendoFoto(false);
+  };
+
+  const handleRenombrarFoto = (path: string, etiqueta: string) => {
+    setFotos((f) => f.map((a) => (a.path === path ? { ...a, etiqueta: etiqueta || null } : a)));
   };
 
   const { data: visitasParaClientes } = useQuery({
@@ -286,29 +284,34 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       zona: ultima?.zona ?? f.zona,
     }));
     setClienteElegido(cliente);
-    setPotencialElegido(null);
     setEstadoCliente('cliente');
     setClienteRepetidor(null);
   };
 
+  // Un "potencial" (solicitud/orientativo/visita previa sin cliente real) nunca trae apellidos, y
+  // muchas veces tampoco nombre real ni email — agruparPotenciales() rellena el nombre con el
+  // email (o "Sin nombre") cuando no lo tiene, así que copiarlo tal cual metería el email o ese
+  // texto literal en el campo Nombre de la visita. En vez de eso, se abre directamente el
+  // formulario completo con lo que sí se sabe, para que se rellene a mano lo que falte — antes se
+  // colapsaba en un recuadro resumen sin dejar ver (ni completar) los campos obligatorios que
+  // faltaban, nada intuitivo (bug real corregido 2026-09-01).
   const handleSeleccionarPotencial = (potencial: ClientePotencial) => {
+    const nombreReal = potencial.nombre && potencial.nombre !== potencial.email && potencial.nombre !== 'Sin nombre';
     setForm((f) => ({
       ...f,
-      nombre: potencial.nombre,
+      nombre: nombreReal ? potencial.nombre : '',
       telefono: potencial.telefono,
       email: potencial.email ?? f.email,
       idioma: potencial.idioma === 'Français' ? 'Français' : f.idioma,
       contacto: potencial.origen === 'solicitud' ? 'Web' : f.contacto,
     }));
-    setPotencialElegido(potencial);
     setClienteElegido(null);
-    setEstadoCliente('potencial');
+    setEstadoCliente('manual');
     setClienteRepetidor(null);
   };
 
   const handleCambiarCliente = () => {
     setClienteElegido(null);
-    setPotencialElegido(null);
     setClienteRepetidor(null);
     setEstadoCliente('buscar');
     setForm((f) => ({ ...f, nombre: '', apellidos: '', telefono: '', email: '' }));
@@ -316,7 +319,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
   const handleCrearNuevo = () => {
     setClienteElegido(null);
-    setPotencialElegido(null);
     setEstadoCliente('manual');
   };
 
@@ -627,20 +629,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             </div>
           )}
 
-          {estadoCliente === 'potencial' && potencialElegido && (
-            <div className="flex items-center justify-between border border-amber-200 rounded-sm px-3 py-2.5 bg-amber-50">
-              <div>
-                <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
-                <p className="text-xs text-amber-700">
-                  {[potencialElegido.telefono, ETIQUETA_ORIGEN_POTENCIAL[potencialElegido.origen]].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-              <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
-                Cambiar
-              </button>
-            </div>
-          )}
-
           {(estadoCliente === 'manual' || !!visita) && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {!visita && (
@@ -797,51 +785,58 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
             />
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Descripción del trabajo
-              </label>
-              <textarea
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[80px] focus:border-brand focus:outline-none"
+              <EditorTexto
+                label="Descripción del trabajo"
+                rows={4}
                 value={form.descripcion}
-                onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
+                onChange={(valor) => setForm((f) => ({ ...f, descripcion: valor }))}
               />
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
                 Fotos y PDFs previos del cliente (opcional)
               </label>
+              <p className="text-xs text-gray-400 mb-1.5">
+                Ponle un nombre a cada uno (ej. "Estado del baño", "Planos de la reforma") — así aparece en el
+                email al equipo y en Google Calendar en vez de "Imagen 1"/"Documento 1".
+              </p>
               <div className="flex flex-wrap gap-2">
                 {(() => {
                   let numImagen = 0;
                   let numDocumento = 0;
-                  return fotos.map((path) => {
-                    const esPdf = path.toLowerCase().endsWith('.pdf');
-                    const etiqueta = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
+                  return fotos.map((a) => {
+                    const esPdf = a.path.toLowerCase().endsWith('.pdf');
+                    const etiquetaDefecto = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
                     return (
-                      <div key={path} className="relative w-16 shrink-0">
+                      <div key={a.path} className="relative w-20 shrink-0">
                         {esPdf ? (
                           <a
-                            href={fotoUrls[path] ?? undefined}
+                            href={fotoUrls[a.path] ?? undefined}
                             target="_blank"
                             rel="noreferrer"
-                            className="w-16 h-16 flex flex-col items-center justify-center gap-0.5 rounded-sm border border-gray-200 bg-gray-50 text-gray-500 hover:border-brand hover:text-brand"
+                            className="w-20 h-16 flex flex-col items-center justify-center gap-0.5 rounded-sm border border-gray-200 bg-gray-50 text-gray-500 hover:border-brand hover:text-brand"
                           >
                             <FileText size={20} />
                             <span className="text-[9px]">PDF</span>
                           </a>
-                        ) : fotoUrls[path] ? (
+                        ) : fotoUrls[a.path] ? (
                           <img
-                            src={fotoUrls[path]}
-                            alt={etiqueta}
-                            className="w-16 h-16 object-cover rounded-sm border border-gray-200"
+                            src={fotoUrls[a.path]}
+                            alt={a.etiqueta ?? etiquetaDefecto}
+                            className="w-20 h-16 object-cover rounded-sm border border-gray-200"
                           />
                         ) : (
-                          <div className="w-16 h-16 rounded-sm border border-gray-200 bg-gray-50 animate-pulse" />
+                          <div className="w-20 h-16 rounded-sm border border-gray-200 bg-gray-50 animate-pulse" />
                         )}
-                        <p className="text-[9px] text-gray-500 text-center truncate mt-0.5">{etiqueta}</p>
+                        <input
+                          value={a.etiqueta ?? ''}
+                          placeholder={etiquetaDefecto}
+                          onChange={(e) => handleRenombrarFoto(a.path, e.target.value)}
+                          className="w-20 mt-0.5 text-[9px] text-center border border-gray-200 rounded-sm px-0.5 py-0.5 focus:border-brand focus:outline-none"
+                        />
                         <button
                           type="button"
-                          onClick={() => setFotos((f) => f.filter((p) => p !== path))}
+                          onClick={() => setFotos((f) => f.filter((x) => x.path !== a.path))}
                           className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-gray-300 text-gray-500 hover:text-red-600 flex items-center justify-center"
                           title="Quitar"
                         >
@@ -852,7 +847,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   });
                 })()}
                 <label
-                  className={`w-16 h-16 shrink-0 flex flex-col items-center justify-center gap-0.5 border border-dashed rounded-sm cursor-pointer text-gray-400 hover:border-brand hover:text-brand ${subiendoFoto ? 'opacity-50' : ''}`}
+                  className={`w-20 h-16 shrink-0 flex flex-col items-center justify-center gap-0.5 border border-dashed rounded-sm cursor-pointer text-gray-400 hover:border-brand hover:text-brand ${subiendoFoto ? 'opacity-50' : ''}`}
                 >
                   <Camera size={16} />
                   <span className="text-[10px]">{subiendoFoto ? '...' : 'Añadir'}</span>
@@ -939,14 +934,13 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               />
             )}
             <div className="col-span-2">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Notas internas
-              </label>
-              <textarea
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[60px] focus:border-brand focus:outline-none"
+              <EditorTexto
+                label="Notas internas"
+                rows={3}
                 value={form.notas}
-                onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))}
+                onChange={(valor) => setForm((f) => ({ ...f, notas: valor }))}
               />
+              <p className="text-xs text-gray-400 mt-1">Estas notas también salen en el email de aviso al equipo.</p>
             </div>
           </div>
         </Seccion>

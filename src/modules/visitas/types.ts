@@ -48,11 +48,16 @@ export type Visita = {
   checklist?: ChecklistItem[] | null;
   eliminado_en?: string | null;
   eliminado_por?: string | null;
-  // Fotos del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) — paths
-  // del bucket privado `fotos-visita`, subidas a mano desde VisitaForm.tsx (2026-08-28). Se enlazan
-  // en el email de confirmación (notificar-visita) y en la descripción del evento de Calendar.
-  fotos_previas?: string[] | null;
+  // Fotos/PDF del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) —
+  // subidas a mano desde VisitaForm.tsx al bucket privado `fotos-visita` (2026-08-28). `etiqueta`
+  // es el nombre que le pone el usuario (p.ej. "Estado del baño", "Planos de la reforma") — sale
+  // como texto del enlace en el email de confirmación (notificar-visita) y en la descripción del
+  // evento de Calendar en vez de "Imagen N"/"Documento N" genérico (jsonb desde 2026-09-01, antes
+  // era text[] de solo paths).
+  fotos_previas?: ArchivoPrevio[] | null;
 };
+
+export type ArchivoPrevio = { path: string; etiqueta: string | null };
 
 export type NuevaVisita = Omit<Visita, 'id' | 'created_at'>;
 
