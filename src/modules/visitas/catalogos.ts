@@ -15,7 +15,10 @@ export type CatalogosVisitas = {
 // edite el catálogo desde Configuración.
 export const CATALOGOS_VISITAS_DEFECTO: CatalogosVisitas = {
   zonasEs: ['Irún', 'Hondarribia', 'Donostia/San Sebastián', 'Rentería', 'Bera de Bidasoa', 'Otro ES'],
-  zonasFr: ['Hendaye', 'Urrugne', 'Saint-Jean-de-Luz', 'Bayonne', 'Autre FR'],
+  // Ciboure, Biriatou, Guéthary y Biarritz añadidas 2026-09-01 a petición de Gabriel.
+  zonasFr: [
+    'Hendaye', 'Urrugne', 'Ciboure', 'Saint-Jean-de-Luz', 'Biriatou', 'Guéthary', 'Biarritz', 'Bayonne', 'Autre FR',
+  ],
   tiposReforma: [
     'Baño', 'Cocina', 'Reforma integral', 'Pintura', 'Suelos', 'Fachada', 'Fontanería', 'Electricidad',
     'Seguimiento de obra', 'Otro',

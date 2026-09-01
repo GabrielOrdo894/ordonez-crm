@@ -7,6 +7,10 @@ export type LugarSeleccionado = {
   lat: number | null;
   lng: number | null;
   pais: string;
+  // Ciudad/municipio del lugar elegido (component "locality", con "postal_town" como fallback —
+  // algunas poblaciones francesas pequeñas no llevan "locality") — permite auto-detectar la zona
+  // sin que el usuario tenga que elegirla a mano (2026-09-01).
+  ciudad: string | null;
 };
 
 type MapsAutocompleteProps = {
@@ -87,6 +91,10 @@ export function MapsAutocomplete({ label, value, onChange, onSelect, error }: Ma
           const place = evento.placePrediction.toPlace();
           await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
           const country = place.addressComponents?.find((c) => c.types.includes('country'))?.shortText;
+          const ciudad =
+            place.addressComponents?.find((c) => c.types.includes('locality'))?.shortText ??
+            place.addressComponents?.find((c) => c.types.includes('postal_town'))?.shortText ??
+            null;
           // formattedAddress devuelve el nombre del país en el idioma del navegador (ej. "Francia"
           // en vez de "France") — el idioma de la sesión de Maps es el mismo para todos los países,
           // así que Google no puede darnos cada uno en su propio idioma. Se sustituye el último
@@ -104,6 +112,7 @@ export function MapsAutocomplete({ label, value, onChange, onSelect, error }: Ma
             lat: place.location?.lat() ?? null,
             lng: place.location?.lng() ?? null,
             pais: country === 'ES' ? 'España' : country === 'FR' ? 'Francia' : '',
+            ciudad,
           });
         });
 

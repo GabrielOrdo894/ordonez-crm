@@ -22,6 +22,7 @@ import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
 import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
 import { agruparClientes, normalizarTelefono, type Cliente, type ClientePotencial } from '../clientes/types';
 import { useCatalogosVisitas } from './useCatalogosVisitas';
+import type { CatalogosVisitas } from './catalogos';
 import { esSabado, DURACIONES_MIN, etiquetaDuracion, OTRO_HORARIO } from './horarioVisita';
 import type { Visita, NuevaVisita, EstadoVisita, PrefillVisita, ArchivoPrevio } from './types';
 
@@ -106,6 +107,34 @@ function estadoFiscal(pais: string) {
 
 function zonaDefault(pais: string) {
   return pais === 'España' ? 'Irún' : pais === 'Francia' ? 'Hendaye' : '';
+}
+
+function normalizarTexto(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Auto-detecta la zona a partir de la ciudad que devuelve MapsAutocomplete — antes solo se
+// reseteaba a la zona por defecto del país (Irún/Hendaye) al cambiar de país, así que elegir una
+// dirección de otra zona conocida (Ciboure, Bera...) dejaba la zona equivocada hasta que el
+// usuario se acordaba de corregirla a mano (mejora real, 2026-09-01). Compara con includes() en
+// ambos sentidos para que "San Sebastián" case con "Donostia/San Sebastián" o "Bera" con "Bera de
+// Bidasoa" sin necesitar coincidencia exacta.
+function zonaDesdeCiudad(ciudad: string | null, pais: string, catalogos: CatalogosVisitas): string | null {
+  if (!ciudad) return null;
+  const zonas = pais === 'España' ? catalogos.zonasEs : pais === 'Francia' ? catalogos.zonasFr : [];
+  const ciudadNorm = normalizarTexto(ciudad);
+  if (!ciudadNorm) return null;
+  return (
+    zonas.find((z) => {
+      const zNorm = normalizarTexto(z);
+      return !!zNorm && (ciudadNorm.includes(zNorm) || zNorm.includes(ciudadNorm));
+    }) ?? null
+  );
 }
 
 function empleadoDefault(pais: string) {
@@ -726,18 +755,20 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 error={errors.direccion}
                 onChange={(direccion) => setForm((f) => ({ ...f, direccion }))}
                 onSelect={(lugar) =>
-                  setForm((f) => ({
-                    ...f,
-                    direccion: lugar.direccion,
-                    lat: lugar.lat,
-                    lng: lugar.lng,
-                    pais: lugar.pais || f.pais,
-                    zona: lugar.pais && lugar.pais !== f.pais ? zonaDefault(lugar.pais) : f.zona,
-                    empleado:
-                      lugar.pais && lugar.pais !== f.pais
-                        ? empleadoDefault(lugar.pais)
-                        : f.empleado,
-                  }))
+                  setForm((f) => {
+                    const pais = lugar.pais || f.pais;
+                    const cambioPais = !!lugar.pais && lugar.pais !== f.pais;
+                    const zonaCiudad = zonaDesdeCiudad(lugar.ciudad, pais, catalogos);
+                    return {
+                      ...f,
+                      direccion: lugar.direccion,
+                      lat: lugar.lat,
+                      lng: lugar.lng,
+                      pais,
+                      zona: zonaCiudad ?? (cambioPais ? zonaDefault(pais) : f.zona),
+                      empleado: cambioPais ? empleadoDefault(pais) : f.empleado,
+                    };
+                  })
                 }
               />
             </div>
