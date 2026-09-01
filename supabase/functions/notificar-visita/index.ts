@@ -298,7 +298,7 @@ function construirHtml(opts: {
   descripcion: string;
   zonaTexto: string;
   empleado: string;
-  fotosUrls: string[];
+  archivosPrevios: { etiqueta: string; url: string; esPdf: boolean }[];
 }): string {
   return `<div style="font-family:Helvetica,Arial,sans-serif">
   <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
@@ -337,13 +337,14 @@ function construirHtml(opts: {
       </table>
 
       ${
-        opts.fotosUrls.length > 0
-          ? `${seccion('Fotos previas del cliente')}
+        opts.archivosPrevios.length > 0
+          ? `${seccion('Fotos y documentos previos del cliente')}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        ${opts.fotosUrls
-          .map(
-            (url) =>
-              `<a href="${url}"><img src="${url}" width="90" height="90" style="object-fit:cover;border-radius:6px;border:1px solid #e5e7eb" /></a>`,
+        ${opts.archivosPrevios
+          .map((a) =>
+            a.esPdf
+              ? `<a href="${a.url}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:90px;height:90px;border:1px solid #e5e7eb;border-radius:6px;text-decoration:none;background:#f8fafc;font-size:11px;color:#374151;text-align:center;box-sizing:border-box"><span style="font-size:20px;line-height:1">📄</span>${esc(a.etiqueta)}</a>`
+              : `<a href="${a.url}" style="text-decoration:none;color:#374151;text-align:center;font-size:10px;display:block;width:90px"><img src="${a.url}" width="90" height="90" style="object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block;margin-bottom:2px" />${esc(a.etiqueta)}</a>`,
           )
           .join('')}
       </div>`
@@ -390,16 +391,29 @@ Deno.serve(async (req: Request) => {
     const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat, v.lng) : null;
     const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
 
-    // Fotos previas del cliente (bucket privado `fotos-visita`) — solo en el aviso interno del
-    // equipo, no en la confirmación al cliente (no le aporta nada ver sus propias fotos). Firmadas
-    // con service role (bypass RLS), larga duración porque el email queda guardado indefinidamente.
-    let fotosUrls: string[] = [];
+    // Fotos y PDFs previos del cliente (bucket privado `fotos-visita`) — solo en el aviso interno
+    // del equipo, no en la confirmación al cliente (no le aporta nada ver sus propios archivos).
+    // Firmadas con service role (bypass RLS), larga duración porque el email queda guardado
+    // indefinidamente. Cada una lleva "Imagen N"/"Documento N" delante — con varias seguidas y sin
+    // nombre de archivo legible no había forma de distinguirlas (bug real corregido 2026-09-01,
+    // ampliado a PDF el mismo día).
+    let archivosPrevios: { etiqueta: string; url: string; esPdf: boolean }[] = [];
     if (Array.isArray(v.fotos_previas) && v.fotos_previas.length > 0) {
       const { data: firmadas, error: errorFirmadas } = await supabase.storage
         .from('fotos-visita')
         .createSignedUrls(v.fotos_previas, 60 * 60 * 24 * 365);
       if (errorFirmadas) console.error('notificar-visita: no se pudieron firmar las URLs de fotos-visita', errorFirmadas);
-      fotosUrls = (firmadas ?? []).map((f) => f.signedUrl).filter((u): u is string => !!u);
+      let numImagen = 0;
+      let numDocumento = 0;
+      archivosPrevios = (v.fotos_previas as string[])
+        .map((path: string, i: number) => {
+          const url = firmadas?.[i]?.signedUrl;
+          if (!url) return null;
+          const esPdf = path.toLowerCase().endsWith('.pdf');
+          const etiqueta = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
+          return { etiqueta, url, esPdf };
+        })
+        .filter((a): a is { etiqueta: string; url: string; esPdf: boolean } => !!a);
     }
 
     const cuerpo = construirHtml({
@@ -417,7 +431,7 @@ Deno.serve(async (req: Request) => {
       descripcion: v.descripcion || 'Sin descripción',
       zonaTexto: `${v.zona ?? ''} · ${v.pais ?? ''}`,
       empleado: v.empleado || 'Sin asignar',
-      fotosUrls,
+      archivosPrevios,
     });
 
     const token = await obtenerAccessToken(supabase);

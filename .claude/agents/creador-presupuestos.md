@@ -64,6 +64,7 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    select 'solicitud_vinculada_presupuesto', id, '<id del presupuesto>', fuente from vinculada;
    ```
    Si no hay ninguna fila candidata, no pasa nada — simplemente este presupuesto no viene de una solicitud rastreada en el CRM (p. ej. un cliente recurrente que te llega directo por WhatsApp).
+8. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 3 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
 
 ## Convenciones del presupuesto
 

@@ -137,10 +137,14 @@ type EventoVisita = {
   fotos_previas?: string[] | null;
 };
 
-// Calendar no admite adjuntar imágenes directamente sin pasar por Google Drive, así que las fotos
-// previas del cliente (bucket privado `fotos-visita`) se enlazan como URLs firmadas de larga
-// duración (1 año) en la descripción del evento — Calendar las detecta y las muestra clicables
-// (2026-08-28).
+// Calendar no admite adjuntar imágenes/PDFs directamente sin pasar por Google Drive, así que los
+// archivos previos del cliente (bucket privado `fotos-visita`, imágenes y PDF) se enlazan como
+// URLs firmadas de larga duración (1 año) en la descripción del evento. La descripción de un
+// evento de Calendar admite un subconjunto de HTML — un <a href> se ve como texto clicable
+// normal en vez del enlace en bruto (2026-09-01, antes salía el CSV entero de la URL firmada,
+// ilegible). Cada uno lleva "Imagen N"/"Documento N" como texto del enlace — con varios seguidos
+// y sin nombre de archivo legible, no había forma de saber cuál era cuál (bug real corregido
+// 2026-09-01, ampliado a PDF el mismo día).
 async function urlsFotosPrevias(paths: string[] | null | undefined): Promise<string[]> {
   if (!paths || paths.length === 0) return [];
   const { data, error } = await supabase.storage.from('fotos-visita').createSignedUrls(paths, 60 * 60 * 24 * 365);
@@ -151,7 +155,17 @@ async function urlsFotosPrevias(paths: string[] | null | undefined): Promise<str
     if (error) console.error('urlsFotosPrevias: no se pudieron firmar las URLs de fotos-visita', error);
     return [];
   }
-  return data.map((d) => d.signedUrl).filter((url): url is string => !!url);
+  let numImagen = 0;
+  let numDocumento = 0;
+  return paths
+    .map((path, i) => {
+      const url = data[i]?.signedUrl;
+      if (!url) return null;
+      const esPdf = path.toLowerCase().endsWith('.pdf');
+      const etiqueta = esPdf ? `Documento ${++numDocumento} (abrir PDF)` : `Imagen ${++numImagen} (abrir imagen)`;
+      return `<a href="${url}">${etiqueta}</a>`;
+    })
+    .filter((linea): linea is string => !!linea);
 }
 
 function horaFinDefecto(hora: string) {
@@ -195,7 +209,7 @@ function construirEventoPayload(v: EventoVisita, hora: string, fotosUrls: string
       `Descripción: ${v.descripcion || 'Sin descripción'}`,
       '',
       `Asignado: ${v.empleado ?? 'Sin asignar'}`,
-      ...(fotosUrls.length > 0 ? ['', 'FOTOS PREVIAS DEL CLIENTE', ...fotosUrls] : []),
+      ...(fotosUrls.length > 0 ? ['', 'FOTOS Y DOCUMENTOS PREVIOS DEL CLIENTE', ...fotosUrls] : []),
     ].join('\n'),
     start: { dateTime: `${v.fecha_visita}T${hora}:00`, timeZone: 'Europe/Paris' },
     end: { dateTime: `${v.fecha_visita}T${(v.hora_fin_visita?.slice(0, 5)) || horaFinDefecto(hora)}:00`, timeZone: 'Europe/Paris' },

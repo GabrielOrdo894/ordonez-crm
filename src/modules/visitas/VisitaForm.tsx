@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, X } from 'lucide-react';
+import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, FileText, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
@@ -197,10 +197,12 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
   const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
 
-  // Fotos del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) — se
-  // suben a mano al bucket privado `fotos-visita` y se enlazan luego en el email de confirmación
-  // y en la descripción del evento de Calendar (2026-08-28). Mismo patrón que el adjunto de
-  // GastoForm.tsx: se sube al elegir el archivo, no al guardar el formulario.
+  // Fotos y PDFs del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) —
+  // se suben a mano al bucket privado `fotos-visita` y se enlazan luego, numerados ("Imagen 1",
+  // "Documento 1"...), en el email de confirmación y en la descripción del evento de Calendar
+  // (2026-08-28, ampliado a PDF 2026-09-01 — antes solo se distinguía por el nombre de archivo
+  // real en el enlace, imposible de leer en Calendar con varios seguidos). Mismo patrón que el
+  // adjunto de GastoForm.tsx: se sube al elegir el archivo, no al guardar el formulario.
   const [fotos, setFotos] = useState<string[]>(visita?.fotos_previas ?? []);
   const [fotoUrls, setFotoUrls] = useState<Record<string, string>>({});
   const [subiendoFoto, setSubiendoFoto] = useState(false);
@@ -228,8 +230,8 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     if (!files || files.length === 0) return;
     setSubiendoFoto(true);
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) {
-        toast.error(`"${file.name}" no es una imagen`);
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+        toast.error(`"${file.name}" no es una imagen ni un PDF`);
         continue;
       }
       if (file.size > TAMANO_MAX_FOTO) {
@@ -803,30 +805,49 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             </div>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Fotos previas del cliente (opcional)
+                Fotos y PDFs previos del cliente (opcional)
               </label>
               <div className="flex flex-wrap gap-2">
-                {fotos.map((path) => (
-                  <div key={path} className="relative w-16 h-16 shrink-0">
-                    {fotoUrls[path] ? (
-                      <img
-                        src={fotoUrls[path]}
-                        alt="Foto previa"
-                        className="w-16 h-16 object-cover rounded-sm border border-gray-200"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-sm border border-gray-200 bg-gray-50 animate-pulse" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setFotos((f) => f.filter((p) => p !== path))}
-                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-gray-300 text-gray-500 hover:text-red-600 flex items-center justify-center"
-                      title="Quitar foto"
-                    >
-                      <X size={10} />
-                    </button>
-                  </div>
-                ))}
+                {(() => {
+                  let numImagen = 0;
+                  let numDocumento = 0;
+                  return fotos.map((path) => {
+                    const esPdf = path.toLowerCase().endsWith('.pdf');
+                    const etiqueta = esPdf ? `Documento ${++numDocumento}` : `Imagen ${++numImagen}`;
+                    return (
+                      <div key={path} className="relative w-16 shrink-0">
+                        {esPdf ? (
+                          <a
+                            href={fotoUrls[path] ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="w-16 h-16 flex flex-col items-center justify-center gap-0.5 rounded-sm border border-gray-200 bg-gray-50 text-gray-500 hover:border-brand hover:text-brand"
+                          >
+                            <FileText size={20} />
+                            <span className="text-[9px]">PDF</span>
+                          </a>
+                        ) : fotoUrls[path] ? (
+                          <img
+                            src={fotoUrls[path]}
+                            alt={etiqueta}
+                            className="w-16 h-16 object-cover rounded-sm border border-gray-200"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-sm border border-gray-200 bg-gray-50 animate-pulse" />
+                        )}
+                        <p className="text-[9px] text-gray-500 text-center truncate mt-0.5">{etiqueta}</p>
+                        <button
+                          type="button"
+                          onClick={() => setFotos((f) => f.filter((p) => p !== path))}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white border border-gray-300 text-gray-500 hover:text-red-600 flex items-center justify-center"
+                          title="Quitar"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
                 <label
                   className={`w-16 h-16 shrink-0 flex flex-col items-center justify-center gap-0.5 border border-dashed rounded-sm cursor-pointer text-gray-400 hover:border-brand hover:text-brand ${subiendoFoto ? 'opacity-50' : ''}`}
                 >
@@ -834,7 +855,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   <span className="text-[10px]">{subiendoFoto ? '...' : 'Añadir'}</span>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/*,application/pdf"
                     multiple
                     disabled={subiendoFoto}
                     onChange={(e) => {
