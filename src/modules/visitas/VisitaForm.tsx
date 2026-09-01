@@ -415,6 +415,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     if (!form.nombre) nuevosErrores.nombre = 'Obligatorio';
     if (!form.apellidos) nuevosErrores.apellidos = 'Obligatorio';
     if (!form.telefono) nuevosErrores.telefono = 'Obligatorio';
+    if (!form.email) nuevosErrores.email = 'Obligatorio';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (!form.fecha_visita) nuevosErrores.fecha_visita = 'Obligatorio';
     setErrors(nuevosErrores);
@@ -677,7 +678,9 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               <Input
                 label="Email"
                 type="email"
+                required
                 value={form.email}
+                error={errors.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                 onBlur={verificarClienteRepetidor}
               />
