@@ -5,6 +5,7 @@ import { RutaPreview } from '../google/RutaPreview';
 import { GaleriaForm } from '../galeria/GaleriaForm';
 import { fechaVisitaLarga } from '../../lib/fechas';
 import { VisitaChecklist } from './VisitaChecklist';
+import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import type { Visita } from './types';
 
 export function urlGoogleMaps(v: Visita) {
@@ -94,14 +95,22 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
       {visita.descripcion && (
         <div>
           <p className="text-gray-400 uppercase tracking-wide text-xs mb-1">Descripción</p>
-          <p className="text-gray-700">{visita.descripcion}</p>
+          {parsearTextoEnriquecido(visita.descripcion).map((bloque, idx) => (
+            <p key={idx} className={`text-gray-700 whitespace-pre-wrap ${bloque.negrita ? 'font-semibold' : ''} ${bloque.cursiva ? 'italic' : ''}`}>
+              {bloque.texto}
+            </p>
+          ))}
         </div>
       )}
 
       {visita.notas && (
         <div>
           <p className="text-gray-400 uppercase tracking-wide text-xs mb-1">Notas</p>
-          <p className="text-gray-700">{visita.notas}</p>
+          {parsearTextoEnriquecido(visita.notas).map((bloque, idx) => (
+            <p key={idx} className={`text-gray-700 whitespace-pre-wrap ${bloque.negrita ? 'font-semibold' : ''} ${bloque.cursiva ? 'italic' : ''}`}>
+              {bloque.texto}
+            </p>
+          ))}
         </div>
       )}
 
