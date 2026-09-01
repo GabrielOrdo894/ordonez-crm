@@ -9,6 +9,7 @@ import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
@@ -215,10 +216,12 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   // el contacto ya se conoce, no hace falta buscarlo. Elegir aquí NUNCA registra un cliente real
   // (no existe tabla `clientes` propia — ver [[project_cliente_confirmado_solo_aceptado]]): solo
   // cuenta como "confirmado" cuando se acepta un presupuesto, esta pantalla no cambia eso.
-  const [estadoCliente, setEstadoCliente] = useState<'buscar' | 'manual' | 'cliente'>(
+  const [estadoCliente, setEstadoCliente] = useState<'buscar' | 'manual' | 'cliente' | 'potencial'>(
     () => (visita || prefill?.nombre ? 'manual' : 'buscar'),
   );
   const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
+  const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
+  const confirmar = useConfirmar();
 
   // Fotos y PDFs del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) —
   // se suben a mano al bucket privado `fotos-visita` y se enlazan luego, numerados ("Imagen 1",
@@ -317,14 +320,21 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     setClienteRepetidor(null);
   };
 
-  // Un "potencial" (solicitud/orientativo/visita previa sin cliente real) nunca trae apellidos, y
-  // muchas veces tampoco nombre real ni email — agruparPotenciales() rellena el nombre con el
-  // email (o "Sin nombre") cuando no lo tiene, así que copiarlo tal cual metería el email o ese
-  // texto literal en el campo Nombre de la visita. En vez de eso, se abre directamente el
-  // formulario completo con lo que sí se sabe, para que se rellene a mano lo que falte — antes se
-  // colapsaba en un recuadro resumen sin dejar ver (ni completar) los campos obligatorios que
-  // faltaban, nada intuitivo (bug real corregido 2026-09-01).
-  const handleSeleccionarPotencial = (potencial: ClientePotencial) => {
+  // Un "potencial" (solicitud/orientativo/visita previa sin cliente real) nunca trae apellidos —
+  // ClientePotencial no tiene ese campo, siempre hay que rellenarlo a mano — y muchas veces
+  // tampoco nombre real ni email — agruparPotenciales() rellena el nombre con el email (o "Sin
+  // nombre") cuando no lo tiene. Por eso "datos obligatorios" aquí se refiere solo a lo que un
+  // potencial SÍ podría traer completo (nombre real, teléfono, email) — si falta algo de eso se
+  // avisa con un pop up en vez de abrir directamente el formulario (corrección de Gabriel
+  // 2026-09-01: el primer intento abría siempre el formulario completo, que no le parecía
+  // intuitivo); si está completo se muestra el recuadro resumen de siempre, igual que al elegir un
+  // cliente real.
+  const datosPotencialCompletos = (potencial: ClientePotencial) => {
+    const nombreReal = !!potencial.nombre && potencial.nombre !== potencial.email && potencial.nombre !== 'Sin nombre';
+    return nombreReal && !!potencial.telefono && !!potencial.email;
+  };
+
+  const aplicarPotencial = (potencial: ClientePotencial) => {
     const nombreReal = potencial.nombre && potencial.nombre !== potencial.email && potencial.nombre !== 'Sin nombre';
     setForm((f) => ({
       ...f,
@@ -335,12 +345,31 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       contacto: potencial.origen === 'solicitud' ? 'Web' : f.contacto,
     }));
     setClienteElegido(null);
-    setEstadoCliente('manual');
     setClienteRepetidor(null);
+  };
+
+  const handleSeleccionarPotencial = async (potencial: ClientePotencial) => {
+    if (datosPotencialCompletos(potencial)) {
+      aplicarPotencial(potencial);
+      setPotencialElegido(potencial);
+      setEstadoCliente('potencial');
+      return;
+    }
+    const completar = await confirmar({
+      titulo: 'Faltan datos por rellenar',
+      mensaje: `A "${potencial.nombre || potencial.telefono || potencial.email}" le faltan datos obligatorios (nombre, teléfono o email) para poder guardar la visita. ¿Completar los datos a mano?`,
+      textoConfirmar: 'Completar datos',
+      textoCancelar: 'Cancelar',
+      peligroso: false,
+    });
+    if (!completar) return;
+    aplicarPotencial(potencial);
+    setEstadoCliente('manual');
   };
 
   const handleCambiarCliente = () => {
     setClienteElegido(null);
+    setPotencialElegido(null);
     setClienteRepetidor(null);
     setEstadoCliente('buscar');
     setForm((f) => ({ ...f, nombre: '', apellidos: '', telefono: '', email: '' }));
@@ -348,6 +377,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
   const handleCrearNuevo = () => {
     setClienteElegido(null);
+    setPotencialElegido(null);
     setEstadoCliente('manual');
   };
 
@@ -655,6 +685,31 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
                 Cambiar
               </button>
+            </div>
+          )}
+
+          {estadoCliente === 'potencial' && potencialElegido && (
+            <div className="border border-gray-200 rounded-sm px-3 py-2.5 bg-brand-light">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
+                  <p className="text-xs text-gray-500">{potencialElegido.telefono} · {potencialElegido.email}</p>
+                </div>
+                <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
+                  Cambiar
+                </button>
+              </div>
+              {/* Un potencial nunca trae apellidos (no existe ese campo en ClientePotencial) —
+                  se pide aquí mismo, sin abrir el formulario completo por un único dato. */}
+              <div className="mt-2">
+                <Input
+                  label="Apellidos"
+                  required
+                  value={form.apellidos}
+                  error={errors.apellidos}
+                  onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+                />
+              </div>
             </div>
           )}
 
