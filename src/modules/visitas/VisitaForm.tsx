@@ -689,11 +689,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           )}
 
           {estadoCliente === 'potencial' && potencialElegido && (
-            <div className="border border-gray-200 rounded-sm px-3 py-2.5 bg-brand-light">
+            <div className="border border-amber-200 rounded-sm px-3 py-2.5 bg-amber-50">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
-                  <p className="text-xs text-gray-500">{potencialElegido.telefono} · {potencialElegido.email}</p>
+                  <p className="text-xs text-amber-700">{potencialElegido.telefono} · {potencialElegido.email}</p>
                 </div>
                 <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
                   Cambiar
