@@ -21,6 +21,16 @@ export const ETAPAS_PIPELINE = [
   'Finalizado',
 ] as const;
 
+// Solicitudes web y presupuestos orientativos solo guardan el nombre completo en un único campo,
+// nunca separan nombre/apellidos como sí hace `visitas` — no hay ninguna heurística mejor que la
+// posición de las palabras disponible sin depender de un servicio externo, así que se asume que la
+// primera palabra es el nombre y el resto los apellidos (petición de Gabriel 2026-09-02, para no
+// tener que rellenar los apellidos a mano cada vez que se elige un potencial en VisitaForm.tsx).
+export function dividirNombreCompleto(nombreCompleto: string): { nombre: string; apellidos: string } {
+  const partes = nombreCompleto.trim().split(/\s+/).filter(Boolean);
+  return { nombre: partes[0] ?? '', apellidos: partes.slice(1).join(' ') };
+}
+
 export function normalizarTelefono(tel: string) {
   // Se queda con los últimos 9 dígitos (núcleo del número en España y Francia) para que el mismo
   // teléfono cruce sin importar si está guardado en formato nacional (0612345678) o internacional

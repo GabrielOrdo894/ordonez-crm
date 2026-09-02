@@ -21,7 +21,13 @@ import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { sumarMinutos, minutosEntre } from '../../lib/horas';
 import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
 import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
-import { agruparClientes, normalizarTelefono, type Cliente, type ClientePotencial } from '../clientes/types';
+import {
+  agruparClientes,
+  dividirNombreCompleto,
+  normalizarTelefono,
+  type Cliente,
+  type ClientePotencial,
+} from '../clientes/types';
 import { useCatalogosVisitas } from './useCatalogosVisitas';
 import type { CatalogosVisitas } from './catalogos';
 import { esSabado, DURACIONES_MIN, etiquetaDuracion, OTRO_HORARIO } from './horarioVisita';
@@ -185,10 +191,17 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   const [form, setForm] = useState<FormState>(() => {
     if (visita) return formDesdeVisita(visita);
     const pais = prefill?.pais ?? EMPTY.pais;
+    // Un prefill con nombre (solicitud, planning...) trae el nombre completo en un único campo,
+    // igual que un potencial — se divide con la misma regla que aplicarPotencial() más abajo, en
+    // vez de dejar los apellidos vacíos y obligar a rellenarlos a mano.
+    const { nombre: prefillNombre, apellidos: prefillApellidos } = prefill?.nombre
+      ? dividirNombreCompleto(prefill.nombre)
+      : { nombre: EMPTY.nombre, apellidos: EMPTY.apellidos };
     return {
       ...EMPTY,
       fecha_visita: prefill?.fecha ?? '',
-      nombre: prefill?.nombre ?? EMPTY.nombre,
+      nombre: prefillNombre,
+      apellidos: prefillApellidos,
       telefono: prefill?.telefono ?? EMPTY.telefono,
       email: prefill?.email ?? EMPTY.email,
       idioma: prefill?.idioma ?? EMPTY.idioma,
@@ -221,6 +234,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   );
   const [clienteElegido, setClienteElegido] = useState<Cliente | null>(null);
   const [potencialElegido, setPotencialElegido] = useState<ClientePotencial | null>(null);
+  // Permite corregir a mano el nombre/apellidos/teléfono/email de un cliente o potencial ya
+  // elegido sin tener que pulsar "Cambiar" (que borra la selección entera) — antes solo se podía
+  // editar el campo que faltase por rellenar (petición de Gabriel 2026-09-02). Pulsar "Modificar"
+  // pide confirmación primero porque el cambio se guarda de forma permanente en esta visita.
+  const [editandoDatosCliente, setEditandoDatosCliente] = useState(false);
   const confirmar = useConfirmar();
 
   // Fotos y PDFs del estado preliminar que el cliente manda antes de la visita (WhatsApp/email) —
@@ -318,6 +336,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     setClienteElegido(cliente);
     setEstadoCliente('cliente');
     setClienteRepetidor(null);
+    setEditandoDatosCliente(false);
   };
 
   // Un "potencial" (solicitud/orientativo/visita previa sin cliente real) nunca trae apellidos —
@@ -336,9 +355,13 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
   const aplicarPotencial = (potencial: ClientePotencial) => {
     const nombreReal = potencial.nombre && potencial.nombre !== potencial.email && potencial.nombre !== 'Sin nombre';
+    const { nombre, apellidos } = nombreReal
+      ? dividirNombreCompleto(potencial.nombre)
+      : { nombre: '', apellidos: '' };
     setForm((f) => ({
       ...f,
-      nombre: nombreReal ? potencial.nombre : '',
+      nombre,
+      apellidos,
       telefono: potencial.telefono,
       email: potencial.email ?? f.email,
       idioma: potencial.idioma === 'Français' ? 'Français' : f.idioma,
@@ -346,6 +369,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     }));
     setClienteElegido(null);
     setClienteRepetidor(null);
+    setEditandoDatosCliente(false);
   };
 
   const handleSeleccionarPotencial = async (potencial: ClientePotencial) => {
@@ -372,6 +396,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     setPotencialElegido(null);
     setClienteRepetidor(null);
     setEstadoCliente('buscar');
+    setEditandoDatosCliente(false);
     setForm((f) => ({ ...f, nombre: '', apellidos: '', telefono: '', email: '' }));
   };
 
@@ -379,6 +404,19 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     setClienteElegido(null);
     setPotencialElegido(null);
     setEstadoCliente('manual');
+    setEditandoDatosCliente(false);
+  };
+
+  const handleEditarDatosCliente = async () => {
+    const continuar = await confirmar({
+      titulo: 'Modificar datos de contacto',
+      mensaje:
+        'Vas a corregir el nombre, teléfono o email de este cliente. El cambio se guardará de forma permanente en esta visita. ¿Quieres continuar?',
+      textoConfirmar: 'Modificar',
+      textoCancelar: 'Cancelar',
+      peligroso: false,
+    });
+    if (continuar) setEditandoDatosCliente(true);
   };
 
   const fechaMinima = useMemo(() => {
@@ -675,41 +713,146 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           )}
 
           {estadoCliente === 'cliente' && clienteElegido && (
-            <div className="flex items-center justify-between border border-gray-200 rounded-sm px-3 py-2.5 bg-brand-light">
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {clienteElegido.nombre} {clienteElegido.apellidos}
-                </p>
-                <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
+            <div className="border border-gray-200 rounded-sm px-3 py-2.5 bg-brand-light">
+              <div className="flex items-center justify-between gap-2">
+                {editandoDatosCliente ? (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Editando datos de contacto
+                  </p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {form.nombre} {form.apellidos}
+                    </p>
+                    <p className="text-xs text-gray-500">{form.telefono}</p>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={editandoDatosCliente ? () => setEditandoDatosCliente(false) : handleEditarDatosCliente}
+                    className="text-xs text-gray-500 hover:text-brand"
+                  >
+                    {editandoDatosCliente ? 'Listo' : 'Modificar'}
+                  </button>
+                  <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
+                    Cambiar
+                  </button>
+                </div>
               </div>
-              <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
-                Cambiar
-              </button>
+              {editandoDatosCliente && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <Input
+                    label="Nombre"
+                    required
+                    value={form.nombre}
+                    error={errors.nombre}
+                    onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+                  />
+                  <Input
+                    label="Apellidos"
+                    required
+                    value={form.apellidos}
+                    error={errors.apellidos}
+                    onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+                  />
+                  <Input
+                    label="Teléfono"
+                    type="tel"
+                    required
+                    value={form.telefono}
+                    error={errors.telefono}
+                    onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                  />
+                  <Input
+                    label="Email"
+                    type="email"
+                    required
+                    value={form.email}
+                    error={errors.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+              )}
             </div>
           )}
 
           {estadoCliente === 'potencial' && potencialElegido && (
             <div className="border border-amber-200 rounded-sm px-3 py-2.5 bg-amber-50">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
-                  <p className="text-xs text-amber-700">{potencialElegido.telefono} · {potencialElegido.email}</p>
+              <div className="flex items-center justify-between gap-2">
+                {editandoDatosCliente ? (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                    Editando datos de contacto
+                  </p>
+                ) : (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{`${form.nombre} ${form.apellidos}`.trim()}</p>
+                    <p className="text-xs text-amber-700">{form.telefono} · {form.email}</p>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={editandoDatosCliente ? () => setEditandoDatosCliente(false) : handleEditarDatosCliente}
+                    className="text-xs text-gray-500 hover:text-brand"
+                  >
+                    {editandoDatosCliente ? 'Listo' : 'Modificar'}
+                  </button>
+                  <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
+                    Cambiar
+                  </button>
                 </div>
-                <button type="button" onClick={handleCambiarCliente} className="text-xs text-gray-500 hover:text-red-600">
-                  Cambiar
-                </button>
               </div>
-              {/* Un potencial nunca trae apellidos (no existe ese campo en ClientePotencial) —
-                  se pide aquí mismo, sin abrir el formulario completo por un único dato. */}
-              <div className="mt-2">
-                <Input
-                  label="Apellidos"
-                  required
-                  value={form.apellidos}
-                  error={errors.apellidos}
-                  onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
-                />
-              </div>
+              {editandoDatosCliente ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <Input
+                    label="Nombre"
+                    required
+                    value={form.nombre}
+                    error={errors.nombre}
+                    onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+                  />
+                  <Input
+                    label="Apellidos"
+                    required
+                    value={form.apellidos}
+                    error={errors.apellidos}
+                    onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+                  />
+                  <Input
+                    label="Teléfono"
+                    type="tel"
+                    required
+                    value={form.telefono}
+                    error={errors.telefono}
+                    onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                  />
+                  <Input
+                    label="Email"
+                    type="email"
+                    required
+                    value={form.email}
+                    error={errors.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                  />
+                </div>
+              ) : (
+                !form.apellidos && (
+                  // La división automática de nombre/apellidos (dividirNombreCompleto) no siempre
+                  // encuentra apellidos (nombre de una sola palabra) — se pide aquí mismo, sin
+                  // necesidad de pasar por "Modificar" ni por su confirmación, porque no se está
+                  // sobrescribiendo ningún dato ya correcto, solo completando uno que falta.
+                  <div className="mt-2">
+                    <Input
+                      label="Apellidos"
+                      required
+                      value={form.apellidos}
+                      error={errors.apellidos}
+                      onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
+                    />
+                  </div>
+                )
+              )}
             </div>
           )}
 

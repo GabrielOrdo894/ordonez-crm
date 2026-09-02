@@ -669,3 +669,33 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   se han comiteado (`git status` los marca `??`); el review en la nube solo ve lo comiteado. Si se
   hace push tal cual sin añadirlos, CI y el despliegue sí fallarían de verdad por esto — hay que
   comitearlos antes de empujar la rama.
+- **Recuadro de cliente/potencial editable en VisitaForm.tsx, y división automática de
+  nombre/apellidos** (2026-09-02): antes, al elegir un cliente o potencial ya existente, el
+  recuadro resumen era de solo lectura (para un potencial completo solo se podía rellenar el
+  campo "Apellidos", que `ClientePotencial` nunca trae) — la única forma de corregir un dato mal
+  escrito era "Cambiar", que borra la selección entera (hallazgo real de Gabriel). Ahora el
+  recuadro tiene un botón "Modificar" que pide confirmación (`useConfirmar`, "el cambio se
+  guardará de forma permanente en esta visita") y, al aceptar, despliega los 4 campos
+  (nombre/apellidos/teléfono/email) editables ahí mismo, con "Listo" para volver al resumen. Si
+  a un potencial solo le falta el apellido, se sigue pidiendo sin confirmación (no es "modificar"
+  un dato correcto, es completar uno que falta). Nuevo `dividirNombreCompleto()` en
+  `clientes/types.ts` (primera palabra = nombre, resto = apellidos — sin mejor heurística
+  disponible sin depender de un servicio externo) aplicado tanto al elegir un potencial
+  (`aplicarPotencial`) como al `prefill.nombre` que llega de una solicitud/planning, para no tener
+  que rellenar los apellidos a mano en la mayoría de los casos.
+- **Aviso previo de "visita mañana" en la campana de notificaciones, y recordatorios de Calendar
+  por popup en vez de email** (2026-09-02): hasta ahora el único aviso de que había una visita
+  agendada era el email que manda `notificar-visita` al equipo al crearla/reprogramarla — ningún
+  recordatorio cercano a la fecha, ni en la app ni en el móvil (hallazgo real de Gabriel: le llegó
+  un email de aviso en vez de la notificación normal del móvil que le salía antes al poner un
+  recordatorio a mano en Google Calendar). Dos correcciones independientes: (1) la campana
+  (`useNotificaciones.ts`) tiene ahora un aviso "Visita mañana: Nombre — HH:MM — Dirección" para
+  cualquier visita `Pendiente` con `fecha_visita` = mañana (se autocompleta solo al día siguiente,
+  igual que el resto de avisos) — solo visible con el CRM abierto en el navegador, no es una
+  notificación push del sistema. (2) `recordatoriosVisita()` en `googleCalendar.ts` creaba los
+  recordatorios del evento (1 día antes + el mismo día a las 8:00) con `method: 'email'` en vez de
+  `method: 'popup'` — por eso llegaba un correo en vez de la notificación nativa de la app de
+  Calendar en el móvil. Corregido a `'popup'`, pero **solo afecta a visitas creadas o
+  editadas/reprogramadas a partir de ahora** — los eventos ya existentes en Calendar se quedan con
+  el recordatorio por email tal cual (decisión explícita de Gabriel: no merece la pena tocarlos a
+  mano uno a uno).

@@ -233,6 +233,26 @@ export function useNotificaciones() {
       });
     }
 
+    // Aviso previo de visitas de mañana — a diferencia del aviso de arriba (que solo salta el
+    // mismo día o después, para marcar el resultado real), este es un simple recordatorio para
+    // prepararse antes de que llegue el día (petición de Gabriel 2026-09-02: hasta ahora el único
+    // aviso de una visita agendada era el email al equipo que manda notificar-visita al crearla,
+    // sin ningún recordatorio cercano a la fecha). Solo se ve mientras el CRM está abierto en el
+    // navegador — no es una notificación push del sistema.
+    const mananaVisitas = isoHaceDias(-1);
+    const visitasManana = (visitas ?? [])
+      .filter((v) => v.estado === 'Pendiente' && v.fecha_visita === mananaVisitas)
+      .sort((a, b) => (a.hora_visita ?? '').localeCompare(b.hora_visita ?? ''));
+    for (const v of visitasManana) {
+      lista.push({
+        id: `visita-manana-${v.id}`,
+        categoria: 'visita',
+        titulo: `Visita mañana: ${v.nombre} ${v.apellidos}`,
+        resumen: `${v.hora_visita?.slice(0, 5) ?? 'Sin hora'} — ${v.direccion ?? 'Sin dirección'}`,
+        to: '/visitas',
+      });
+    }
+
     const kilometricoPendiente = gastosKilometricoPendientes ?? [];
     for (const g of kilometricoPendiente) {
       lista.push({

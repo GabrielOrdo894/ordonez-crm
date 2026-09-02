@@ -186,12 +186,15 @@ function horaFinDefecto(hora: string) {
 // Recordatorios de cada visita: un día antes, y ese mismo día a las 8:00 — en vez del
 // recordatorio por defecto de Google Calendar (media hora antes). El segundo se calcula como
 // minutos-antes-del-evento porque la API de Calendar no admite una hora de reloj fija.
+// method: 'popup', no 'email' — así salta como notificación normal del móvil en la app de
+// Calendar, igual que cuando Gabriel ponía el recordatorio a mano antes de que existiera esta
+// integración; 'email' solo manda un correo (corrección real, 2026-09-02).
 function recordatoriosVisita(hora: string) {
   const [h, m] = hora.split(':').map(Number);
   const minutosDesdeMedianoche = h * 60 + m;
   const minutosHasta8am = minutosDesdeMedianoche - 8 * 60;
-  const overrides = [{ method: 'email' as const, minutes: 24 * 60 }];
-  if (minutosHasta8am > 0) overrides.push({ method: 'email' as const, minutes: minutosHasta8am });
+  const overrides = [{ method: 'popup' as const, minutes: 24 * 60 }];
+  if (minutosHasta8am > 0) overrides.push({ method: 'popup' as const, minutes: minutosHasta8am });
   return { useDefault: false, overrides };
 }
 
