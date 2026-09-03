@@ -198,13 +198,22 @@ function recordatoriosVisita(hora: string) {
   return { useDefault: false, overrides };
 }
 
+// Etiqueta de idioma en el título del evento — para que Ricardo (que no habla francés) sepa de un
+// vistazo en el propio Calendar si tiene que ir acompañado a esa visita, sin tener que abrir la
+// descripción completa del evento (petición de Gabriel 2026-09-03).
+function etiquetaIdiomaTitulo(idioma: string | null): string {
+  if (idioma === 'Français') return ' (Francés)';
+  if (idioma === 'Español') return ' (Español)';
+  return '';
+}
+
 // Payload compartido entre crear y actualizar — antes solo existía para crear, así que reprogramar
 // una visita que ya tenía evento (fecha, hora o dirección distintas) dejaba el Calendar con los
 // datos viejos y el equipo podía llegar al sitio o a la hora equivocada (mejora real, auditoría de
 // Visitas 2026-08-18).
 function construirEventoPayload(v: EventoVisita, hora: string, fotosUrls: string[] = []) {
   return {
-    summary: `Visita Tecnica - ${v.tipo ?? 'Sin especificar'}`,
+    summary: `Visita Tecnica - ${v.tipo ?? 'Sin especificar'}${etiquetaIdiomaTitulo(v.idioma)}`,
     location: v.direccion ?? '',
     description: [
       'CLIENTE',

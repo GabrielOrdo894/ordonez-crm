@@ -699,3 +699,9 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   editadas/reprogramadas a partir de ahora** — los eventos ya existentes en Calendar se quedan con
   el recordatorio por email tal cual (decisión explícita de Gabriel: no merece la pena tocarlos a
   mano uno a uno).
+- **Idioma en el título del evento de Google Calendar** (2026-09-03): `construirEventoPayload()`
+  en `googleCalendar.ts` añade ahora "(Francés)"/"(Español)" al final del título del evento
+  (`etiquetaIdiomaTitulo()`) según `visita.idioma` — para que Ricardo, que no habla francés, sepa
+  de un vistazo en el propio Calendar si tiene que ir acompañado a esa visita, sin abrir la
+  descripción completa del evento (petición de Gabriel). Igual que los dos cambios anteriores de
+  Calendar, solo afecta a visitas creadas o reprogramadas a partir de ahora.
