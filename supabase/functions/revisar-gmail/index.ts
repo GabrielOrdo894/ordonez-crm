@@ -316,6 +316,7 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
           comentario_cliente: datos.comentario_cliente,
           pagina_origen: datos.pagina_origen,
           estado: 'Nueva',
+          tipo_solicitud: detectarTipoSolicitudDesdeTexto(datos.comentario_cliente, datos.tipo_reforma),
         },
         { onConflict: 'gmail_message_id', ignoreDuplicates: true }
       )
@@ -722,6 +723,23 @@ function detectarTipoSolicitud(asunto: string): 'visita' | 'presupuesto_orientat
   const a = asunto.toLowerCase();
   if (/solicitud de visita|demande de visite/.test(a)) return 'visita';
   if (/presupuesto orientativo|devis indicatif/.test(a)) return 'presupuesto_orientativo';
+  return null;
+}
+
+// Autodetección por contenido para los formularios (Landbot/WordPress/EmailJS) — hasta ahora se
+// dejaban siempre sin clasificar (null, "sin determinar") y Gabriel lo hacía a mano en el CRM
+// (petición 2026-09-06: automatizarlo "de algún modo"). Solo clasifica cuando el propio texto trae
+// una señal explícita y razonablemente inequívoca; si no encuentra ninguna, sigue devolviendo null
+// para no forzar una clasificación dudosa — se corrige a mano igual que antes en esos casos.
+function detectarTipoSolicitudDesdeTexto(comentario: string | null, tipoReforma: string | null): 'visita' | 'presupuesto_orientativo' | null {
+  const texto = `${comentario ?? ''} ${tipoReforma ?? ''}`.toLowerCase();
+  if (!texto.trim()) return null;
+  if (/presupuesto orientativo|precio orientativo|precio aproximado|presupuesto aproximado|sin necesidad de visita|devis indicatif|devis approximatif|estimation (?:de )?prix|combien co[uû]terait|combien [cç]a co[uû]te|cu[aá]nto costar[ií]a|cu[aá]nto (?:me )?cuesta/.test(texto)) {
+    return 'presupuesto_orientativo';
+  }
+  if (/visita t[eé]cnica|que vengan a ver|venir a ver|pasar a ver|ver el espacio|ver la obra|visite technique|venir voir|passer voir/.test(texto)) {
+    return 'visita';
+  }
   return null;
 }
 

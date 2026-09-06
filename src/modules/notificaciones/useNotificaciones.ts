@@ -414,7 +414,9 @@ export function useNotificaciones() {
         categoria: 'solicitud',
         titulo: `Respuesta de cliente a revisar: ${p.numero ?? 'S/N'}`,
         resumen: p.cliente_nombre ?? 'Cliente sin nombre',
-        to: '/solicitudes/seguimiento',
+        // "Respuestas a presupuestos" se fusionó en "Solicitud de presupuesto" (2026-09-06) — ya
+        // no es una pestaña propia, la respuesta se ve en la misma tabla que las solicitudes.
+        to: '/solicitudes/entrantes',
       });
     }
 

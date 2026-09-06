@@ -705,3 +705,30 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   de un vistazo en el propio Calendar si tiene que ir acompañado a esa visita, sin abrir la
   descripción completa del evento (petición de Gabriel). Igual que los dos cambios anteriores de
   Calendar, solo afecta a visitas creadas o reprogramadas a partir de ahora.
+- **KPI de visitas del mes con desglose, y "Solicitudes & Seguimiento" reorganizado** (2026-09-06):
+  (1) la tarjeta "Visitas este mes" de Inicio añade una línea pequeña con el desglose por
+  `visita.estado` ("X realizadas · Y pendientes"), además del dato de progreso de pipeline que ya
+  tenía. (2) Las pestañas "Solicitudes entrantes" y "Respuestas a presupuestos" se fusionan en una
+  sola, **"Solicitud de presupuesto"** — Gabriel no usaba la segunda como algo aparte y las
+  respuestas ya se ven junto a las solicitudes de siempre. Ambas fuentes (tabla `solicitudes` y
+  presupuestos con respuesta detectada por `revisar-gmail`) se combinan en una única tabla
+  (`FilaUnificada` en `SolicitudesPage.tsx`, ids con prefijo `sol:`/`seg:` para poder seleccionar
+  filas mixtas y repartir la selección entre las mutaciones que correspondan al ejecutar una
+  acción masiva); una respuesta a presupuesto se etiqueta siempre como tipo "presupuesto
+  orientativo" en la columna "Solicita", reutilizando esa misma columna en vez de un eje de
+  "origen" nuevo. (3) Nueva pestaña **"Pendientes de enviar"**: columnas nuevas en `presupuestos`
+  (`mensaje_pendiente_texto`, `mensaje_pendiente_enviado_en`) para trackear mensajes de
+  WhatsApp/SMS ya redactados pero sin confirmar como enviados — el CRM no los envía (no hay
+  integración real de WhatsApp), es solo un recordatorio manual para no perder de vista a clientes
+  que entran por WhatsApp o llamada, canales que no dejan rastro de email. (4) `tipo_solicitud` se
+  autodetecta ahora también por palabras clave del propio comentario/tipo de reforma para los
+  formularios (Landbot/WordPress/EmailJS — `detectarTipoSolicitudDesdeTexto` en
+  `revisar-gmail/index.ts`), no solo por el asunto en conversaciones directas como antes; si no hay
+  ninguna señal clara sigue quedando `null` ("sin determinar"), no se fuerza una clasificación
+  dudosa. **Cuidado real encontrado en pruebas de navegador de esta misma ronda**: el badge nuevo
+  de "Pendientes de enviar" en `Sidebar.tsx` usaba la misma `queryKey` que la pestaña pero con un
+  `select` más corto (solo `id`) — Tanstack Query comparte una única caché por `queryKey` entre
+  todos los componentes, así que pisaba silenciosamente los datos completos y la tabla se quedaba
+  con numero/cliente/mensaje en blanco. Corregido a pedir las mismas columnas en los dos sitios,
+  mismo patrón que ya usaba a propósito `seguimientosParaBadge`/`respuestas-pendientes`. Regla a
+  tener en cuenta para cualquier badge nuevo del Sidebar que comparta `queryKey` con otra pantalla.

@@ -2,10 +2,13 @@ export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Descartada';
 
 export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Descartada'];
 
-// Etiqueta filtrable, no obligatoria (2026-08-26) — null = "sin determinar", la mayoría de las que
-// llegan por formulario (Landbot/WordPress/EmailJS), donde es el propio CRM quien decide más tarde
-// si ofrece visita u orientativo según disponibilidad. Se autodetecta por el asunto del email en
-// conversaciones directas (ver detectarTipoSolicitud en revisar-gmail) y se puede corregir a mano.
+// Etiqueta filtrable, no obligatoria (2026-08-26) — null = "sin determinar". Se autodetecta por el
+// asunto del email en conversaciones directas (detectarTipoSolicitud en revisar-gmail) y, desde
+// 2026-09-06, también por palabras clave en el propio comentario/tipo de reforma para los
+// formularios (Landbot/WordPress/EmailJS — detectarTipoSolicitudDesdeTexto en revisar-gmail); si
+// el texto no trae ninguna señal clara sigue quedando null, y es el propio CRM (Gabriel) quien
+// decide más tarde si ofrece visita u orientativo según disponibilidad. Siempre se puede corregir
+// a mano sin que la autodetección la vuelva a pisar.
 export type TipoSolicitud = 'visita' | 'presupuesto_orientativo';
 
 export const TIPO_SOLICITUD_LABEL: Record<TipoSolicitud, string> = {
@@ -82,6 +85,22 @@ export function estadoSeguimiento(p: PresupuestoConRespuesta): EstadoSeguimiento
   if (p.mensaje_seguimiento_enviado) return 'Enviada';
   return 'Nueva';
 }
+
+// Presupuestos con un mensaje de WhatsApp/SMS preparado pero sin marcar como enviado — canales sin
+// envío automatizable desde el CRM (a diferencia del email, que sí se manda como borrador real de
+// Gmail). Pestaña "Pendientes de enviar" en Solicitudes (2026-09-06): ayuda a no perder de vista a
+// los clientes que entran por WhatsApp o llamada, que hasta ahora no dejaban ningún rastro en el
+// CRM entre "se redactó el mensaje" y "se envió de verdad" salvo la propia conversación de chat.
+export type PresupuestoPendienteEnvio = {
+  id: string;
+  numero: string | null;
+  cliente_nombre: string | null;
+  cliente_tel: string | null;
+  cliente_email: string | null;
+  idioma: string | null;
+  mensaje_pendiente_texto: string;
+  mensaje_pendiente_enviado_en: string | null;
+};
 
 export type MensajeGenerado = {
   asunto: string;

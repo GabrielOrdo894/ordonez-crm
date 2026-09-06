@@ -502,6 +502,12 @@ export default function InicioPage() {
     const espana = visitasEsteMes.filter((v) => v.pais === 'España').length;
     const francia = visitasEsteMes.filter((v) => v.pais === 'Francia').length;
 
+    // Desglose simple por visita.estado (no por progreso de pipeline como `realizadas` de arriba) —
+    // petición de Gabriel 2026-09-06 para ver de un vistazo cuántas visitas del mes ya se hicieron
+    // frente a cuántas siguen por hacer, en la misma tarjeta de "Visitas este mes".
+    const realizadasPorEstado = visitasEsteMes.filter((v) => v.estado === 'Realizada').length;
+    const pendientesPorEstado = visitasEsteMes.filter((v) => v.estado === 'Pendiente').length;
+
     return {
       totalVisitas: visitasEsteMes.length,
       visitasMesAnterior,
@@ -511,6 +517,8 @@ export default function InicioPage() {
       enviados,
       aceptados,
       pctEnviados,
+      realizadasPorEstado,
+      pendientesPorEstado,
       pctAceptados,
       pctAceptadosTotal,
       espana,
@@ -875,6 +883,9 @@ export default function InicioPage() {
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <TarjetaHeader icon={Users} badge="bg-blue-50 text-blue-600" titulo="Visitas este mes" />
           <p className="text-2xl font-semibold text-gray-900">{marketing.totalVisitas}</p>
+          <p className="text-[11px] text-gray-400 mt-1.5">
+            {marketing.realizadasPorEstado} realizadas · {marketing.pendientesPorEstado} pendientes
+          </p>
           <p className="text-xs text-gray-400 mt-1">
             {marketing.visitasMesAnterior} el mes anterior
             {marketing.deltaVisitas != null && (

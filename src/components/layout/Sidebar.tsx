@@ -47,7 +47,12 @@ import { supabase } from '../../lib/supabase';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
-import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../../modules/solicitudes/types';
+import {
+  estadoSeguimiento,
+  type PresupuestoConRespuesta,
+  type PresupuestoPendienteEnvio,
+  type Solicitud,
+} from '../../modules/solicitudes/types';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
 type NavSection = { title: string; icon: LucideIcon; items: NavItem[] };
@@ -64,8 +69,8 @@ const SOLICITUDES_SECTION: NavSection = {
   title: 'Solicitudes',
   icon: Inbox,
   items: [
-    { to: '/solicitudes/entrantes', label: 'Solicitudes entrantes', icon: Inbox },
-    { to: '/solicitudes/seguimiento', label: 'Respuestas a presupuestos', icon: Reply },
+    { to: '/solicitudes/entrantes', label: 'Solicitud de presupuesto', icon: Inbox },
+    { to: '/solicitudes/pendientes', label: 'Pendientes de enviar', icon: Reply },
     { to: '/solicitudes/avisos', label: 'Avisos', icon: AlertCircle },
     { to: '/solicitudes/manual', label: 'Entrada manual', icon: PenLine },
   ],
@@ -273,9 +278,34 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   });
   const seguimientosNuevosCount = (seguimientosParaBadge ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
 
+  // Cuenta de mensajes de WhatsApp/SMS preparados y todavía sin marcar como enviados — mismo
+  // criterio que la pestaña "Pendientes de enviar" de SolicitudesPage.tsx (2026-09-06). OJO: usa
+  // la MISMA queryKey que allí y por tanto debe pedir las MISMAS columnas — Tanstack Query
+  // comparte una única caché por queryKey entre todos los componentes que la usan, así que un
+  // `select` más corto aquí (p. ej. solo "id") pisaba silenciosamente los datos completos que
+  // necesitaba la tabla de SolicitudesPage.tsx, dejándola con numero/cliente/mensaje en blanco
+  // (bug real, detectado en pruebas de navegador 2026-09-06, mismo patrón ya usado a propósito
+  // por `seguimientosParaBadge`/`respuestas-pendientes` más arriba, que sí comparte columnas).
+  const { data: pendientesEnvioParaBadge, error: errorPendientesBadge } = useQuery({
+    queryKey: ['presupuestos', 'pendientes-envio'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select('id, numero, cliente_nombre, cliente_tel, cliente_email, idioma, mensaje_pendiente_texto, mensaje_pendiente_enviado_en')
+        .is('eliminado_en', null)
+        .not('mensaje_pendiente_texto', 'is', null)
+        .is('mensaje_pendiente_enviado_en', null);
+      if (error) throw error;
+      return data as PresupuestoPendienteEnvio[];
+    },
+  });
+  const pendientesEnvioCount = (pendientesEnvioParaBadge ?? []).length;
+
+  // "Solicitud de presupuesto" fusiona lo que antes eran dos pestañas/badges separados
+  // (solicitudes entrantes + respuestas a presupuestos) — un único contador, 2026-09-06.
   const badgesPorRuta: Record<string, number> = {
-    '/solicitudes/entrantes': solicitudesNuevasCount,
-    '/solicitudes/seguimiento': seguimientosNuevosCount,
+    '/solicitudes/entrantes': solicitudesNuevasCount + seguimientosNuevosCount,
+    '/solicitudes/pendientes': pendientesEnvioCount,
   };
 
   const { data: empresaConfig, error: errorEmpresaConfig } = useQuery({
@@ -292,15 +322,15 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   });
   const logoUrl = (empresaConfig?.datos as { logo_url?: string } | null)?.logo_url;
 
-  // Estas 4 queries alimentan badges/logo del Sidebar — antes un error las dejaba en 0/stale sin
+  // Estas queries alimentan badges/logo del Sidebar — antes un error las dejaba en 0/stale sin
   // avisar (el Sidebar está siempre montado, así que un fallo aquí podía pasar inadvertido mucho
   // tiempo). toast se excluye de deps: ToastContext recrea su `value` en cada render, así que
   // incluirlo reengancharía este efecto en cualquier toast de cualquier pantalla de la app.
   useEffect(() => {
-    const error = errorMensajesNoLeidos ?? errorSolicitudesBadge ?? errorSeguimientosBadge ?? errorEmpresaConfig;
+    const error = errorMensajesNoLeidos ?? errorSolicitudesBadge ?? errorSeguimientosBadge ?? errorPendientesBadge ?? errorEmpresaConfig;
     if (error) toast.error(error.message);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [errorMensajesNoLeidos, errorSolicitudesBadge, errorSeguimientosBadge, errorEmpresaConfig]);
+  }, [errorMensajesNoLeidos, errorSolicitudesBadge, errorSeguimientosBadge, errorPendientesBadge, errorEmpresaConfig]);
 
   const nombre = (user?.user_metadata?.nombre as string) || user?.email || '';
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;

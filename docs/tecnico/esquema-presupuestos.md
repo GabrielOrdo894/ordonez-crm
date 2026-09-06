@@ -37,6 +37,8 @@ verdad que usa la aplicación. Revísalo tú y corrígelo si algo ha cambiado de
 | `firma_nombre` / `firma_fecha` / `firma_base64` | | datos de la firma manual histórica (canvas) — ya no se usa para presupuestos nuevos |
 | `firma_metodo` | text | `'manual'` \| `'documenso'` |
 | `documenso_envelope_id` / `documenso_signing_url` / `documenso_estado` | text | datos del envío a firmar por Documenso |
+| `mensaje_pendiente_texto` | text | mensaje preparado para enviar por WhatsApp/SMS (canales sin envío automatizable desde el CRM) — `null` si no aplica |
+| `mensaje_pendiente_enviado_en` | timestamptz | fecha en la que se marcó como enviado ese mensaje — `null` mientras sigue pendiente. Pestaña "Pendientes de enviar" en `/solicitudes` |
 
 ### Tipo `Linea` (cada elemento del array `lineas`)
 
