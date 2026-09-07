@@ -732,13 +732,29 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   con numero/cliente/mensaje en blanco. Corregido a pedir las mismas columnas en los dos sitios,
   mismo patrón que ya usaba a propósito `seguimientosParaBadge`/`respuestas-pendientes`. Regla a
   tener en cuenta para cualquier badge nuevo del Sidebar que comparta `queryKey` con otra pantalla.
-- **Vista de detalle para "Pendientes de enviar"** (2026-09-07): al hacer clic en una fila de esa
-  pestaña se abre `PendienteEnvioDetalle.tsx` (mismo patrón de página completa que
-  `SolicitudDetalle.tsx`, no un modal ni pestaña nueva del navegador), con: datos de contacto, la
-  visita técnica vinculada si existe (fecha/hora/dirección), el mensaje completo con botón
-  "Copiar", un aviso fijo recordando adjuntar el PDF del presupuesto (Gabriel siempre lo adjunta a
-  mano, el CRM no tiene integración real de WhatsApp), la `nota_interna` del propio presupuesto
-  (reutilizada tal cual — mismo campo que ya edita `DocumentoDetalleInline.tsx`, no una columna
-  nueva) editable ahí mismo, una sección "Relaciones" con enlace directo al presupuesto (mismo
-  patrón que otras fichas), y los botones "Marcar como enviado"/"Volver a pendiente"/"Quitar de
-  pendientes".
+- **Vista de detalle para "Pendientes de enviar"** (2026-09-07, ampliada el mismo día): al hacer
+  clic en una fila de esa pestaña se abre `PendienteEnvioDetalle.tsx` (mismo patrón de página
+  completa que `SolicitudDetalle.tsx`, no un modal ni pestaña nueva del navegador), en layout ancho
+  de dos columnas (`grid-cols-[1fr_360px]`, mismo patrón que `DocumentoDetalleInline.tsx` — la
+  primera versión usaba `max-w-2xl` centrado y quedaba demasiado vertical en desktop). Incluye:
+  - Aviso de advertencias arriba del todo si falta teléfono/email/visita vinculada/mensaje.
+  - El mensaje completo con botón "Copiar", y debajo un aviso fijo recordando adjuntar el PDF —
+    **el texto del mensaje en sí nunca ofrece el PDF como algo a mandar después** ("te lo hago
+    llegar en PDF"), siempre lo da por ya adjunto ("Te adjunto el presupuesto en PDF"), porque
+    Gabriel copia el texto y adjunta el PDF en el mismo envío, nunca por separado — ver
+    [[feedback_mensaje_whatsapp_asume_pdf_adjunto]].
+  - La `nota_interna` del propio presupuesto (reutilizada tal cual — mismo campo que ya edita
+    `DocumentoDetalleInline.tsx`, no una columna nueva), **de solo lectura por defecto**
+    (renderizada con `parsearTextoEnriquecido`, negrita/viñetas incluidas) — un botón "Modificar"
+    pide confirmación (`useConfirmar`, "el cambio se guarda de forma permanente") y solo entonces
+    cambia a modo edición con `EditorTexto` (el mismo editor WYSIWYG de negrita/viñetas ya usado en
+    Visitas), con botones Guardar/Cancelar.
+  - La visita técnica vinculada si existe (fecha/hora/estado/zona/dirección), una sección
+    "Relaciones" con enlace directo al presupuesto (mismo patrón que otras fichas), y los botones
+    "Marcar como enviado"/"Volver a pendiente"/"Quitar de pendientes".
+  - La tabla de la pestaña ganó columnas **Zona** (de la visita vinculada, con sufijo ES/FR) y
+    **Estado** (badge Enviado/Pendiente) — para esto la tabla dejó de filtrar solo los pendientes
+    (`queryKey` nueva `['presupuestos', 'mensajes-envio']`, separada a propósito de
+    `['presupuestos', 'pendientes-envio']` que sigue usando el badge/KPI — mismo motivo que el bug
+    de caché compartida de más arriba: no basta con las mismas columnas si el filtro de filas
+    también es distinto).

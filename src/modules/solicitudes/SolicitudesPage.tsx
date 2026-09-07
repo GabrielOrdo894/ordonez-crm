@@ -29,6 +29,7 @@ import {
   FUENTE_LABEL,
   TIPO_SOLICITUD_LABEL,
   estadoSeguimiento,
+  type MensajeEnvioFila,
   type PresupuestoConRespuesta,
   type PresupuestoPendienteEnvio,
   type Solicitud,
@@ -158,7 +159,10 @@ export default function SolicitudesPage() {
     },
   });
 
-  const { data: pendientesEnvio, isLoading: cargandoPendientes } = useQuery({
+  // Solo los que siguen pendientes — alimenta el KPI y el contador de la pestaña, mismo criterio
+  // (misma queryKey y mismas columnas) que el badge de Sidebar.tsx, para no repetir el bug de
+  // caché compartida documentado en CLAUDE.md.
+  const { data: pendientesEnvio } = useQuery({
     queryKey: ['presupuestos', 'pendientes-envio'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -170,6 +174,35 @@ export default function SolicitudesPage() {
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as PresupuestoPendienteEnvio[];
+    },
+  });
+
+  // Tabla completa de la pestaña — a diferencia de arriba, incluye también los ya enviados (para
+  // que la tabla sirva de historial con columna "Estado") y la zona/país de la visita vinculada.
+  // queryKey distinta a propósito (filtro distinto, no solo columnas distintas — mismo motivo que
+  // ya obligó a separar claves en el bug de Sidebar.tsx).
+  const { data: mensajesEnvio, isLoading: cargandoPendientes } = useQuery({
+    queryKey: ['presupuestos', 'mensajes-envio'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select('id, numero, cliente_nombre, cliente_tel, cliente_email, idioma, visita_id, mensaje_pendiente_texto, mensaje_pendiente_enviado_en')
+        .is('eliminado_en', null)
+        .not('mensaje_pendiente_texto', 'is', null)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      const visitaIds = [...new Set((data ?? []).map((p) => p.visita_id).filter((v): v is string => !!v))];
+      let zonasPorVisita = new Map<string, { zona: string | null; pais: string | null }>();
+      if (visitaIds.length > 0) {
+        const { data: visitas, error: errorVisitas } = await supabase.from('visitas').select('id, zona, pais').in('id', visitaIds);
+        if (errorVisitas) throw errorVisitas;
+        zonasPorVisita = new Map((visitas ?? []).map((v) => [v.id, { zona: v.zona, pais: v.pais }]));
+      }
+      return (data ?? []).map((p) => ({
+        ...p,
+        visita_zona: p.visita_id ? (zonasPorVisita.get(p.visita_id)?.zona ?? null) : null,
+        visita_pais: p.visita_id ? (zonasPorVisita.get(p.visita_id)?.pais ?? null) : null,
+      })) as MensajeEnvioFila[];
     },
   });
 
@@ -415,7 +448,14 @@ export default function SolicitudesPage() {
     onError: (error) => toast.error(error.message),
   });
 
-  const invalidarPendientes = () => queryClient.invalidateQueries({ queryKey: ['presupuestos', 'pendientes-envio'] });
+  // Dos queryKeys distintas que invalidar juntas (badge/KPI vs. tabla completa con historial) —
+  // invalidateQueries solo empareja por PREFIJO exacto del array, así que hace falta llamarlo dos
+  // veces, una llamada con ['presupuestos', 'pendientes-envio'] nunca alcanza a
+  // ['presupuestos', 'mensajes-envio'].
+  const invalidarPendientes = () => {
+    queryClient.invalidateQueries({ queryKey: ['presupuestos', 'pendientes-envio'] });
+    queryClient.invalidateQueries({ queryKey: ['presupuestos', 'mensajes-envio'] });
+  };
 
   const marcarEnviadoPendienteMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
@@ -829,9 +869,10 @@ export default function SolicitudesPage() {
           <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
             <Table
               loading={cargandoPendientes}
-              data={pendientesEnvio ?? []}
+              data={mensajesEnvio ?? []}
               emptyMessage="No hay mensajes pendientes de enviar"
               onRowClick={(p) => setViendoPendienteId(p.id)}
+              rowClassName={(p) => (p.mensaje_pendiente_enviado_en ? 'opacity-60' : '')}
               seleccion={seleccionPendientes}
               onToggleFila={toggleFilaPendientes}
               onToggleTodas={toggleTodasPendientes}
@@ -839,6 +880,16 @@ export default function SolicitudesPage() {
                 { key: 'numero', label: 'Presupuesto', render: (p) => <span className="font-medium">{p.numero ?? 'S/N'}</span> },
                 { key: 'cliente_nombre', label: 'Cliente', render: (p) => p.cliente_nombre || '—' },
                 { key: 'cliente_tel', label: 'Teléfono', render: (p) => p.cliente_tel || '—' },
+                {
+                  key: 'visita_zona',
+                  label: 'Zona',
+                  render: (p) => (p.visita_zona ? `${p.visita_zona}${p.visita_pais ? ` (${p.visita_pais === 'Francia' ? 'FR' : 'ES'})` : ''}` : '—'),
+                },
+                {
+                  key: 'estado_envio',
+                  label: 'Estado',
+                  render: (p) => <Badge variant={p.mensaje_pendiente_enviado_en ? 'realizada' : 'pendiente'}>{p.mensaje_pendiente_enviado_en ? 'Enviado' : 'Pendiente'}</Badge>,
+                },
                 {
                   key: 'mensaje_pendiente_texto',
                   label: 'Mensaje',

@@ -102,6 +102,17 @@ export type PresupuestoPendienteEnvio = {
   mensaje_pendiente_enviado_en: string | null;
 };
 
+// Fila de la TABLA de "Pendientes de enviar" — a diferencia de PresupuestoPendienteEnvio (usado
+// para el badge/KPI, que solo cuenta los que siguen pendientes), esta incluye también los ya
+// marcados como enviados (para que la tabla sirva de historial, con columna "Estado") y la zona de
+// la obra de la visita vinculada (2026-09-07, petición de Gabriel) — `visita_zona`/`visita_pais`
+// se rellenan aparte con una segunda consulta a `visitas` en SolicitudesPage.tsx, no vía embed de
+// PostgREST (para no arriesgarse a un error de relación ambigua).
+export type MensajeEnvioFila = PresupuestoPendienteEnvio & {
+  visita_zona: string | null;
+  visita_pais: string | null;
+};
+
 export type MensajeGenerado = {
   asunto: string;
   cuerpo: string;
