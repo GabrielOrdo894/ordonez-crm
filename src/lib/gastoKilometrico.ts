@@ -8,12 +8,10 @@ import type { Visita } from '../modules/visitas/types';
 export const CUENTA_KILOMETRICO = '6251';
 
 // Potencia fiscal por defecto para el kilometraje automático — el vehículo real es un Volkswagen
-// Tiguan (matrícula francesa BF-513-GB), pero su CV exacto depende del motor/año y no está
-// documentado en ningún sitio del proyecto; 7 CV es el valor más alto que soporta hoy el barème
-// implementado (CV_OPCIONES en baremoKilometrico.ts) y su fórmula de reserva ya cubre cualquier
-// vehículo de 7 CV o más, así que es la aproximación más segura mientras no se confirme el dato
-// real (corregible a mano en cada gasto, o editando esta constante).
-export const CV_VEHICULO_DEFECTO = 7;
+// Tiguan (matrícula francesa BF-513-GB), puissance fiscale (campo P.6) confirmada en su carte
+// grise (negocio/documentos legales/vehiculos/carte-grise-tiguan.jpeg, 2026-09-08): 6 CV. Antes se
+// usaba 7 CV como aproximación provisional porque el dato real no estaba documentado.
+export const CV_VEHICULO_DEFECTO = 6;
 
 /** Crea un gasto de kilometraje "pendiente de revisar" para una visita recién completada — nunca
  * genera asiento contable (eso solo pasa al "Registrar pago" desde Gastos, ver GastosPage.tsx).
