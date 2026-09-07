@@ -526,7 +526,11 @@ export default function ConfiguracionPage() {
   const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   // La lista negra admite email completo o dominio entero con "@dominio.com" (ver estaExcluido()
   // en revisar-gmail/index.ts) — el formato válido es distinto al de notificaciones de visitas.
-  const ENTRADA_LISTA_NEGRA_VALIDA = /^@?[^\s@]+\.[^\s@]+$/;
+  // Bug real corregido 2026-09-08: la regex anterior (/^@?[^\s@]+\.[^\s@]+$/) nunca aceptaba un
+  // email completo (el "@?" solo cubre una arroba al principio, no una en medio de la cadena como
+  // "contacto@aseguradora.com") — pese a que el texto de ayuda decía explícitamente que sí se
+  // podía. Se necesitan dos alternativas: "@dominio.com" o "local@dominio.com".
+  const ENTRADA_LISTA_NEGRA_VALIDA = /^(@[^\s@]+\.[^\s@]+|[^\s@]+@[^\s@]+\.[^\s@]+)$/;
 
   const guardarNotificacionesMutation = useMutation({
     mutationFn: () => {

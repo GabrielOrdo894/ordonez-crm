@@ -664,7 +664,7 @@ export default function InicioPage() {
 
   const resumenFinanciero = (
     <div className="mb-4">
-      <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 max-w-5xl mx-auto">
+      <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4">
         <div className="flex items-center gap-4 flex-wrap mb-3">
           {vistaPais === 'todos' ? (
             <>
@@ -699,7 +699,7 @@ export default function InicioPage() {
           )}
         </div>
         <ResponsiveContainer width="100%" height={380}>
-          <ComposedChart data={datosGrafico}>
+          <ComposedChart data={datosGrafico} barGap={8} barCategoryGap="4%">
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
@@ -707,15 +707,19 @@ export default function InicioPage() {
             <Legend wrapperStyle={{ display: 'none' }} />
             {vistaPais === 'todos' ? (
               <>
-                <Bar dataKey="entradasEs" name="Entradas España" stackId="mes" fill="#1a5c38" />
-                <Bar dataKey="entradasFr" name="Entradas Francia" stackId="mes" fill="#5f9a78" />
-                <Bar dataKey="salidasEs" name="Salidas España" stackId="mes" fill="#fb7185" />
-                <Bar dataKey="salidasFr" name="Salidas Francia" stackId="mes" fill="#fda4af" radius={[4, 4, 0, 0]} />
+                {/* Dos stacks distintos (ingresos/gastos) en vez de uno solo — así entradas y
+                    salidas salen como dos barras una al lado de la otra, cada una apilando
+                    España+Francia por dentro, en vez de las 4 apiladas juntas en una sola barra
+                    (petición de Gabriel 2026-09-08). */}
+                <Bar dataKey="entradasEs" name="Entradas España" stackId="ingresos" fill="#1a5c38" maxBarSize={64} />
+                <Bar dataKey="entradasFr" name="Entradas Francia" stackId="ingresos" fill="#5f9a78" radius={[4, 4, 0, 0]} maxBarSize={64} />
+                <Bar dataKey="salidasEs" name="Salidas España" stackId="gastos" fill="#fb7185" maxBarSize={64} />
+                <Bar dataKey="salidasFr" name="Salidas Francia" stackId="gastos" fill="#fda4af" radius={[4, 4, 0, 0]} maxBarSize={64} />
               </>
             ) : (
               <>
-                <Bar dataKey="entradas" name="Entradas" stackId="mes" fill="#1a5c38" />
-                <Bar dataKey="salidas" name="Salidas" stackId="mes" fill="#fb7185" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="entradas" name="Entradas" stackId="ingresos" fill="#1a5c38" radius={[4, 4, 0, 0]} maxBarSize={64} />
+                <Bar dataKey="salidas" name="Salidas" stackId="gastos" fill="#fb7185" radius={[4, 4, 0, 0]} maxBarSize={64} />
               </>
             )}
             <Line dataKey="resultado" name="Resultado" stroke="#4b5563" strokeWidth={2} dot={{ r: 3 }} />
