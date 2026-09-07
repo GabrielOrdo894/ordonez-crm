@@ -636,7 +636,7 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
 async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, nombre, gmail_thread_id, ultima_respuesta_cliente_fecha')
+    .select('id, nombre, gmail_thread_id, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, respuesta_programada_en')
     .eq('estado', 'Enviada')
     .is('presupuesto_vinculado_id', null)
     .not('gmail_thread_id', 'is', null);
@@ -663,9 +663,31 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
     const headers = ultimoMsg.payload?.headers ?? [];
     const campoDe = cabecera(headers, 'From');
     const de = extraerEmail(campoDe);
-    if (de === NUESTRO_EMAIL) continue; // el último mensaje del hilo lo escribimos nosotros
+    const fechaUltimoMsg = new Date(Number(ultimoMsg.internalDate)).toISOString();
 
-    const fechaMsg = new Date(Number(ultimoMsg.internalDate)).toISOString();
+    if (de === NUESTRO_EMAIL) {
+      // El último mensaje del hilo ya es nuestro — si respondimos DESPUÉS de la última respuesta
+      // del cliente, el aviso "Nueva respuesta"/"Respuesta programada" ya está atendido de
+      // verdad y hay que limpiarlo. Antes esto no pasaba nunca solo (bug real de Gabriel,
+      // 2026-09-08): ni siquiera al enviar la respuesta real se apagaba el badge, la única forma
+      // era tocarlo a mano ("Marcar como revisada") o cambiar el estado de la solicitud.
+      const yaRespondimosDeVerdad =
+        !s.ultima_respuesta_cliente_fecha || fechaUltimoMsg > s.ultima_respuesta_cliente_fecha;
+      if (yaRespondimosDeVerdad && (s.ultima_respuesta_revisada === false || s.respuesta_programada_en)) {
+        const { error: updError } = await supabase
+          .from('solicitudes')
+          .update({ ultima_respuesta_revisada: true, respuesta_programada_en: null })
+          .eq('id', s.id);
+        if (updError) {
+          log.push(`Error limpiando el aviso de la solicitud ${s.id} tras responder: ${updError.message}`);
+        } else {
+          log.push(`Solicitud ${s.id}: respuesta real ya enviada tras el mensaje del cliente — aviso limpiado.`);
+        }
+      }
+      continue;
+    }
+
+    const fechaMsg = fechaUltimoMsg;
     const esRespuestaNueva =
       !s.ultima_respuesta_cliente_fecha || new Date(fechaMsg).getTime() > new Date(s.ultima_respuesta_cliente_fecha).getTime();
     // Landbot nunca trae el nombre del cliente (parseLandbot) y WordPress solo a veces — si el
@@ -680,6 +702,10 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
       patch.ultima_respuesta_cliente_resumen = (ultimoMsg.snippet || texto).slice(0, 500);
       patch.ultima_respuesta_cliente_fecha = fechaMsg;
       patch.ultima_respuesta_revisada = false;
+      // Un programado anterior respondía al mensaje viejo del cliente, no a este nuevo — se
+      // limpia, revisarRespuestasProgramadas detectará uno nuevo si Gabriel programa otra
+      // respuesta para este mensaje.
+      patch.respuesta_programada_en = null;
     }
     if (nombreDetectado) patch.nombre = nombreDetectado;
 
@@ -693,6 +719,87 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
       log.push(`Solicitud ${s.id}: respuesta del cliente detectada, pendiente de revisar.`);
     } else {
       log.push(`Solicitud ${s.id}: nombre completado a partir del email (${nombreDetectado}).`);
+    }
+  }
+  return actualizadas;
+}
+
+// Respuestas de cliente pendientes de revisar (badge "Nueva respuesta") para las que Gabriel ya
+// dejó un email programado ("Schedule send" de Gmail, no un simple Draft) — Gabriel programa sus
+// respuestas para la mañana siguiente en vez de dejarlas como Draft o mandarlas al momento (ver
+// [[feedback_badge_respuesta_programada]], hallazgo real 2026-09-07/08). Sin esto el badge se
+// quedaba en "Nueva respuesta" indefinidamente aunque la respuesta ya estuviera lista para salir,
+// dando la falsa impresión de que nadie la había atendido todavía.
+async function revisarRespuestasProgramadas(token: string, supabase: SupabaseClient, log: string[]) {
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id, email, ultima_respuesta_cliente_fecha, respuesta_programada_en')
+    .eq('estado', 'Enviada')
+    .eq('ultima_respuesta_revisada', false)
+    .not('email', 'is', null);
+
+  if (error) {
+    log.push(`Error leyendo solicitudes con respuesta pendiente: ${error.message}`);
+    return 0;
+  }
+  log.push(`Respuestas pendientes a comprobar si hay envío programado: ${solicitudes.length}.`);
+
+  let actualizadas = 0;
+  for (const s of solicitudes) {
+    const query = `from:${NUESTRO_EMAIL} to:${s.email} in:scheduled`;
+    let listado: { messages?: { id: string }[] };
+    try {
+      listado = await gmailFetch<{ messages?: { id: string }[] }>(`messages?q=${encodeURIComponent(query)}&maxResults=5`, token);
+    } catch (err) {
+      log.push(`Error buscando envíos programados para ${s.email}: ${String(err)}`);
+      continue;
+    }
+    const mensajes = listado.messages ?? [];
+
+    if (mensajes.length === 0) {
+      // No hay (ya) ningún envío programado — si antes sí lo había, es que Gabriel lo canceló
+      // (o ya se envió y revisarRespuestasSolicitudes se encargará de limpiar el aviso del todo
+      // en cuanto detecte el mensaje real). Se limpia solo esta columna, sin tocar
+      // ultima_respuesta_revisada.
+      if (s.respuesta_programada_en) {
+        const { error: updError } = await supabase.from('solicitudes').update({ respuesta_programada_en: null }).eq('id', s.id);
+        if (updError) log.push(`Error limpiando respuesta_programada_en de la solicitud ${s.id}: ${updError.message}`);
+        else log.push(`Solicitud ${s.id}: el envío programado ya no existe — se limpia el aviso.`);
+      }
+      continue;
+    }
+
+    // De los candidatos programados a ese email, el más próximo que responda de verdad al
+    // último mensaje del cliente (posterior a su fecha, no un programado antiguo suelto).
+    let fechaProgramada: string | null = null;
+    for (const { id } of mensajes) {
+      let msg: GmailMessage;
+      try {
+        msg = await gmailFetch<GmailMessage>(`messages/${id}?format=minimal`, token);
+      } catch (err) {
+        log.push(`Error leyendo mensaje programado ${id} (solicitud ${s.id}): ${String(err)}`);
+        continue;
+      }
+      const fechaMsg = new Date(Number(msg.internalDate)).toISOString();
+      const respondeAlUltimoMensaje = !s.ultima_respuesta_cliente_fecha || fechaMsg > s.ultima_respuesta_cliente_fecha;
+      if (respondeAlUltimoMensaje && (!fechaProgramada || fechaMsg < fechaProgramada)) {
+        fechaProgramada = fechaMsg;
+      }
+    }
+
+    if (fechaProgramada && fechaProgramada !== s.respuesta_programada_en) {
+      const { error: updError } = await supabase.from('solicitudes').update({ respuesta_programada_en: fechaProgramada }).eq('id', s.id);
+      if (updError) {
+        log.push(`Error guardando respuesta_programada_en de la solicitud ${s.id}: ${updError.message}`);
+      } else {
+        actualizadas++;
+        log.push(`Solicitud ${s.id}: envío programado detectado para ${fechaProgramada}.`);
+      }
+    } else if (!fechaProgramada && s.respuesta_programada_en) {
+      // Había un programado guardado pero ninguno de los candidatos actuales responde ya al
+      // último mensaje del cliente (p. ej. el cliente volvió a escribir después) — se limpia.
+      const { error: updError } = await supabase.from('solicitudes').update({ respuesta_programada_en: null }).eq('id', s.id);
+      if (updError) log.push(`Error limpiando respuesta_programada_en de la solicitud ${s.id}: ${updError.message}`);
     }
   }
   return actualizadas;
@@ -923,12 +1030,13 @@ Deno.serve(async (req: Request) => {
     const solicitudesFormulario = await ingerirSolicitudesNuevas(token, supabase, log);
     const respuestasPresupuestos = await revisarRespuestasPresupuestos(token, supabase, log);
     const respuestasSolicitudes = await revisarRespuestasSolicitudes(token, supabase, log);
+    const programadosDetectados = await revisarRespuestasProgramadas(token, supabase, log);
     const enviosSolicitudes = await revisarEnviosSolicitudes(token, supabase, log);
     const conversacionesDirectas = await detectarConversacionesDirectas(token, supabase, log, listaNegra);
     const solicitudesNuevas = solicitudesFormulario + conversacionesDirectas;
     const respuestasDetectadas = respuestasPresupuestos + respuestasSolicitudes;
 
-    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, log });
+    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, programadosDetectados, log });
   } catch (err) {
     // console.error (no solo el body de la respuesta) para poder ver el error real en
     // function_logs — el body de una respuesta no-2xx no queda guardado en los logs de Supabase,

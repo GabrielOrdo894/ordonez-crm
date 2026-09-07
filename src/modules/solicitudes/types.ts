@@ -44,6 +44,10 @@ export type Solicitud = {
   // contactada no debe volver a contar como "sin responder").
   ultima_respuesta_revisada: boolean;
   tipo_solicitud: TipoSolicitud | null;
+  // Fecha del envío programado (Gmail "Schedule send") detectado por revisar-gmail para esta
+  // respuesta pendiente — null si no hay ninguno o si ya se envió de verdad (revisar-gmail lo
+  // limpia en cuanto detecta el mensaje real ya enviado). Ver [[feedback_badge_respuesta_programada]].
+  respuesta_programada_en: string | null;
 };
 
 export type MensajeConversacion = { de: string; fecha: string; texto: string };

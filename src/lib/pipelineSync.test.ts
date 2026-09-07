@@ -31,18 +31,30 @@ describe('etapaAutomatica', () => {
   });
 
   it('con un presupuesto Pendiente → Presupuesto enviado', () => {
-    expect(etapaAutomatica(senales({ presupuestos: [{ estado: 'Pendiente' }] }))).toBe('Presupuesto enviado');
+    expect(etapaAutomatica(senales({ presupuestos: [{ estado: 'Pendiente', tipo: 'normal' }] }))).toBe('Presupuesto enviado');
   });
 
-  it('con un presupuesto Aceptado → Presupuesto aceptado, aunque también haya uno Pendiente', () => {
+  it('con un presupuesto normal Aceptado → Presupuesto aceptado, aunque también haya uno Pendiente', () => {
     expect(
-      etapaAutomatica(senales({ presupuestos: [{ estado: 'Pendiente' }, { estado: 'Aceptado' }] })),
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Pendiente', tipo: 'normal' }, { estado: 'Aceptado', tipo: 'normal' }] })),
     ).toBe('Presupuesto aceptado');
+  });
+
+  it('un orientativo Aceptado (cierre interno al sustituirlo por un normal) NO adelanta el pipeline', () => {
+    expect(
+      etapaAutomatica(senales({ visitaEstado: 'Realizada', visitaTieneFecha: true, presupuestos: [{ estado: 'Aceptado', tipo: 'orientativo' }] })),
+    ).toBe('Visita realizada');
+  });
+
+  it('orientativo Aceptado + normal Pendiente → Presupuesto enviado, no Presupuesto aceptado', () => {
+    expect(
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Aceptado', tipo: 'orientativo' }, { estado: 'Pendiente', tipo: 'normal' }] })),
+    ).toBe('Presupuesto enviado');
   });
 
   it('proyecto En curso → En obra, aunque el presupuesto siga Aceptado', () => {
     expect(
-      etapaAutomatica(senales({ presupuestos: [{ estado: 'Aceptado' }], proyectoEstado: 'En curso' })),
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Aceptado', tipo: 'normal' }], proyectoEstado: 'En curso' })),
     ).toBe('En obra');
   });
 
@@ -59,18 +71,18 @@ describe('etapaAutomatica', () => {
   });
 
   it('único presupuesto Rechazado → Perdido', () => {
-    expect(etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }] }))).toBe('Perdido');
+    expect(etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado', tipo: 'normal' }] }))).toBe('Perdido');
   });
 
   it('todos los presupuestos Rechazados → Perdido', () => {
     expect(
-      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }, { estado: 'Rechazado' }] })),
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado', tipo: 'normal' }, { estado: 'Rechazado', tipo: 'normal' }] })),
     ).toBe('Perdido');
   });
 
   it('un presupuesto Rechazado pero otro Pendiente → sigue Presupuesto enviado, no Perdido', () => {
     expect(
-      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado' }, { estado: 'Pendiente' }] })),
+      etapaAutomatica(senales({ presupuestos: [{ estado: 'Rechazado', tipo: 'normal' }, { estado: 'Pendiente', tipo: 'normal' }] })),
     ).toBe('Presupuesto enviado');
   });
 
@@ -78,9 +90,9 @@ describe('etapaAutomatica', () => {
     expect(etapaAutomatica(senales({ visitaEstado: 'Cancelada', visitaTieneFecha: true }))).toBe('Perdido');
   });
 
-  it('visita Cancelada pero con presupuesto Aceptado → Presupuesto aceptado, no Perdido', () => {
+  it('visita Cancelada pero con presupuesto normal Aceptado → Presupuesto aceptado, no Perdido', () => {
     expect(
-      etapaAutomatica(senales({ visitaEstado: 'Cancelada', presupuestos: [{ estado: 'Aceptado' }] })),
+      etapaAutomatica(senales({ visitaEstado: 'Cancelada', presupuestos: [{ estado: 'Aceptado', tipo: 'normal' }] })),
     ).toBe('Presupuesto aceptado');
   });
 });

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
+import { normalizarTelefono } from '../clientes/types';
 
 // Mismo criterio de umbral que useNotificaciones.ts / alerta-diaria (2026-08-30): un borrador
 // (orientativo o normal) que lleva 2+ días sin marcarse como enviado se considera "olvidado".
@@ -19,7 +20,14 @@ function fecha(f: string | null) {
   return new Date(f).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
-type VisitaRealizada = { id: string; nombre: string; apellidos: string; fecha_visita: string | null };
+type VisitaRealizada = {
+  id: string;
+  nombre: string;
+  apellidos: string;
+  fecha_visita: string | null;
+  email: string | null;
+  telefono: string | null;
+};
 type PresupuestoAviso = {
   id: string;
   numero: string | null;
@@ -39,11 +47,26 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     queryFn: async () => {
       const { data, error } = await supabase
         .from('visitas')
-        .select('id, nombre, apellidos, fecha_visita')
+        .select('id, nombre, apellidos, fecha_visita, email, telefono')
         .eq('estado', 'Realizada')
         .is('eliminado_en', null);
       if (error) throw error;
       return data as VisitaRealizada[];
+    },
+  });
+
+  // Solicitudes descartadas (mismo criterio de cruce por contacto que funnelTracking.ts /
+  // pipelineSync.ts) — una visita cuya solicitud de origen se marcó Descartada (Gabriel decidió no
+  // presupuestar esa obra) no debe seguir apareciendo indefinidamente como "sin presupuesto
+  // enviado": no es que se haya olvidado, es que ya se decidió no enviar nada (hallazgo real de
+  // Gabriel 2026-09-07, caso Raphael Szuba — declinado por riesgo estructural pese a insistir el
+  // cliente, la solicitud se marcó Descartada pero la visita seguía en este panel).
+  const { data: solicitudesDescartadas } = useQuery({
+    queryKey: ['solicitudes', 'descartadas-contacto'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('solicitudes').select('email, telefono').eq('estado', 'Descartada');
+      if (error) throw error;
+      return data as { email: string | null; telefono: string | null }[];
     },
   });
 
@@ -78,7 +101,20 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
   const visitaIdsConPresupuestoEnviado = new Set(
     (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
   );
-  const visitasSinPresupuesto = (visitas ?? []).filter((v) => !visitaIdsConPresupuestoEnviado.has(v.id));
+  const emailsDescartados = new Set(
+    (solicitudesDescartadas ?? []).map((s) => s.email?.trim().toLowerCase()).filter((e): e is string => !!e),
+  );
+  const telefonosDescartados = new Set(
+    (solicitudesDescartadas ?? [])
+      .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
+      .filter((t) => t.length > 0),
+  );
+  const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
+    if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+    if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
+    if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+    return true;
+  });
 
   // 2. Presupuesto en Borrador (cualquier tipo) sin marcar como enviado, 2+ días desde su creación.
   const limiteBorrador = isoHaceDias(LIMITE_DIAS_BORRADOR);

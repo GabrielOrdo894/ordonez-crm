@@ -818,9 +818,13 @@ export default function SolicitudesPage() {
                     f.origen === 'solicitud' ? (
                       <span className="flex items-center gap-1.5">
                         <Badge variant={VARIANTE_ESTADO[f.solicitud.estado] ?? 'default'}>{f.solicitud.estado}</Badge>
-                        {f.solicitud.estado === 'Enviada' && !f.solicitud.ultima_respuesta_revisada && (
-                          <Badge variant="pendiente">Nueva respuesta</Badge>
-                        )}
+                        {f.solicitud.estado === 'Enviada' &&
+                          !f.solicitud.ultima_respuesta_revisada &&
+                          (f.solicitud.respuesta_programada_en ? (
+                            <Badge variant="confirmada">Respuesta programada · {fecha(f.solicitud.respuesta_programada_en)}</Badge>
+                          ) : (
+                            <Badge variant="pendiente">Nueva respuesta</Badge>
+                          ))}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1.5">

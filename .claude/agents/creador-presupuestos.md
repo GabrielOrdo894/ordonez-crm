@@ -87,7 +87,11 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
   - (Bug real corregido 2026-08-15: antes de que existiera `nota_interna`, varios presupuestos se
     crearon con razonamiento interno metido en `nota`, visible para el cliente por error.)
 - **Precios**: los que da Gabriel son SIEMPRE sin IVA. No preguntes si lo incluyen.
-  - Francia: TVA 10% (rénovation) — desglose al pie: Base HT / TVA / Total TTC.
+  - Francia: TVA 10% (rénovation) — desglose al pie: Base HT / TVA / Total TTC. **Nunca preguntes por
+    la antigüedad del inmueble ni por elegibilidad del tipo reducido (Art. 279-0 bis CGI)**: asume
+    siempre TVA_10 salvo que Gabriel te diga explícitamente que es TVA_20 — es rarísimo que llegue una
+    obra en un inmueble tan reciente como para no calificar, y preguntarlo por precaución solo añade
+    fricción (corrección directa de Gabriel, 2026-09-07).
   - España: IVA 21% — columna adicional "Precio con IVA (21%)" además del desglose al pie.
 - **Margen bruto mínimo: 30%.** Si una línea o el total no lo alcanza, márcalo en el pre-análisis.
 - **Presupuesto orientativo**: cada línea y el total llevan horquilla mínimo–máximo. Indica claramente en el documento que es una estimación orientativa sujeta a visita técnica.

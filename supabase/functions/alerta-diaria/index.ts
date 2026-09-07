@@ -66,7 +66,21 @@ type SeguimientoNuevo = {
   mensaje_seguimiento_generado: string | null;
   mensaje_seguimiento_enviado: boolean | null;
 };
-type VisitaRealizada = { id: string; nombre: string | null; apellidos: string | null; fecha_visita: string | null };
+type VisitaRealizada = {
+  id: string;
+  nombre: string | null;
+  apellidos: string | null;
+  fecha_visita: string | null;
+  email: string | null;
+  telefono: string | null;
+};
+type SolicitudDescartada = { email: string | null; telefono: string | null };
+
+// Duplicado de normalizarTelefono (src/modules/clientes/types.ts) — un Edge Function no puede
+// importar código del frontend (mismo patrón que esLlamadaAutorizada de arriba).
+function normalizarTelefono(tel: string): string {
+  return tel.replace(/\D/g, '').slice(-9);
+}
 type PresupuestoVinculado = { visita_id: string | null; estado: string };
 type PresupuestoBorrador = { numero: string | null; cliente_nombre: string | null; created_at: string };
 
@@ -199,7 +213,7 @@ Deno.serve(async (req: Request) => {
 
     const limite2dBorrador = isoEnDias(-2);
 
-    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, presupuestosBorradorRes] = await Promise.all([
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, presupuestosBorradorRes, solicitudesDescartadasRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -214,9 +228,10 @@ Deno.serve(async (req: Request) => {
         .select('numero, cliente_nombre, ultima_respuesta_cliente_fecha, mensaje_seguimiento_generado, mensaje_seguimiento_enviado')
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null),
-      supabase.from('visitas').select('id, nombre, apellidos, fecha_visita').eq('estado', 'Realizada').is('eliminado_en', null),
+      supabase.from('visitas').select('id, nombre, apellidos, fecha_visita, email, telefono').eq('estado', 'Realizada').is('eliminado_en', null),
       supabase.from('presupuestos').select('visita_id, estado').is('eliminado_en', null).not('visita_id', 'is', null),
       supabase.from('presupuestos').select('numero, cliente_nombre, created_at').eq('estado', 'Borrador').is('eliminado_en', null),
+      supabase.from('solicitudes').select('email, telefono').eq('estado', 'Descartada'),
     ]);
 
     for (const [nombre, res] of Object.entries({
@@ -228,6 +243,7 @@ Deno.serve(async (req: Request) => {
       visitasRealizadas: visitasRealizadasRes,
       presupuestosVinculados: presupuestosVinculadosRes,
       presupuestosBorrador: presupuestosBorradorRes,
+      solicitudesDescartadas: solicitudesDescartadasRes,
     })) {
       if ((res as { error: { message: string } | null }).error) {
         return jsonResponse({ ok: false, error: `${nombre}: ${(res as { error: { message: string } }).error.message}` }, 500);
@@ -261,9 +277,22 @@ Deno.serve(async (req: Request) => {
         .filter((p) => p.estado !== 'Borrador' && p.visita_id)
         .map((p) => p.visita_id as string),
     );
-    const visitasSinPresupuesto = ((visitasRealizadasRes.data ?? []) as VisitaRealizada[]).filter(
-      (v) => !visitaIdsConPresupuestoEnviado.has(v.id),
+    // Una visita cuya solicitud de origen se marcó Descartada no debe seguir avisando
+    // indefinidamente (mismo criterio de cruce por contacto que funnelTracking.ts —
+    // hallazgo real 2026-09-07, caso Raphael Szuba).
+    const solicitudesDescartadas = (solicitudesDescartadasRes.data ?? []) as SolicitudDescartada[];
+    const emailsDescartados = new Set(
+      solicitudesDescartadas.map((s) => s.email?.trim().toLowerCase()).filter((e): e is string => !!e),
     );
+    const telefonosDescartados = new Set(
+      solicitudesDescartadas.map((s) => (s.telefono ? normalizarTelefono(s.telefono) : '')).filter((t) => t.length > 0),
+    );
+    const visitasSinPresupuesto = ((visitasRealizadasRes.data ?? []) as VisitaRealizada[]).filter((v) => {
+      if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+      if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
+      if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+      return true;
+    });
 
     const borradoresSinEnviar = ((presupuestosBorradorRes.data ?? []) as PresupuestoBorrador[]).filter(
       (p) => p.created_at.slice(0, 10) <= limite2dBorrador,

@@ -6,7 +6,7 @@ import type { EstadoVisita } from '../modules/visitas/types';
 type SenalesPipeline = {
   visitaEstado: EstadoVisita | null;
   visitaTieneFecha: boolean;
-  presupuestos: { estado: string }[];
+  presupuestos: { estado: string; tipo: string }[];
   proyectoEstado: string | null;
   facturaCobrada: boolean;
 };
@@ -14,7 +14,12 @@ type SenalesPipeline = {
 export function etapaAutomatica(s: SenalesPipeline): string {
   if (s.proyectoEstado === 'Finalizado' || s.facturaCobrada) return 'Finalizado';
   if (s.proyectoEstado === 'En curso' || s.proyectoEstado === 'Pausado') return 'En obra';
-  if (s.presupuestos.some((p) => p.estado === 'Aceptado')) return 'Presupuesto aceptado';
+  // Solo un 'normal' Aceptado cuenta como cierre real — un 'orientativo' Aceptado es un estado
+  // puramente interno (cierra esa fase cuando un normal lo sustituye, ver
+  // [[feedback_presupuesto_normal_desde_orientativo_auto_aceptado]]), no una aceptación real del
+  // cliente, y no debe adelantar el pipeline (bug real corregido 2026-09-07: P-2026-0047/0048 se
+  // marcaron Aceptado sin haberse enviado, y el pipeline subió a "Presupuesto aceptado" con ellos).
+  if (s.presupuestos.some((p) => p.estado === 'Aceptado' && p.tipo === 'normal')) return 'Presupuesto aceptado';
   if (s.presupuestos.some((p) => p.estado === 'Pendiente')) return 'Presupuesto enviado';
   // Todos los presupuestos de esta visita rechazados (y ninguno pendiente/aceptado, ya
   // descartado arriba) → lead perdido, no "Visita realizada" indistinguible de uno sin responder.
@@ -86,7 +91,7 @@ export async function sincronizarPipelineCliente(telefono: string | null | undef
   // solo porque comparte teléfono con esa obra anterior (bug real corregido 2026-08-11).
   const { data: presupuestos, error: errorPresupuestos } = await supabase
     .from('presupuestos')
-    .select('id, estado')
+    .select('id, estado, tipo')
     .eq('visita_id', ultimaVisita.id)
     .is('eliminado_en', null);
   if (errorPresupuestos) {

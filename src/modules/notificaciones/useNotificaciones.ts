@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
 import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { normalizarTelefono } from '../clientes/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from '../visitas/types';
 
@@ -268,9 +269,27 @@ export function useNotificaciones() {
     const visitaIdsConPresupuestoEnviado = new Set(
       (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
     );
-    const visitasSinPresupuesto = (visitas ?? []).filter(
-      (v) => v.estado === 'Realizada' && !visitaIdsConPresupuestoEnviado.has(v.id),
+    // Una visita cuya solicitud de origen se marcó Descartada (Gabriel decidió no presupuestar esa
+    // obra) no debe seguir avisando indefinidamente — mismo criterio de cruce por contacto que
+    // funnelTracking.ts/pipelineSync.ts (hallazgo real 2026-09-07, caso Raphael Szuba).
+    const emailsDescartados = new Set(
+      (solicitudes ?? [])
+        .filter((s) => s.estado === 'Descartada')
+        .map((s) => s.email?.trim().toLowerCase())
+        .filter((e): e is string => !!e),
     );
+    const telefonosDescartados = new Set(
+      (solicitudes ?? [])
+        .filter((s) => s.estado === 'Descartada')
+        .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
+        .filter((t) => t.length > 0),
+    );
+    const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
+      if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+      if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
+      if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+      return true;
+    });
     for (const v of visitasSinPresupuesto) {
       lista.push({
         id: `presupuesto-pendiente-${v.id}`,
