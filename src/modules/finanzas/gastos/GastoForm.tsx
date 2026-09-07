@@ -92,7 +92,7 @@ function vacio(): FormState {
     num_factura_proveedor: '',
     es_kilometrico: false,
     km: 0,
-    vehiculo_cv: 5,
+    vehiculo_cv: 6,
   };
 }
 
@@ -508,7 +508,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                     />
                     <Select
                       label="Puissance fiscale del vehículo (CV)"
-                      options={CV_OPCIONES.map((cv) => ({ value: String(cv), label: `${cv} CV${cv === 7 ? ' o más' : ''}` }))}
+                      options={CV_OPCIONES.map((cv) => ({ value: String(cv), label: `${cv} CV` }))}
                       value={String(form.vehiculo_cv)}
                       onChange={(e) => setForm((f) => ({ ...f, vehiculo_cv: Number(e.target.value) }))}
                     />

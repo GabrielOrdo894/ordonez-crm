@@ -11,7 +11,11 @@ export const TARIFA_KM_HASTA_5000: Record<number, number> = {
   7: 0.697,
 };
 
-export const CV_OPCIONES = [3, 4, 5, 6, 7] as const;
+// Restringido a la única opción real (Gabriel, 2026-09-08): el único vehículo usado para visitas
+// es el Volkswagen Tiguan, 6 CV confirmados por su carte grise — de momento no hace falta ofrecer
+// el resto de tramos del barème en el selector. TARIFA_KM_HASTA_5000 conserva la tabla completa
+// (no solo por si se amplía esto luego, sino porque tarifaPorCv() la necesita igualmente).
+export const CV_OPCIONES = [6] as const;
 
 export function tarifaPorCv(cv: number): number {
   return TARIFA_KM_HASTA_5000[cv] ?? TARIFA_KM_HASTA_5000[7];
