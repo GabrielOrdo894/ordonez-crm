@@ -21,6 +21,7 @@ import { Select } from '../../components/ui/Select';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { SolicitudDetalle } from './SolicitudDetalle';
+import { PendienteEnvioDetalle } from './PendienteEnvioDetalle';
 import { EntradaManualPanel } from './EntradaManualPanel';
 import { AvisosPanel } from './AvisosPanel';
 import {
@@ -112,6 +113,7 @@ export default function SolicitudesPage() {
   const { tab } = useParams<{ tab: string }>();
   const pestana: Pestana = PESTANAS.some((p) => p.value === tab) ? (tab as Pestana) : 'entrantes';
   const [viendo, setViendo] = useState<{ tipo: 'solicitud' | 'seguimiento'; id: string } | null>(null);
+  const [viendoPendienteId, setViendoPendienteId] = useState<string | null>(null);
   const [filtroSolicitudes, setFiltroSolicitudes] = useState('Todas');
   const [filtroTipoSolicitud, setFiltroTipoSolicitud] = useState<(typeof FILTRO_TIPO_SOLICITUD)[number]>('Todas');
   const [filtroSeguimiento, setFiltroSeguimiento] = useState('Todas');
@@ -449,6 +451,9 @@ export default function SolicitudesPage() {
 
   if (viendo) {
     return <SolicitudDetalle tipo={viendo.tipo} id={viendo.id} onClose={() => setViendo(null)} />;
+  }
+  if (viendoPendienteId) {
+    return <PendienteEnvioDetalle id={viendoPendienteId} onClose={() => setViendoPendienteId(null)} />;
   }
 
   const solicitudesFiltradas = (solicitudes ?? []).filter((s) => {
@@ -826,25 +831,12 @@ export default function SolicitudesPage() {
               loading={cargandoPendientes}
               data={pendientesEnvio ?? []}
               emptyMessage="No hay mensajes pendientes de enviar"
+              onRowClick={(p) => setViendoPendienteId(p.id)}
               seleccion={seleccionPendientes}
               onToggleFila={toggleFilaPendientes}
               onToggleTodas={toggleTodasPendientes}
               columns={[
-                {
-                  key: 'numero',
-                  label: 'Presupuesto',
-                  render: (p) => (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate('/finanzas/presupuestos', { state: { verDocId: p.id, verDocTipo: 'presupuesto' } });
-                      }}
-                      className="text-brand hover:underline font-medium"
-                    >
-                      {p.numero ?? 'S/N'}
-                    </button>
-                  ),
-                },
+                { key: 'numero', label: 'Presupuesto', render: (p) => <span className="font-medium">{p.numero ?? 'S/N'}</span> },
                 { key: 'cliente_nombre', label: 'Cliente', render: (p) => p.cliente_nombre || '—' },
                 { key: 'cliente_tel', label: 'Teléfono', render: (p) => p.cliente_tel || '—' },
                 {

@@ -732,3 +732,13 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   con numero/cliente/mensaje en blanco. Corregido a pedir las mismas columnas en los dos sitios,
   mismo patrón que ya usaba a propósito `seguimientosParaBadge`/`respuestas-pendientes`. Regla a
   tener en cuenta para cualquier badge nuevo del Sidebar que comparta `queryKey` con otra pantalla.
+- **Vista de detalle para "Pendientes de enviar"** (2026-09-07): al hacer clic en una fila de esa
+  pestaña se abre `PendienteEnvioDetalle.tsx` (mismo patrón de página completa que
+  `SolicitudDetalle.tsx`, no un modal ni pestaña nueva del navegador), con: datos de contacto, la
+  visita técnica vinculada si existe (fecha/hora/dirección), el mensaje completo con botón
+  "Copiar", un aviso fijo recordando adjuntar el PDF del presupuesto (Gabriel siempre lo adjunta a
+  mano, el CRM no tiene integración real de WhatsApp), la `nota_interna` del propio presupuesto
+  (reutilizada tal cual — mismo campo que ya edita `DocumentoDetalleInline.tsx`, no una columna
+  nueva) editable ahí mismo, una sección "Relaciones" con enlace directo al presupuesto (mismo
+  patrón que otras fichas), y los botones "Marcar como enviado"/"Volver a pendiente"/"Quitar de
+  pendientes".
