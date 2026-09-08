@@ -45,7 +45,7 @@ export async function generarPdfDecisionRemuneracion(anio: number, remuneracionA
   parrafo(
     `L'associé unique de la société ${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité ` +
       `limitée (EURL) au capital social de ${fmtEur(capitalSocial)}, dont le siège social est situé ${entidad.direccion || ''}, ` +
-      `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.identificador || ''},`,
+      `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.siren || entidad.identificador || ''},`,
   );
   parrafo(
     `Représentant l'intégralité du capital social et exerçant les pouvoirs dévolus à l'associé unique par l'article 15 ` +
@@ -120,7 +120,7 @@ export async function generarPdfDecisionAprobacionCuentas(
   parrafo(
     `L'associé unique de la société ${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité ` +
       `limitée (EURL) au capital social de ${fmtEur(datos.capitalSocial)}, dont le siège social est situé ${entidad.direccion || ''}, ` +
-      `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.identificador || ''},`,
+      `immatriculée au Registre du Commerce et des Sociétés de Bayonne sous le numéro ${entidad.siren || entidad.identificador || ''},`,
   );
   parrafo(
     "Représentant l'intégralité du capital social et exerçant les pouvoirs dévolus à l'associé unique par l'article 15 " +

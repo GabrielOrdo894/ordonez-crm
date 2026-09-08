@@ -50,7 +50,7 @@ export async function generarPdfPVReception(datos: PVReceptionData): Promise<voi
   parrafo(
     `Et la société ${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité limitée ` +
       `(EURL), dont le siège social est situé ${entidad.direccion || ''}, immatriculée au Registre du Commerce et des ` +
-      `Sociétés de Bayonne sous le numéro ${entidad.identificador || ''}, représentée par ` +
+      `Sociétés de Bayonne sous le numéro ${entidad.siren || entidad.identificador || ''}, représentée par ` +
       `${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'} en sa qualité de gérant, ci-après dénommée ` +
       "« l'Entrepreneur »,",
   );

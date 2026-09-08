@@ -7,6 +7,7 @@ Nombre:         Mario Ricardo Ordoñez Quevedo
 Razón social:   Reformas Ordoñez
 Forma jurídica: EURL (constituida 2026-06-24, inmatriculada RCS 2026-07-07)
 SIREN / RCS:    106 842 925 · R.C.S. Bayonne
+SIRET (siège):  106 842 925 00013
 TVA Francia:    FR 47106842925
 CIF España:     44670089E
 Code APE:       4399C
@@ -16,9 +17,14 @@ Code APE:       4399C
 > bénéficiaires effectifs reales (`negocio/documentos legales/` en el proyecto, fuera de git): el SIRET/TVA
 > que había aquí antes (994 426 286 00013 / FR 26994426286) no coincidía con el SIREN real de la
 > sociedad (106 842 925) — ya estaba mal también en `empresa_config` de Supabase, corregido ahí
-> también. Falta el SIRET completo de 14 dígitos (SIREN + código NIC del establecimiento) — el
-> Kbis solo trae el SIREN de 9 dígitos; consultar el NIC en el avis de situation Sirene (sirene.fr,
-> gratuito e instantáneo con el SIREN) o en el certificado de inmatriculation si Gabriel lo tiene.
+> también.
+> **SIRET completo confirmado 2026-09-08** con el avis de situation Sirene oficial
+> (`negocio/documentos legales/Avis_de_situation_10684292500013...pdf`, entreprise/établissement
+> actifs desde 01/07/2026, mismo domicilio): **106 842 925 00013**. Hasta esta fecha,
+> `empresa_config.datos.fr.identificador` solo guardaba el SIREN de 9 dígitos, así que **todas las
+> facturas y presupuestos franceses emitidos hasta ahora imprimían "SIRET: 106 842 925" incompleto**
+> (le faltaban los 5 dígitos del NIC del establecimiento) — corregido en Supabase con el valor
+> completo; los documentos nuevos ya salen bien, los antiguos ya emitidos no se regeneran.
 
 ## Direcciones
 
@@ -65,23 +71,51 @@ Contraseñas gestionadas por cada usuario — no se documentan aquí.
 
 Rol y nombre guardados en `user_metadata` (`rol`, `nombre`) al crear el usuario en Supabase Auth.
 
-## Datos pre-rellenados en empresa_config
+## Datos reales en empresa_config
+
+> Corregido 2026-09-08 — el bloque anterior de este apartado tenía una forma plana
+> (`siret`/`tva_fr`/`cif_es`/`dir_fr`/`dir_es`) que nunca coincidió con la estructura real de la
+> columna `datos` (jsonb): es un objeto con una clave `es` y una clave `fr`, cada una con los
+> mismos campos (`identificador` = CIF en `es` / SIRET en `fr`, `identificador_extra` = TVA solo en
+> `fr`, y desde hoy también `siren` solo en `fr` — ver nota de más arriba). `cargarEntidad(pais)` en
+> `src/lib/pdfEmpresa.ts` es quien lee `datos.es` o `datos.fr` según el país del documento.
 
 ```json
 {
-  "razon_social": "Reformas Ordoñez",
-  "nombre_titular": "Mario Ricardo Ordoñez Quevedo",
-  "siret": "106 842 925",
-  "tva_fr": "FR 47106842925",
-  "cif_es": "44670089E",
-  "dir_fr": "4 Av des Allées 2ème Étage, 64700 Hendaye, France",
-  "dir_es": "Calle Estación n5, 5D, 20301 Irún, España",
-  "telefono": "+34 697 29 41 38",
-  "web": "ordonezrenov.com",
-  "email": "",
-  "iban": ""
+  "es": {
+    "razon_social": "Reformas Ordoñez",
+    "nombre_titular": "Mario Ricardo Ordoñez Quevedo",
+    "identificador": "44670089E",
+    "identificador_extra": "",
+    "direccion": "Calle Estación n5, 5D, 20301 Irún, España",
+    "telefono": "+34 697 29 41 38",
+    "email": "reformasordonezeus@gmail.com",
+    "web": "ordonezrenov.com",
+    "banco": "Abanca",
+    "iban": "···",
+    "bic": ""
+  },
+  "fr": {
+    "razon_social": "Reformas Ordoñez",
+    "nombre_titular": "Mario Ricardo Ordoñez Quevedo",
+    "identificador": "106 842 925 00013",
+    "identificador_extra": "FR 47106842925",
+    "siren": "106 842 925",
+    "direccion": "4 Av des Allées 2ème Étage, 64700 Hendaye, France",
+    "telefono": "+34 697 29 41 38",
+    "email": "reformasordonezeus@gmail.com",
+    "web": "ordonezrenov.com",
+    "banco": "Credit Agricole",
+    "iban": "···",
+    "bic": "AGRIFRPP869",
+    "seguro": "Tetris Assurance",
+    "num_attestation": "SV75018041T40403"
+  }
 }
 ```
+
+IBAN real omitido a propósito de este documento (va a git) — está en Configuración → España/Francia
+dentro del CRM.
 
 ## Textos T&C por defecto
 

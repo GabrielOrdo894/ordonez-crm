@@ -22,6 +22,12 @@ export type EntidadPais = {
   nombre_titular?: string;
   identificador?: string;
   identificador_extra?: string;
+  // SIREN (9 dígitos) — solo Francia, distinto de `identificador` (SIRET, 14 dígitos: SIREN + NIC
+  // del establecimiento). El número de inmatriculation RCS que citan los documentos societarios
+  // (décisions, PV, compte courant) es legalmente el SIREN, nunca el SIRET — antes ambos usos
+  // compartían `identificador`, lo que era correcto por casualidad mientras ese campo solo
+  // guardaba el SIREN sin completar (corregido 2026-09-08, ver docs/negocio/empresa.md).
+  siren?: string;
   direccion?: string;
   telefono?: string;
   email?: string;

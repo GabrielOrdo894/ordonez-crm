@@ -139,6 +139,8 @@ type EntidadPais = {
   nombre_titular: string;
   identificador: string;
   identificador_extra: string;
+  // SIREN (9 dígitos, RCS) — solo Francia, distinto del SIRET de `identificador` (14 dígitos).
+  siren: string;
   direccion: string;
   telefono: string;
   email: string;
@@ -155,6 +157,7 @@ const ENTIDAD_VACIA: EntidadPais = {
   nombre_titular: '',
   identificador: '',
   identificador_extra: '',
+  siren: '',
   direccion: '',
   telefono: '',
   email: '',
@@ -184,11 +187,15 @@ type BloquePaisProps = {
   onChange: (cambios: Partial<EntidadPais>) => void;
   labelIdentificador: string;
   labelIdentificadorExtra: string;
+  // Solo Francia — SIREN (RCS), el número que citan los documentos societarios (décisions, PV,
+  // compte courant), distinto del SIRET de `identificador`. Sin esta etiqueta no se muestra el
+  // campo (España no lo necesita).
+  labelSiren?: string;
   onGuardar: () => void;
   guardando: boolean;
 };
 
-function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentificadorExtra, onGuardar, guardando }: BloquePaisProps) {
+function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentificadorExtra, labelSiren, onGuardar, guardando }: BloquePaisProps) {
   return (
     <section className="bg-surface border border-gray-200 rounded-sm p-4">
       <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
@@ -203,6 +210,14 @@ function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentifi
         <Input label="Nombre del titular" value={datos.nombre_titular} onChange={(e) => onChange({ nombre_titular: e.target.value })} />
         <Input label={labelIdentificador} value={datos.identificador} onChange={(e) => onChange({ identificador: e.target.value })} />
         <Input label={labelIdentificadorExtra} value={datos.identificador_extra} onChange={(e) => onChange({ identificador_extra: e.target.value })} />
+        {labelSiren && (
+          <Input
+            label={labelSiren}
+            value={datos.siren}
+            onChange={(e) => onChange({ siren: e.target.value })}
+            hint="Número de inmatriculation RCS citado en los documentos societarios (décisions, PV, compte courant) — distinto del SIRET de arriba."
+          />
+        )}
         <div className="col-span-2">
           <Input label="Dirección" value={datos.direccion} onChange={(e) => onChange({ direccion: e.target.value })} />
         </div>
@@ -848,6 +863,7 @@ export default function ConfiguracionPage() {
             onChange={(c) => setDatosFr((d) => ({ ...d, ...c }))}
             labelIdentificador="SIRET"
             labelIdentificadorExtra="TVA"
+            labelSiren="SIREN (RCS)"
             onGuardar={() => guardarFrMutation.mutate()}
             guardando={guardarFrMutation.isPending}
           />

@@ -49,7 +49,7 @@ export async function generarPdfCompteCourant(mov: MovimientoCompteCourant): Pro
     `Entre M. ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'}, associé unique et gérant de la société ` +
       `${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité limitée (EURL) dont le ` +
       `siège social est situé ${entidad.direccion || ''}, immatriculée au Registre du Commerce et des Sociétés de Bayonne ` +
-      `sous le numéro ${entidad.identificador || ''}, agissant ici d'une part en son nom propre et d'autre part au nom de ` +
+      `sous le numéro ${entidad.siren || entidad.identificador || ''}, agissant ici d'une part en son nom propre et d'autre part au nom de ` +
       'la société qu\'il représente,',
     { espacioDespues: 8 },
   );
