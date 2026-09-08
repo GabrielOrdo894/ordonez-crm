@@ -12,6 +12,7 @@ import { AccionesFila, type AccionRapida } from '../../components/ui/AccionesFil
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
+import { registrarAsientoFacturaEmision, registrarAsientoFacturaCobro } from '../../lib/asientosContables';
 
 type Tabla = 'visitas' | 'presupuestos' | 'facturas';
 
@@ -35,6 +36,10 @@ function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null
   // Aviso adicional a insertar en el mensaje de confirmación antes de purgar (p. ej. si quedan
   // documentos activos vinculados) — devuelve '' si no hay nada que avisar.
   avisoExtra?: (id: string) => Promise<string>,
+  // Efecto adicional (best-effort) tras restaurar una fila — hoy solo lo usa TablaFacturas, para
+  // regenerar en el libro diario los asientos que se reversaron al mover la factura a la papelera
+  // (ver rectificarSiHaceFalta en FacturasPage.tsx).
+  alRestaurar?: (fila: T) => Promise<void>,
 ) {
   const toast = useToast();
   const confirmar = useConfirmar();
@@ -59,13 +64,21 @@ function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null
   };
 
   const restaurarMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from(tabla).update({ eliminado_en: null, eliminado_por: null }).eq('id', id);
+    mutationFn: async (fila: T) => {
+      const { error } = await supabase.from(tabla).update({ eliminado_en: null, eliminado_por: null }).eq('id', fila.id);
       if (error) throw error;
+      return fila;
     },
-    onSuccess: () => {
+    onSuccess: async (fila) => {
       invalidar();
       toast.success('Restaurado');
+      if (alRestaurar) {
+        try {
+          await alRestaurar(fila);
+        } catch (error) {
+          toast.warning(`Restaurado, pero hubo un problema al sincronizar datos relacionados: ${(error as Error).message}`);
+        }
+      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -83,7 +96,7 @@ function useSeccionPapelera<T extends { id: string; eliminado_en?: string | null
     onError: (error) => toast.error(error.message),
   });
 
-  const handleRestaurar = (id: string) => restaurarMutation.mutate(id);
+  const handleRestaurar = (fila: T) => restaurarMutation.mutate(fila);
 
   const handleEliminarDefinitivo = async (id: string) => {
     const aviso = avisoExtra ? await avisoExtra(id) : '';
@@ -174,7 +187,7 @@ function TablaVisitas() {
             <AccionesFila
               rapidas={
                 [
-                  { icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(v.id) },
+                  { icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(v) },
                   { icon: Trash2, label: 'Eliminar definitivamente', tono: 'peligro', onClick: () => handleEliminarDefinitivo(v.id) },
                 ] as AccionRapida[]
               }
@@ -234,7 +247,7 @@ function TablaPresupuestos() {
             <AccionesFila
               rapidas={
                 [
-                  { icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(p.id) },
+                  { icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(p) },
                   { icon: Trash2, label: 'Eliminar definitivamente', tono: 'peligro', onClick: () => handleEliminarDefinitivo(p.id) },
                 ] as AccionRapida[]
               }
@@ -252,10 +265,30 @@ function TablaFacturas() {
   // por ley (Code de commerce art. A123-12 en FR, RD 1619/2012 en ES) — borrar físicamente una
   // factura ya numerada rompe esa secuencia. Solo se puede restaurar; para anular una factura de
   // verdad hay que emitir una factura rectificativa, no borrar el registro.
-  const { data, isLoading, handleRestaurar } = useSeccionPapelera<Factura>('facturas', async (id) => {
-    const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'factura').eq('documento_id', id);
-    if (error) throw error;
-  });
+  const queryClient = useQueryClient();
+  const { data, isLoading, handleRestaurar } = useSeccionPapelera<Factura>(
+    'facturas',
+    async (id) => {
+      const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'factura').eq('documento_id', id);
+      if (error) throw error;
+    },
+    undefined,
+    // Espejo exacto de rectificarSiHaceFalta en FacturasPage.tsx, en sentido contrario: al
+    // restaurar una factura de Francia (no estructura_anterior) se regenera su asiento de emisión
+    // y, por cada pago real que tenga en pagos_factura (la papelera nunca los toca), su propio
+    // asiento de cobro con su fecha e importe reales — no un único cobro por el monto_pagado
+    // acumulado, que perdería la fecha de cada pago si hubo más de uno.
+    async (f) => {
+      if (f.pais !== 'Francia' || f.estructura_anterior) return;
+      await registrarAsientoFacturaEmision({ id: f.id, numero: f.numero, cliente_nombre: f.cliente_nombre, fecha_factura: f.fecha_factura, lineas: f.lineas });
+      const { data: pagos, error } = await supabase.from('pagos_factura').select('id, fecha, monto').eq('factura_id', f.id);
+      if (error) throw error;
+      for (const pago of pagos ?? []) {
+        await registrarAsientoFacturaCobro({ id: f.id, numero: f.numero, cliente_nombre: f.cliente_nombre }, pago.monto, pago.fecha, pago.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+    },
+  );
 
   return (
     <div>
@@ -278,7 +311,7 @@ function TablaFacturas() {
             sortable: false,
             render: (f) => (
               <AccionesFila
-                rapidas={[{ icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(f.id) }] as AccionRapida[]}
+                rapidas={[{ icon: RotateCcw, label: 'Restaurar', tono: 'brand', onClick: () => handleRestaurar(f) }] as AccionRapida[]}
                 menu={[]}
               />
             ),

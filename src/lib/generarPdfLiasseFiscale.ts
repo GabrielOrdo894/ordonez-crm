@@ -96,7 +96,7 @@ export async function generarPdfLiasseFiscale(
     head: [[`2052/2053 — Compte de résultat (exercice ${anio})`, '']],
     body: [
       ['Ventes (706)', fmt(datos.compteResultat.ventas)],
-      ["Charges d'exploitation (60-65, 68)", fmt(-datos.compteResultat.cargasExplotacion)],
+      ["Charges d'exploitation (60-65, 681)", fmt(-datos.compteResultat.cargasExplotacion)],
       ["Résultat d'exploitation", fmt(datos.compteResultat.resultadoExplotacion)],
       ['Résultat financier', fmt(datos.compteResultat.resultadoFinanciero)],
       ['Résultat exceptionnel', fmt(datos.compteResultat.resultadoExcepcional)],

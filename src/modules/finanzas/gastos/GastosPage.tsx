@@ -16,6 +16,7 @@ import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import { fechaCorta } from '../../../lib/fechas';
 import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
+import { GRUPOS_CATEGORIA } from './categorias';
 import type { Gasto } from './types';
 import { GastoForm } from './GastoForm';
 import { GastoResumen } from './GastoResumen';
@@ -28,6 +29,15 @@ const ESTADOS_FILTRO = ['Todos', 'Pendientes de revisar', 'Pagados'];
 function totalConIva(g: Gasto) {
   return (g.importe_base ?? 0) + (g.importe_iva ?? 0);
 }
+
+// Cuentas del grupo "Immobilisations" del picker — comprar un activo así como Gasto normal no lo
+// da de alta solo en el registro de Inmovilizado (Fiscalidad → Inmovilizado, paso manual aparte);
+// si se olvida, el bilan y la Liasse Fiscale (que solo leen ese registro, nunca las cuentas 20/21/23
+// del libro diario) quedan descuadrados en silencio por el precio de compra (hallazgo real,
+// auditoría 2026-09-08). Sin automatizar la creación del activo a propósito — sigue siendo una
+// decisión manual (duración de amortización, etc.) — pero al menos queda visible aquí, igual que
+// "Sin categorizar" para la cuenta de espera 471.
+const CUENTAS_INMOVILIZADO = new Set(GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? []);
 
 export default function GastosPage() {
   const toast = useToast();
@@ -62,7 +72,7 @@ export default function GastosPage() {
   // pendiente de revisar), así que es seguro llamarla siempre que sea de Francia.
   async function rectificarSiHaceFalta(g: Gasto) {
     if (g.pais !== 'Francia') return;
-    await rectificarAsientos('gasto', g.id, 'creacion', g.fecha ?? new Date().toISOString().slice(0, 10));
+    await rectificarAsientos('gasto', g.id, 'creacion');
   }
 
   const eliminarMutation = useMutation({
@@ -178,6 +188,9 @@ export default function GastosPage() {
     // desajustan el compte de résultat — este contador ayuda a que no se acumulen sin revisar.
     const sinCategorizar = todos.filter((g) => !g.cuenta_contable).length;
     const pendientesRevisar = todos.filter((g) => g.estado_gasto === 'pendiente').length;
+    const inmovilizadoSinVincular = todos.filter(
+      (g) => g.cuenta_contable && CUENTAS_INMOVILIZADO.has(g.cuenta_contable) && !g.inmovilizado_id,
+    ).length;
     return [
       { label: 'Total gastos', valor: todos.length },
       { label: 'Total este mes', valor: `${totalEsteMes.toFixed(0)} €` },
@@ -185,6 +198,9 @@ export default function GastosPage() {
       { label: 'IVA deducible', valor: `${totalIvaDeducible.toFixed(0)} €`, acento: true },
       { label: 'Sin categorizar', valor: sinCategorizar, acento: sinCategorizar > 0 },
       { label: 'Pendientes de revisar', valor: pendientesRevisar, acento: pendientesRevisar > 0 },
+      ...(inmovilizadoSinVincular > 0
+        ? [{ label: 'Inmovilizado sin vincular', valor: inmovilizadoSinVincular, acento: true }]
+        : []),
     ];
   }, [gastos]);
 

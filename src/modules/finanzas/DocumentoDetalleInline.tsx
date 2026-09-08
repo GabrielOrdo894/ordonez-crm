@@ -15,6 +15,7 @@ import { fechaCorta } from '../../lib/fechas';
 import { cargarEventos, registrarEvento } from '../../lib/eventos';
 import { registrarEventoFunnel, ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO } from '../../lib/funnelTracking';
 import { notaSistema } from '../../lib/notaSistema';
+import { vaciarPagosFactura, rectificarAsientosFacturaSiHaceFalta } from '../../lib/pagosFactura';
 import { generarPdfPresupuesto, generarPdfPresupuestoTraducido, verPdfPresupuestoTraducido } from '../../lib/generarPdfPresupuesto';
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
 import { enviarPresupuestoAFirmar } from '../../lib/documenso';
@@ -219,18 +220,29 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
 
   const quitarPagoMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('facturas')
-        .update({ estado_cobro: 'Pendiente', fecha_pago: null, monto_pagado: null })
-        .eq('id', id);
-      if (error) throw error;
-      await registrarEvento('factura', id, 'Registro de pago revertido — vuelve a Pendiente');
+      if (!factura) return;
+      await vaciarPagosFactura([id]);
+      await registrarEvento('factura', id, 'Pagos revertidos — vuelve a Pendiente');
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura', id] });
       queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
       refetchFactura();
-      toast.success('Registro de pago eliminado, factura vuelve a Pendiente');
+      toast.success('Pagos eliminados, factura vuelve a Pendiente');
+      // Antes esta acción solo tocaba `facturas` — dejaba el asiento de cobro contabilizado para
+      // siempre en el libro diario (asientos_contables es insert-only) y filas huérfanas en
+      // pagos_factura, un duplicado sin corregir de la misma lógica ya arreglada en
+      // FacturasPage.tsx (hallazgo real, auditoría 2026-09-08). Ahora reutiliza exactamente la
+      // misma función.
+      if (factura) {
+        try {
+          await rectificarAsientosFacturaSiHaceFalta(factura, 'cobro');
+          queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+        } catch (error) {
+          toast.warning(`Pagos revertidos, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+        }
+      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -479,7 +491,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               ...(tipo === 'factura' && factura
                 ? ([
                     factura.estado_cobro === 'Cobrada' || factura.estado_cobro === 'Cobrada parcialmente'
-                      ? { label: 'Quitar registro de pago', onClick: () => quitarPagoMutation.mutate() }
+                      ? { label: 'Vaciar pagos registrados', onClick: () => quitarPagoMutation.mutate() }
                       : { label: 'Registrar pago', onClick: () => setRegistrandoPago(true) },
                   ] satisfies AccionMenu[])
                 : []),

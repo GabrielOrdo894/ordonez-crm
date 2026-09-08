@@ -8,6 +8,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
+import { porcentajeIva } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 
 // La sociedad empezó a operar como tal en julio de 2026 — no hay TVA que declarar antes.
@@ -44,6 +45,15 @@ type FacturaFr = {
   lineas: { es_incluido: boolean; total_sin_iva: number }[];
 };
 
+// Un pago real (pagos_factura) de una factura de Francia normal/acompte, con el tipo_iva de su
+// factura embebido vía el join — base de la TVA collectée desde 2026-09-08 (ver comentario grande
+// más abajo, en la query de `pagos`).
+type PagoFr = {
+  fecha: string;
+  monto: number;
+  facturas: { tipo_iva: string | null };
+};
+
 type GastoFr = {
   fecha: string | null;
   tipo_iva: string | null;
@@ -57,12 +67,23 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
-const TASA_ESTANDAR = 0.2;
-const TASA_REDUCIDA_10 = 0.1;
+// Derivadas de TIPOS_IVA (iva.ts) en vez de literales propios — asientosContables.ts usa la misma
+// fuente para la autoliquidación intracom/importación, así que una tasa nueva solo se cambia en un
+// sitio (antes eran dos `0.2` independientes con riesgo real de divergir, corregido 2026-09-08).
+const TASA_ESTANDAR = porcentajeIva('TVA_20') / 100;
+const TASA_REDUCIDA_10 = porcentajeIva('TVA_10') / 100;
 const CUENTAS_IMMOBILISATIONS = GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? [];
 
 function baseFactura(f: FacturaFr) {
   return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_sin_iva), 0);
+}
+
+// Base sin IVA de un pago concreto (cash-basis) — todas las líneas de una factura comparten el
+// mismo tipo_iva, así que la proporción base/total es uniforme y se puede aplicar directamente al
+// importe cobrado (parcial o no) sin volver a leer `lineas`.
+function baseSinIvaDePago(p: PagoFr) {
+  const pct = porcentajeIva(p.facturas.tipo_iva);
+  return pct > 0 ? p.monto / (1 + pct / 100) : p.monto;
 }
 
 function fmt(n: number) {
@@ -163,17 +184,45 @@ export default function AsistenteIvaPage() {
     });
   }, [declaraciones, mesActualISO, hoy]);
 
-  const { data: facturas, isLoading: cargandoFacturas } = useQuery({
-    queryKey: ['facturas', 'iva-fr', mesISO],
+  // TVA collectée: Reformas Ordoñez declara al COBRO, no a la emisión (confirmado por Gabriel
+  // 2026-09-08 — sin "option pour les débits" presentada, es además el régimen legal por defecto
+  // para prestations de services). Así que la base gravable del mes es la suma de los PAGOS
+  // recibidos ese mes (pagos_factura), no las facturas emitidas ese mes — una factura sin cobrar
+  // no aporta nada hasta que se cobra, y un cobro parcial solo aporta esa parte.
+  //
+  // Excluye tipo='rectificativa' a propósito: una nota de crédito no se "cobra", corrige la base
+  // ya declarada de una venta anterior — se sigue reconociendo en el mes de EMISIÓN (ver query de
+  // `rectificativas` más abajo), igual que ya funcionaba antes de este cambio.
+  const { data: pagos, isLoading: cargandoPagos } = useQuery({
+    queryKey: ['pagos_factura', 'iva-fr', mesISO],
     queryFn: async () => {
-      // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL actual, no
-      // cuenta como ingreso real para esta declaración.
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('fecha, monto, facturas!inner(tipo_iva)')
+        .eq('facturas.pais', 'Francia')
+        .eq('facturas.estructura_anterior', false)
+        .is('facturas.eliminado_en', null)
+        .neq('facturas.tipo', 'rectificativa')
+        .gte('fecha', inicioMes)
+        .lte('fecha', finMes);
+      if (error) throw error;
+      // Sin tipos de Database generados para el cliente de Supabase, el helper de TS infiere el
+      // embed factura_id→facturas como array (cardinalidad genérica) aunque en runtime PostgREST
+      // devuelve un único objeto (es un join many-to-one por FK) — de ahí el paso por `unknown`.
+      return data as unknown as PagoFr[];
+    },
+  });
+
+  const { data: rectificativas, isLoading: cargandoRectificativas } = useQuery({
+    queryKey: ['facturas', 'iva-fr-rectificativas', mesISO],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('facturas')
         .select('fecha_factura, tipo_iva, lineas')
         .is('eliminado_en', null)
         .eq('pais', 'Francia')
         .eq('estructura_anterior', false)
+        .eq('tipo', 'rectificativa')
         .gte('fecha_factura', inicioMes)
         .lte('fecha_factura', finMes);
       if (error) throw error;
@@ -196,12 +245,16 @@ export default function AsistenteIvaPage() {
   });
 
   const datos = useMemo(() => {
-    const fs = facturas ?? [];
+    const ps = pagos ?? [];
+    const rs = rectificativas ?? [];
     const gs = gastos ?? [];
 
-    const facturas20 = fs.filter((f) => f.tipo_iva === 'TVA_20');
-    const facturas10 = fs.filter((f) => f.tipo_iva === 'TVA_10');
-    const facturasExentas = fs.filter((f) => f.tipo_iva === 'EXENTO');
+    const pagos20 = ps.filter((p) => p.facturas.tipo_iva === 'TVA_20');
+    const pagos10 = ps.filter((p) => p.facturas.tipo_iva === 'TVA_10');
+    const pagosExentos = ps.filter((p) => p.facturas.tipo_iva === 'EXENTO');
+    const rect20 = rs.filter((f) => f.tipo_iva === 'TVA_20');
+    const rect10 = rs.filter((f) => f.tipo_iva === 'TVA_10');
+    const rectExentas = rs.filter((f) => f.tipo_iva === 'EXENTO');
     const gastosIntracom = gs.filter((g) => g.tipo_iva === 'INTRACOM');
     // Importación fuera de la UE — desde 2022 se autoliquida en la CA3 igual que una adquisición
     // intracomunitaria, pero en casillas propias y distintas (A4/24, no B2/17 — confirmado por
@@ -210,16 +263,17 @@ export default function AsistenteIvaPage() {
     // el mismo simple×20% que ya se usaba para intracomunitario.
     const gastosImportacion = gs.filter((g) => g.tipo_iva === 'IMPORTACION');
 
-    const baseVentasGravadas = [...facturas20, ...facturas10].reduce((s, f) => s + baseFactura(f), 0);
-    const baseA1 = baseVentasGravadas;
     const baseB2 = gastosIntracom.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const baseA4 = gastosImportacion.reduce((s, g) => s + (g.importe_base ?? 0), 0);
-    const baseE2 = facturasExentas.reduce((s, f) => s + baseFactura(f), 0);
+    const baseE2 = pagosExentos.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rectExentas.reduce((s, f) => s + baseFactura(f), 0);
 
-    const base08 = facturas20.reduce((s, f) => s + baseFactura(f), 0);
+    // Base gravable = cobros del mes (cash-basis, ver comentario en la query de `pagos` arriba) +
+    // rectificativas emitidas el mes (émission-basis, sí o sí negativas).
+    const base08 = pagos20.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rect20.reduce((s, f) => s + baseFactura(f), 0);
     const taxe08 = base08 * TASA_ESTANDAR;
-    const base9B = facturas10.reduce((s, f) => s + baseFactura(f), 0);
+    const base9B = pagos10.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rect10.reduce((s, f) => s + baseFactura(f), 0);
     const taxe9B = base9B * TASA_REDUCIDA_10;
+    const baseA1 = base08 + base9B;
 
     const taxe17 = baseB2 * TASA_ESTANDAR;
     const taxe24 = baseA4 * TASA_ESTANDAR;
@@ -300,7 +354,7 @@ export default function AsistenteIvaPage() {
         { linea: '32', label: 'Total à payer (ligne 28)', taxe: iva28 },
       ] as Fila[],
     };
-  }, [facturas, gastos, creditoAnterior]);
+  }, [pagos, rectificativas, gastos, creditoAnterior]);
 
   const filasExportar = useMemo(
     () => [
@@ -316,7 +370,7 @@ export default function AsistenteIvaPage() {
     [datos],
   );
 
-  const cargando = cargandoFacturas || cargandoGastos;
+  const cargando = cargandoPagos || cargandoRectificativas || cargandoGastos;
 
   return (
     <div>
@@ -404,6 +458,9 @@ export default function AsistenteIvaPage() {
             <div>
               <p className="text-sm font-bold text-gray-900">
                 Déclaration de TVA — {MESES[mes - 1]} {anio}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Régimen de encaissement: las ventas cuentan por fecha de COBRO, no de emisión — una factura sin cobrar no aparece hasta que se cobra.
               </p>
               {estadoMesActivo === 'en_curso' && (
                 <p className="text-xs text-amber-600 mt-0.5">Mes en curso — podrás declararla en cuanto termine el mes.</p>

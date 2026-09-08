@@ -431,34 +431,26 @@ export function FacturaForm({
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(factura ? 'Factura actualizada' : 'Factura creada');
-      // Al emitir: asiento nuevo si es de Francia. Al editar: se rectifica (asiento espejo, solo
-      // el evento de emisión — el cobro, si existe, no se toca aquí) el asiento previo y se
-      // registra uno nuevo con los valores corregidos si sigue siendo de Francia.
-      if (resultado.esNueva && form.pais === 'Francia' && !form.estructura_anterior) {
-        registrarAsientoFacturaEmision({
-          id: resultado.id,
-          numero: resultado.numero,
-          cliente_nombre: form.cliente_nombre || null,
-          fecha_factura: form.fecha_factura,
-          lineas: form.lineas,
-        }).catch((error) => toast.warning(`Factura guardada, pero no se pudo registrar en el libro diario: ${error.message}`));
-      } else if (!resultado.esNueva) {
-        (async () => {
-          try {
-            await rectificarAsientos('factura', resultado.id, 'creacion', factura?.fecha_factura ?? form.fecha_factura);
-            if (form.pais === 'Francia' && !form.estructura_anterior) {
-              await registrarAsientoFacturaEmision({
-                id: resultado.id,
-                numero: resultado.numero,
-                cliente_nombre: form.cliente_nombre || null,
-                fecha_factura: form.fecha_factura,
-                lineas: form.lineas,
-              });
-            }
-          } catch (error) {
-            toast.warning(`Factura actualizada, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
-          }
-        })();
+      // Se corrige siempre el asiento de emisión desde cero: rectificarAsientos no hace nada si
+      // nunca existió (caso normal de una factura nueva), así que es seguro e idempotente llamarlo
+      // también al crear, en vez de mantener dos ramas (nueva/editada) con lógica distinta. Se
+      // espera (await) el resultado antes de cerrar el formulario — si no, un fallo de red puede
+      // perderse en silencio si el usuario cierra el modal o navega justo después de ver "Factura
+      // creada" (hallazgo real, auditoría 2026-09-08: AC-2026-0021 se quedó sin ningún asiento
+      // porque este paso se disparaba sin esperar su resultado, "fire and forget").
+      try {
+        await rectificarAsientos('factura', resultado.id, 'creacion');
+        if (form.pais === 'Francia' && !form.estructura_anterior) {
+          await registrarAsientoFacturaEmision({
+            id: resultado.id,
+            numero: resultado.numero,
+            cliente_nombre: form.cliente_nombre || null,
+            fecha_factura: form.fecha_factura,
+            lineas: form.lineas,
+          });
+        }
+      } catch (error) {
+        toast.warning(`Factura guardada, pero no se pudo actualizar el libro diario: ${(error as Error).message}`);
       }
       onClose();
     },

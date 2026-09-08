@@ -6,13 +6,13 @@ import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
 
-type FacturaCobrada = {
+// Mismo superconjunto de columnas que LibroIngresosPage.tsx — comparten esta queryKey y Tanstack
+// Query cachea por key, no por select (ver LibroMayorPage.tsx para el mismo patrón de bug).
+type PagoIngreso = {
   id: string;
-  numero: string | null;
-  cliente_nombre: string | null;
-  fecha_pago: string | null;
-  monto_pagado: number | null;
-  tipo_iva: string | null;
+  fecha: string;
+  monto: number;
+  facturas: { numero: string | null; cliente_nombre: string | null; tipo_iva: string | null };
 };
 
 type GastoFila = {
@@ -43,19 +43,16 @@ function nombreMes(mesISO: string) {
 }
 
 export default function ResultadoPage() {
-  const { data: facturas, isLoading: cargandoFacturas } = useQuery({
-    queryKey: ['facturas', 'cobradas'],
+  const { data: pagos, isLoading: cargandoPagos } = useQuery({
+    queryKey: ['pagos_factura', 'ingresos'],
     queryFn: async () => {
-      // Mismo superconjunto de columnas que LibroIngresosPage.tsx — comparten esta queryKey y
-      // Tanstack Query cachea por key, no por select (mismo patrón de bug ya corregido en
-      // asientos_contables, ver LibroMayorPage.tsx).
       const { data, error } = await supabase
-        .from('facturas')
-        .select('id, numero, cliente_nombre, fecha_pago, monto_pagado, tipo_iva')
-        .is('eliminado_en', null)
-        .not('monto_pagado', 'is', null);
+        .from('pagos_factura')
+        .select('id, fecha, monto, facturas!inner(numero, cliente_nombre, tipo_iva, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false);
       if (error) throw error;
-      return data as FacturaCobrada[];
+      return data as unknown as PagoIngreso[];
     },
   });
 
@@ -80,15 +77,14 @@ export default function ResultadoPage() {
       return nuevo;
     };
 
-    for (const f of facturas ?? []) {
-      if (!f.fecha_pago) continue;
-      const mes = f.fecha_pago.slice(0, 7);
-      const pct = porcentajeIva(f.tipo_iva);
-      const conIva = f.monto_pagado ?? 0;
+    for (const p of pagos ?? []) {
+      const mes = p.fecha.slice(0, 7);
+      const pct = porcentajeIva(p.facturas.tipo_iva);
+      const conIva = p.monto;
       const sinIva = pct > 0 ? conIva / (1 + pct / 100) : conIva;
       const actual = obtenerMes(mes);
       actual.ingresos += sinIva;
-      const clave = f.cliente_nombre ?? 'Sin cliente';
+      const clave = p.facturas.cliente_nombre ?? 'Sin cliente';
       const item = actual.porCliente.get(clave) ?? { etiqueta: clave, importe: 0, n: 0 };
       item.importe += sinIva;
       item.n += 1;
@@ -118,7 +114,7 @@ export default function ResultadoPage() {
         ingresosPorCliente: Array.from(v.porCliente.values()).sort((a, b) => b.importe - a.importe),
         gastosPorCategoria: Array.from(v.porCategoria.values()).sort((a, b) => b.importe - a.importe),
       }));
-  }, [facturas, gastos]);
+  }, [pagos, gastos]);
 
   const [mesesExpandidos, setMesesExpandidos] = useState<Set<string>>(new Set());
 
@@ -147,7 +143,7 @@ export default function ResultadoPage() {
     },
   ];
 
-  if (cargandoFacturas || cargandoGastos) {
+  if (cargandoPagos || cargandoGastos) {
     return <div className="h-96 bg-surface border border-gray-200 rounded-sm animate-pulse" />;
   }
 

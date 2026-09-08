@@ -5,13 +5,14 @@ import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
+import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { MovimientoBanco } from './types';
 import { registrarEvento } from '../../lib/eventos';
 import { registrarAsientoFacturaCobro } from '../../lib/asientosContables';
 
 function totalFactura(f: Factura) {
-  return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
+  return totalConIvaFactura(f);
 }
 
 type VincularFacturaModalProps = {
@@ -55,24 +56,33 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
 
   const vincularMutation = useMutation({
     mutationFn: async (factura: Factura) => {
-      if (!movimiento) return;
-      const total = totalFactura(factura);
-      // monto_pagado es el TOTAL acumulado cobrado, no "el último movimiento" — una factura ya
-      // con un pago parcial vinculado (sigue apareciendo en la lista mientras no llegue al 100%)
-      // perdía ese pago anterior al vincular un segundo movimiento, quedándose sin cobrar del todo
-      // aunque ya lo estuviera (bug real corregido 2026-08-11). RegistrarPagoModal.tsx ya trataba
-      // monto_pagado como acumulado editable — aquí se sigue el mismo criterio.
-      const montoPagadoAcumulado = (factura.monto_pagado ?? 0) + movimiento.importe;
-      const estado_cobro = montoPagadoAcumulado >= total - 0.01 ? 'Cobrada' : 'Cobrada parcialmente';
+      if (!movimiento) return null;
+      // Un movimiento bancario conciliado es un pago real — mismo modelo que RegistrarPagoModal.tsx
+      // (pagos_factura, un pago = una fila): antes esto sobrescribía facturas.monto_pagado/
+      // fecha_pago directamente, así que un cobro conciliado por banco (la vía más fiable de
+      // todas) quedaba invisible para el Libro de Ingresos/Resultado/Dashboard/Asistente de IVA en
+      // cuanto esas pantallas empezaron a leer pagos_factura (hallazgo real, auditoría 2026-09-08).
+      const { data: nuevoPago, error: errorPago } = await supabase
+        .from('pagos_factura')
+        .insert({ factura_id: factura.id, fecha: movimiento.fecha, monto: movimiento.importe, creado_por: 'Conciliación bancaria (OFX)' })
+        .select()
+        .single();
+      if (errorPago) throw errorPago;
+
+      const { data: pagosFactura, error: errorPagos } = await supabase.from('pagos_factura').select('monto').eq('factura_id', factura.id);
+      if (errorPagos) throw errorPagos;
+      const totalPagado = Math.round((pagosFactura ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
+      const estado_cobro = estadoCobroDePagos(totalPagado, totalFactura(factura));
+
       const { error: errorFactura } = await supabase
         .from('facturas')
-        .update({ fecha_pago: movimiento.fecha, monto_pagado: montoPagadoAcumulado, estado_cobro })
+        .update({ fecha_pago: movimiento.fecha, monto_pagado: totalPagado, estado_cobro })
         .eq('id', factura.id);
       if (errorFactura) throw errorFactura;
 
       const { error: errorMovimiento } = await supabase
         .from('movimientos_banco')
-        .update({ estado: 'Vinculado', factura_id: factura.id })
+        .update({ estado: 'Vinculado', factura_id: factura.id, pago_id: nuevoPago.id })
         .eq('id', movimiento.id);
       if (errorMovimiento) throw errorMovimiento;
 
@@ -82,10 +92,16 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
         `Pago de ${movimiento.importe.toFixed(2)} € vinculado automáticamente desde movimiento bancario importado (OFX)`,
       );
 
-      return factura;
+      return { factura, pagoId: nuevoPago.id as string };
     },
-    onSuccess: (factura) => {
+    onSuccess: async (resultado) => {
+      if (!resultado || !movimiento) {
+        onClose();
+        return;
+      }
+      const { factura, pagoId } = resultado;
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura', factura.id] });
       queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
       toast.success('Factura marcada como cobrada y movimiento vinculado');
       // Solo facturas de Francia van al libro diario (PCG). Sin esto, un cobro conciliado por
@@ -93,15 +109,20 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
       // "Descuadre" pudiera detectarlo — cada grupo de asiento cuadra por construcción, así que un
       // cobro que nunca se registró no descuadra nada, solo falta (bug real corregido 2026-08-18).
       // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL, no es ingreso
-      // real de la EURL — no genera apunte.
-      if (factura && movimiento && factura.pais === 'Francia' && !factura.estructura_anterior) {
-        registrarAsientoFacturaCobro(
-          { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
-          movimiento.importe,
-          movimiento.fecha,
-        )
-          .then(() => queryClient.invalidateQueries({ queryKey: ['asientos_contables'] }))
-          .catch((error) => toast.warning(`Pago vinculado, pero no se pudo registrar en el libro diario: ${error.message}`));
+      // real de la EURL — no genera apunte. Se espera (await) antes de cerrar el modal, misma
+      // razón que en el resto de esta ronda: un fallo debe verse mientras el modal sigue abierto.
+      if (factura.pais === 'Francia' && !factura.estructura_anterior) {
+        queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+        try {
+          await registrarAsientoFacturaCobro(
+            { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
+            movimiento.importe,
+            movimiento.fecha,
+            pagoId,
+          );
+        } catch (error) {
+          toast.warning(`Pago vinculado, pero no se pudo registrar en el libro diario: ${(error as Error).message}`);
+        }
       }
       onClose();
     },

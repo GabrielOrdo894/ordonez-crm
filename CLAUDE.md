@@ -758,3 +758,79 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     `['presupuestos', 'pendientes-envio']` que sigue usando el badge/KPI — mismo motivo que el bug
     de caché compartida de más arriba: no basta con las mismas columnas si el filtro de filas
     también es distinto).
+- **Auditoría profunda de la cadena contable + rediseño a `pagos_factura` (régimen de cobro real)**
+  (2026-09-08): auditoría con 5 subagentes en paralelo sobre Gastos↔asientos, Facturas↔asientos,
+  Asistente de IVA, declaración anual y verificación SQL directa contra producción — encontró
+  **`AC-2026-0021`** (acompte de Bea Vangheluwe, 15.707,59 €, ya cobrada) sin ningún asiento
+  contable: causa raíz real, no un caso aislado — tanto `FacturaForm.tsx` como `GastoForm.tsx`
+  disparaban el registro del asiento como una promesa "fire and forget" (sin `await`) justo antes
+  de cerrar el formulario, una carrera real entre cerrar/navegar y que la escritura terminase.
+  Corregido insertando sus 5 asientos retroactivos (creación + cobro, verificado que el libro sigue
+  cuadrando) y unificando `FacturaForm.tsx`/`GastoForm.tsx` en un único flujo `await`ado (crear y
+  editar ya no son dos ramas con lógica distinta — `rectificarAsientos` es un no-op si nunca hubo
+  asiento previo, así que es seguro llamarlo siempre).
+  **`asientosContables.ts` — apuntes con signo correcto:** nueva función `apunte()` que registra
+  cada línea en su lado natural (debe/haber) según el signo del importe, en vez de escribir
+  debe/haber negativos o simplemente omitir la línea — arregla de raíz el descuadre real de las
+  facturas rectificativas con IVA (la línea de TVA collectée se saltaba entera por un guard
+  `iva > 0` que fallaba con IVA negativo). `rectificarAsientos()` ya no recibe una fecha
+  aproximada del llamador — lee la fecha REAL de cada apunte que reversa, necesario ahora que un
+  mismo evento puede tener varios apuntes en fechas distintas (ver más abajo).
+  **Tabla `pagos_factura`** (un pago real = una fila, con su propia fecha e importe): reemplaza a
+  `facturas.monto_pagado`/`fecha_pago` como fuente de verdad de CUÁNDO entró cada cobro — esos dos
+  campos ahora son DERIVADOS (suma y última fecha de los pagos) y se recalculan en cada mutación,
+  se mantienen solo por compatibilidad con todo lo que ya los lee/ordena/filtra. Antes, una factura
+  cobrada en dos meses distintos (p. ej. 50 % en marzo, 50 % en abril) perdía la fecha del primer
+  cobro real: "Registrar pago" sobrescribía esos dos campos cada vez. `asientos_contables` ganó una
+  columna `pago_id` para poder reversar/regenerar UN pago concreto sin tocar los demás cobros de la
+  misma factura. `RegistrarPagoModal.tsx` es ahora un historial (lista de pagos + alta de uno nuevo
+  + baja de uno concreto con su propia reversa), no un formulario que sobrescribe un único importe.
+  **Papelera de facturas**: mover una factura de Francia a la papelera ahora reversa sus asientos
+  (creación + cobro de cada pago); restaurarla los regenera con los datos tal cual quedaron
+  guardados (recorriendo `pagos_factura`, no un único cobro acumulado) — antes una factura
+  papelera'd seguía contabilizada al 100 % en Libro Diario/Mayor/Résultat.
+  **Régimen de TVA — al cobro, no a la emisión** (confirmado por Gabriel: "la tva siempre se
+  declara al cobrarla nunca antes", sin *option pour les débits* presentada, que es además el
+  régimen legal por defecto para *prestations de services*): `AsistenteIvaPage.tsx` (CA3) calcula
+  ahora la base gravable de ventas por fecha real de PAGO (`pagos_factura`), no de emisión — una
+  factura sin cobrar no aparece en ninguna declaración hasta que se cobra, y un cobro parcial solo
+  aporta esa parte. Las facturas rectificativas (notas de crédito) siguen reconociéndose por fecha
+  de EMISIÓN a propósito (una nota de crédito no se "cobra", corrige la base ya declarada). El
+  compte de résultat/bilan de `useComptaFrancia.ts` (Liasse Fiscale) sigue en base DEVENGO desde
+  `asientos_contables` a propósito — el P&L francés usa devengo aunque la TVA se declare al cobro,
+  son cosas distintas en la práctica real francesa. Duplicación de la tasa estándar (20 %) entre
+  `asientosContables.ts` y `AsistenteIvaPage.tsx` corregida derivándola de `TIPOS_IVA` (`iva.ts`) en
+  vez de dos literales `0.2` independientes.
+  **Mismo rediseño propagado a todo lo que agrega ingresos por período** (mismo bug de fondo:
+  atribuir todo a la última fecha de pago tecleada): `ResultadoPage.tsx`, `DashboardContablePage.tsx`,
+  `LibroIngresosPage.tsx` (ahora una fila por pago real, no por factura), `DashboardGeneralPage.tsx`
+  ("Ingresos Francia/España (período)") y el gráfico de ingresos/gastos de la Home (`InicioPage.tsx`)
+  migrados a `pagos_factura`. `RentabilidadPage.tsx` y los KPI "históricos" (sin corte de período,
+  en `DashboardGeneralPage.tsx`/`InicioPage.tsx`) no necesitaban cambio — `monto_pagado` acumulado
+  sigue siendo exacto cuando no se corta por fecha. El IS (`useResultadoEjercicio.ts`, usado por
+  `TabIS.tsx`/`TabSalarioDividendos.tsx`) tampoco — ya calculaba en devengo puro por `fecha_factura`
+  (nunca leyó `fecha_pago`/`monto_pagado`), consistente con que el IS francés se calcula sobre
+  resultado contable, no sobre caja; su divergencia con `useComptaFrancia` es preexistente y ya
+  estaba documentada en la propia FAQ de `TabLiasseFiscale.tsx`.
+  **Conciliación bancaria** (`VincularFacturaModal.tsx`, hallazgo CRÍTICO — un cobro conciliado por
+  banco, la vía más fiable de todas, quedaba invisible para Libro de Ingresos/Resultado/Asistente
+  de IVA porque sobrescribía `facturas.monto_pagado` directamente sin pasar por `pagos_factura`):
+  ahora inserta su propio pago con `creado_por: 'Conciliación bancaria (OFX)'`. `movimientos_banco`
+  ganó una columna `pago_id` para que "Deshacer" en `BancoPage.tsx` reverse el pago concreto (antes
+  solo desmarcaba el movimiento sin tocar nada del lado de la factura, limitación documentada y
+  ahora cerrada).
+  **Duplicado sin corregir encontrado y unificado**: `DocumentoDetalleInline.tsx` tenía su PROPIA
+  copia de "Quitar registro de pago", independiente de `FacturasPage.tsx` y sin ninguna de estas
+  correcciones — prueba viva de que esta lógica estaba duplicada en dos sitios. Extraída a
+  `src/lib/pagosFactura.ts` (`rectificarAsientosFacturaSiHaceFalta`, `vaciarPagosFactura`), única
+  implementación reutilizada por ambos.
+  **Inmovilizado enlazado automáticamente** (antes solo un aviso KPI "Inmovilizado sin vincular"):
+  `GastoForm.tsx` muestra un campo "Duración de amortización" cuando la cuenta elegida es del grupo
+  Immobilisations, y al guardar da de alta (o mantiene sincronizado si ya existía) el activo en
+  `inmovilizado` en el mismo paso — cierra el hallazgo real de que comprar un activo como Gasto
+  normal nunca se enlazaba con el bilan/Liasse Fiscale (que solo leen la tabla `inmovilizado`,
+  nunca las cuentas 20/21/23 del libro diario).
+  Backfill único sobre datos reales: `pagos_factura` empezaba vacía, así que se migraron las 2
+  únicas facturas con `monto_pagado` ya registrado (incluida `AC-2026-0020`, `estructura_anterior`,
+  sin generar asiento nuevo — su ledger ya estaba correctamente reversado a neto cero) y se vinculó
+  el `pago_id` a los asientos de `AC-2026-0021` insertados en esta misma ronda.

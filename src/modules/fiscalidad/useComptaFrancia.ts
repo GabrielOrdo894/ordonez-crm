@@ -100,6 +100,7 @@ export function useComptaFrancia(anio: number) {
         .from('facturas')
         .select('lineas, monto_pagado')
         .eq('pais', 'Francia')
+        .eq('estructura_anterior', false)
         .is('eliminado_en', null)
         .neq('estado_cobro', 'Cobrada');
       if (error) throw error;

@@ -77,9 +77,26 @@ export default function DashboardContablePage() {
   const { data: facturas } = useQuery({
     queryKey: ['facturas'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
+      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null).eq('estructura_anterior', false);
       if (error) throw error;
       return data as Factura[];
+    },
+  });
+
+  // Ingresos = dinero realmente cobrado por período — un PAGO (pagos_factura), no el
+  // monto_pagado/fecha_pago de la factura (esos dos campos son el ÚLTIMO valor tecleado en
+  // "Registrar pago", sobrescrito en cada pago nuevo: una factura cobrada en dos meses distintos
+  // atribuía todo el importe al mes del último pago — corregido 2026-09-08, ver facturas/types.ts).
+  const { data: pagos } = useQuery({
+    queryKey: ['pagos_factura', 'dashboard-contable'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false);
+      if (error) throw error;
+      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null } }[];
     },
   });
 
@@ -101,10 +118,7 @@ export default function DashboardContablePage() {
     },
   });
 
-  const facturasPeriodo = useMemo(
-    () => (facturas ?? []).filter((f) => f.fecha_pago && f.fecha_pago >= desde && f.fecha_pago <= hasta && f.monto_pagado != null),
-    [facturas, desde, hasta],
-  );
+  const pagosPeriodo = useMemo(() => (pagos ?? []).filter((p) => p.fecha >= desde && p.fecha <= hasta), [pagos, desde, hasta]);
 
   const gastosPeriodo = useMemo(
     () => (gastos ?? []).filter((g) => g.fecha && g.fecha >= desde && g.fecha <= hasta),
@@ -112,7 +126,7 @@ export default function DashboardContablePage() {
   );
 
   const kpis = useMemo(() => {
-    const ingresos = facturasPeriodo.reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+    const ingresos = pagosPeriodo.reduce((s, p) => s + p.monto, 0);
     const gastosTotal = gastosPeriodo.reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
     const repercutido = (facturas ?? [])
       .filter((f) => f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
@@ -131,7 +145,7 @@ export default function DashboardContablePage() {
       ivaDeducible: deducible,
       ivaSaldo: repercutido - deducible,
     };
-  }, [facturasPeriodo, gastosPeriodo, facturas, desde, hasta]);
+  }, [pagosPeriodo, gastosPeriodo, facturas, desde, hasta]);
 
   const evolucionMensual = useMemo(() => {
     const meses = Array.from({ length: 12 }, (_, i) => {
@@ -141,13 +155,12 @@ export default function DashboardContablePage() {
       return { anio: d.getFullYear(), mes: d.getMonth(), etiqueta: `${MESES[d.getMonth()]} ${String(d.getFullYear()).slice(-2)}` };
     });
     return meses.map(({ anio, mes, etiqueta }) => {
-      const ingresos = (facturas ?? [])
-        .filter((f) => f.fecha_pago && f.monto_pagado != null)
-        .filter((f) => {
-          const d = new Date(`${f.fecha_pago}T00:00:00`);
+      const ingresos = (pagos ?? [])
+        .filter((p) => {
+          const d = new Date(`${p.fecha}T00:00:00`);
           return d.getFullYear() === anio && d.getMonth() === mes;
         })
-        .reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+        .reduce((s, p) => s + p.monto, 0);
       const gastosMes = (gastos ?? [])
         .filter((g) => g.fecha)
         .filter((g) => {
@@ -157,7 +170,7 @@ export default function DashboardContablePage() {
         .reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
       return { mes: etiqueta, ingresos, gastos: gastosMes, resultado: ingresos - gastosMes };
     });
-  }, [facturas, gastos]);
+  }, [pagos, gastos]);
 
   const gastosPorCategoria = useMemo(() => {
     const map = new Map<string, number>();
@@ -172,12 +185,12 @@ export default function DashboardContablePage() {
   }, [gastosPeriodo]);
 
   const porPais = useMemo(() => {
-    const ingresosEs = facturasPeriodo.filter((f) => f.pais === 'España').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
-    const ingresosFr = facturasPeriodo.filter((f) => f.pais === 'Francia').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+    const ingresosEs = pagosPeriodo.filter((p) => p.facturas.pais === 'España').reduce((s, p) => s + p.monto, 0);
+    const ingresosFr = pagosPeriodo.filter((p) => p.facturas.pais === 'Francia').reduce((s, p) => s + p.monto, 0);
     const gastosEs = gastosPeriodo.filter((g) => g.pais === 'España').reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
     const gastosFr = gastosPeriodo.filter((g) => g.pais === 'Francia').reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
     return { ingresosEs, ingresosFr, gastosEs, gastosFr };
-  }, [facturasPeriodo, gastosPeriodo]);
+  }, [pagosPeriodo, gastosPeriodo]);
 
   const facturasEstado = useMemo(() => {
     const todas = facturas ?? [];

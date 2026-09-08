@@ -48,6 +48,34 @@ export type NuevaFactura = Omit<Factura, 'id' | 'created_at'>;
 export const ESTADOS_COBRO = ['Pendiente', 'Cobrada', 'Cobrada parcialmente', 'Vencida'] as const;
 export const METODOS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Cheque', 'Domiciliación'];
 
+// Un pago real registrado contra una factura (2026-09-08) — reemplaza a monto_pagado/fecha_pago
+// como fuente de verdad de CUÁNDO entró cada importe: esos dos campos de Factura solo guardaban el
+// último valor tecleado, sobrescrito en cada "Registrar pago", así que una factura cobrada en dos
+// veces (p. ej. 50% en marzo y 50% en abril) perdía la fecha real del primer cobro — imposible de
+// declarar bien una TVA que se paga al cobro, no a la emisión (confirmado por Gabriel). Factura
+// sigue teniendo monto_pagado/fecha_pago/estado_cobro, pero ahora son CAMPOS DERIVADOS (suma y
+// último de los pagos) que se recalculan cada vez que esta tabla cambia — se mantienen por
+// compatibilidad con todo lo que ya lee/ordena/filtra por ellos (KPIs, exports, bilan...), no como
+// fuente de verdad.
+export type PagoFactura = {
+  id: string;
+  factura_id: string;
+  fecha: string;
+  monto: number;
+  creado_por: string | null;
+  created_at: string;
+};
+
+export function totalConIvaFactura(f: Pick<Factura, 'lineas'>): number {
+  return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
+}
+
+export function estadoCobroDePagos(totalPagado: number, totalFactura: number): (typeof ESTADOS_COBRO)[number] {
+  if (totalPagado <= 0.01) return 'Pendiente';
+  if (totalPagado >= totalFactura - 0.01) return 'Cobrada';
+  return 'Cobrada parcialmente';
+}
+
 // Título del documento en el PDF/vista previa según el tipo de factura — compartido entre
 // FacturaForm, FacturaPreview y generarPdfFactura para no repetir la misma cadena de ternarios.
 export function tituloDocumentoFactura(tipo: TipoFactura, idiomaCorto: 'es' | 'fr'): string {

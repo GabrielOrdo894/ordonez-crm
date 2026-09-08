@@ -22,6 +22,11 @@ import { calcularKmIdaYVuelta } from '../../../lib/calcularKmIdaYVuelta';
 import { MapsAutocomplete } from '../../google/MapsAutocomplete';
 import type { LugarSeleccionado } from '../../google/MapsAutocomplete';
 
+// Cuentas del grupo "Immobilisations" — comprar un activo así se enlaza automáticamente con la
+// tabla `inmovilizado` al guardar (ver guardarMutation), en vez de dejarlo como un paso manual
+// aparte en Fiscalidad → Inmovilizado que era fácil olvidar y dejaba el bilan/Liasse Fiscale
+// descuadrados en silencio (hallazgo real, auditoría 2026-09-08).
+const CUENTAS_INMOVILIZADO = new Set(GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? []);
 const NUEVO_PROVEEDOR = '__nuevo__';
 const TIPO_INTRACOM = 'INTRACOM';
 // Compra a un proveedor de fuera de la UE (importación) — desde 2022 Francia autoliquida su TVA
@@ -173,6 +178,23 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
   const [direccionVisita, setDireccionVisita] = useState('');
   const [calculandoKm, setCalculandoKm] = useState(false);
 
+  const esInmovilizado = !!form.cuenta_contable && CUENTAS_INMOVILIZADO.has(form.cuenta_contable);
+  const [duracionAmortizacion, setDuracionAmortizacion] = useState(5);
+  // Si el gasto ya estaba enlazado a un activo, precarga su duración real en vez del default —
+  // editar otro campo del gasto no debe pisar en silencio la duración de amortización ya decidida.
+  const { data: inmovilizadoVinculado } = useQuery({
+    queryKey: ['inmovilizado', gasto?.inmovilizado_id],
+    enabled: !!gasto?.inmovilizado_id,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('inmovilizado').select('duracion_anios').eq('id', gasto!.inmovilizado_id!).single();
+      if (error) throw error;
+      return data as { duracion_anios: number };
+    },
+  });
+  useEffect(() => {
+    if (inmovilizadoVinculado) setDuracionAmortizacion(inmovilizadoVinculado.duracion_anios);
+  }, [inmovilizadoVinculado]);
+
   const { data: proveedores } = useQuery({
     queryKey: ['proveedores'],
     queryFn: async () => {
@@ -298,6 +320,33 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
 
   const guardarMutation = useMutation({
     mutationFn: async () => {
+      // Enlace con Inmovilizado — antes de guardar el gasto, para poder incluir su id en el mismo
+      // insert/update en vez de un segundo paso separado. Si falla, el gasto entero no se guarda
+      // (el usuario puede reintentar) — mejor eso que un gasto de inmovilizado sin activo vinculado
+      // otra vez, que es exactamente el bug que esto corrige.
+      let inmovilizadoId = gasto?.inmovilizado_id ?? null;
+      if (esInmovilizado) {
+        const datosActivo = {
+          descripcion: form.descripcion || form.proveedor || 'Activo sin descripción',
+          cuenta_pcg: form.cuenta_contable,
+          fecha_adquisicion: form.fecha,
+          valor_adquisicion: Math.round(importeBase * 100) / 100,
+          duracion_anios: duracionAmortizacion,
+        };
+        if (inmovilizadoId) {
+          const { error } = await supabase.from('inmovilizado').update(datosActivo).eq('id', inmovilizadoId);
+          if (error) throw error;
+        } else {
+          const { data, error } = await supabase.from('inmovilizado').insert(datosActivo).select('id').single();
+          if (error) throw error;
+          inmovilizadoId = data.id as string;
+        }
+      } else if (inmovilizadoId) {
+        // La cuenta ya no es de Immobilisations (el usuario la cambió) — se desvincula el gasto,
+        // pero el activo NO se borra (puede tener dotaciones de amortización ya generadas).
+        inmovilizadoId = null;
+      }
+
       const nuevo: NuevoGasto = {
         fecha: form.fecha,
         descripcion:
@@ -316,7 +365,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
         adjunto_nombre: adjunto?.nombre ?? null,
         adjunto_tipo: adjunto?.tipo ?? null,
         num_factura_proveedor: form.num_factura_proveedor || null,
-        inmovilizado_id: gasto?.inmovilizado_id ?? null,
+        inmovilizado_id: inmovilizadoId,
         km: form.es_kilometrico ? form.km : null,
         vehiculo_cv: form.es_kilometrico ? form.vehiculo_cv : null,
         // Un gasto creado a mano aquí siempre se considera ya pagado. Al editar uno que ya existe
@@ -330,51 +379,47 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
       if (gasto) {
         const { error } = await supabase.from('gastos').update(nuevo).eq('id', gasto.id);
         if (error) throw error;
-        return;
+        return gasto.id;
       }
       const { data, error } = await supabase.from('gastos').insert(nuevo).select('id').single();
       if (error) throw error;
       return data.id as string;
     },
-    onSuccess: (id) => {
+    onSuccess: async (id) => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(gasto ? 'Gasto actualizado' : 'Gasto registrado');
-      // Al crear: asiento nuevo si es de Francia. Al editar: se rectifica (asiento espejo, nunca
-      // se toca el original — ver plan de Contabilidad francesa) el asiento previo si existía, y
-      // se registra uno nuevo con los valores corregidos si sigue siendo de Francia. Si algo falla
-      // no debe deshacer ni bloquear el guardado del gasto ya confirmado.
-      if (id && form.pais === 'Francia') {
-        registrarAsientoGasto({
-          id,
-          fecha: form.fecha,
-          descripcion: form.descripcion || null,
-          proveedor: form.proveedor || null,
-          cuenta_contable: form.cuenta_contable || null,
-          importe_base: Math.round(importeBase * 100) / 100,
-          importe_iva: Math.round(importeIvaDeducible * 100) / 100,
-          tipo_iva: form.tipo_iva,
-        }).catch((error) => toast.warning(`Gasto guardado, pero no se pudo registrar en el libro diario: ${error.message}`));
-      } else if (gasto && gasto.estado_gasto !== 'pendiente') {
-        (async () => {
-          try {
-            await rectificarAsientos('gasto', gasto.id, 'creacion', gasto.fecha ?? form.fecha);
-            if (form.pais === 'Francia') {
-              await registrarAsientoGasto({
-                id: gasto.id,
-                fecha: form.fecha,
-                descripcion: form.descripcion || null,
-                proveedor: form.proveedor || null,
-                cuenta_contable: form.cuenta_contable || null,
-                importe_base: Math.round(importeBase * 100) / 100,
-                importe_iva: Math.round(importeIvaDeducible * 100) / 100,
-                tipo_iva: form.tipo_iva,
-              });
-            }
-          } catch (error) {
-            toast.warning(`Gasto actualizado, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+      if (esInmovilizado) {
+        queryClient.invalidateQueries({ queryKey: ['inmovilizado'] });
+        toast.success('Activo sincronizado en Fiscalidad → Inmovilizado');
+      } else if (gasto?.inmovilizado_id) {
+        toast.warning('La cuenta ya no es de Immobilisations: el gasto se desvinculó del activo (el activo no se ha borrado).');
+      }
+      // Se corrige siempre el asiento desde cero (rectificarAsientos no hace nada si nunca existió
+      // — un gasto nuevo, o uno que seguía "pendiente" de revisión sin contabilizar todavía) y se
+      // registra uno nuevo si sigue siendo de Francia. Una sola rama para crear/editar en vez de
+      // dos con lógica distinta, y se espera (await) el resultado antes de cerrar el formulario —
+      // si no, un fallo de red puede perderse en silencio si el usuario navega justo después de ver
+      // "Gasto guardado" (mismo hallazgo real que en FacturaForm.tsx, auditoría 2026-09-08).
+      const yaContabilizable = !(gasto && gasto.estado_gasto === 'pendiente');
+      if (id && yaContabilizable) {
+        try {
+          await rectificarAsientos('gasto', id, 'creacion');
+          if (form.pais === 'Francia') {
+            await registrarAsientoGasto({
+              id,
+              fecha: form.fecha,
+              descripcion: form.descripcion || null,
+              proveedor: form.proveedor || null,
+              cuenta_contable: form.cuenta_contable || null,
+              importe_base: Math.round(importeBase * 100) / 100,
+              importe_iva: Math.round(importeIvaDeducible * 100) / 100,
+              tipo_iva: form.tipo_iva,
+            });
           }
-        })();
+        } catch (error) {
+          toast.warning(`Gasto guardado, pero no se pudo actualizar el libro diario: ${(error as Error).message}`);
+        }
       }
       if (id) onGuardado?.(id);
       onClose();
@@ -465,6 +510,22 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                     {form.categoria || '— Elegir categoría —'}
                   </button>
                 </div>
+                {esInmovilizado && (
+                  <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-sm p-2.5">
+                    <Input
+                      label="Duración de amortización (años)"
+                      type="number"
+                      min={1}
+                      value={duracionAmortizacion}
+                      onChange={(e) => setDuracionAmortizacion(Math.max(1, Number(e.target.value)))}
+                      hint={
+                        gasto?.inmovilizado_id
+                          ? 'Este gasto ya está enlazado a un activo en Fiscalidad → Inmovilizado — se mantendrá sincronizado.'
+                          : 'Cuenta de Immobilisations: al guardar se da de alta automáticamente en Fiscalidad → Inmovilizado.'
+                      }
+                    />
+                  </div>
+                )}
                 <div className="col-span-2">
                   <Input
                     label="Descripción"

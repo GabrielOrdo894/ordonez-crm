@@ -82,6 +82,25 @@ export default function DashboardGeneralPage() {
     },
   });
 
+  // Ingresos por período = pagos reales (pagos_factura), no facturas.fecha_pago/monto_pagado —
+  // esos dos campos son el ÚLTIMO valor tecleado en "Registrar pago", así que una factura cobrada
+  // en dos meses distintos atribuía todo el importe al mes del último pago (mismo bug ya corregido
+  // en ResultadoPage/DashboardContablePage/LibroIngresosPage/InicioPage, 2026-09-08).
+  const { data: pagos } = useQuery({
+    queryKey: ['pagos_factura', 'dashboard-general'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false);
+      if (error) throw error;
+      // Sin tipos de Database para el cliente de Supabase, TS infiere el embed factura_id→facturas
+      // como array aunque en runtime PostgREST devuelve un único objeto (join many-to-one por FK).
+      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null } }[];
+    },
+  });
+
   const clientes = useMemo(() => agruparClientes(visitas ?? []), [visitas]);
 
   // estructura_anterior (2026-08-22): cobros de una empresa anterior a la EURL actual, se
@@ -109,13 +128,11 @@ export default function DashboardGeneralPage() {
   }, [clientes, visitas, facturas, facturasIngresoReal, gastos, presupuestos]);
 
   const ingresosPorPaisPeriodo = useMemo(() => {
-    const facturasPeriodo = facturasIngresoReal.filter(
-      (f) => f.fecha_pago && f.monto_pagado != null && f.fecha_pago >= desde && f.fecha_pago <= hasta,
-    );
-    const francia = facturasPeriodo.filter((f) => f.pais === 'Francia').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
-    const espana = facturasPeriodo.filter((f) => f.pais === 'España').reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+    const pagosPeriodo = (pagos ?? []).filter((p) => p.fecha >= desde && p.fecha <= hasta);
+    const francia = pagosPeriodo.filter((p) => p.facturas.pais === 'Francia').reduce((s, p) => s + p.monto, 0);
+    const espana = pagosPeriodo.filter((p) => p.facturas.pais === 'España').reduce((s, p) => s + p.monto, 0);
     return { francia, espana };
-  }, [facturasIngresoReal, desde, hasta]);
+  }, [pagos, desde, hasta]);
 
   const visitasPorPipeline = useMemo(() => {
     const map = new Map<string, number>();

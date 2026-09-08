@@ -152,6 +152,23 @@ describe('construirAsientosFacturaEmision', () => {
     expect(asientos.some((a) => a.cuenta === '44571')).toBe(false);
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
   });
+
+  it('factura rectificativa con IVA (totales negativos): apunte de TVA collectée invertido y cuadrado (bug real corregido 2026-09-08)', () => {
+    const lineaNegativa: Linea = { ...lineaBase, cantidad: -1, total_sin_iva: -1000, total_con_iva: -1100 };
+    const asientos = construirAsientosFacturaEmision({
+      id: 'f3',
+      numero: 'R-2026-0001',
+      cliente_nombre: 'Cliente Z',
+      fecha_factura: '2026-05-01',
+      lineas: [lineaNegativa],
+    });
+    // Nunca un debe/haber negativo — el lado se invierte, el importe siempre en positivo.
+    expect(asientos.every((a) => a.debe >= 0 && a.haber >= 0)).toBe(true);
+    expect(asientos.find((a) => a.cuenta === '411')?.haber).toBeCloseTo(1100);
+    expect(asientos.find((a) => a.cuenta === '706')?.debe).toBeCloseTo(1000);
+    expect(asientos.find((a) => a.cuenta === '44571')?.debe).toBeCloseTo(100);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
 });
 
 describe('construirAsientosFacturaCobro', () => {
@@ -164,15 +181,28 @@ describe('construirAsientosFacturaCobro', () => {
 });
 
 describe('construirAsientosRectificacion', () => {
-  it('invierte debe/haber de cada apunte previo y marca el concepto como rectificación', () => {
+  it('invierte debe/haber de cada apunte previo, conserva su fecha original y marca el concepto como rectificación', () => {
     const previos = [
-      { cuenta: '606', debe: 100, haber: 0, concepto: 'Material' },
-      { cuenta: '512', debe: 0, haber: 100, concepto: 'Material' },
+      { cuenta: '606', debe: 100, haber: 0, concepto: 'Material', fecha: '2026-07-01' },
+      { cuenta: '512', debe: 0, haber: 100, concepto: 'Material', fecha: '2026-07-01' },
     ];
-    const asientos = construirAsientosRectificacion(previos, 'gasto', 'g1', 'creacion', '2026-07-01');
+    const asientos = construirAsientosRectificacion(previos, 'gasto', 'g1', 'creacion');
     expect(asientos).toHaveLength(2);
-    expect(asientos[0]).toMatchObject({ cuenta: '606', debe: 0, haber: 100, concepto: 'Material (rectificación)' });
-    expect(asientos[1]).toMatchObject({ cuenta: '512', debe: 100, haber: 0, concepto: 'Material (rectificación)' });
+    expect(asientos[0]).toMatchObject({ cuenta: '606', debe: 0, haber: 100, concepto: 'Material (rectificación)', fecha: '2026-07-01' });
+    expect(asientos[1]).toMatchObject({ cuenta: '512', debe: 100, haber: 0, concepto: 'Material (rectificación)', fecha: '2026-07-01' });
+  });
+
+  it('reversa dos apuntes de cobro en fechas distintas: cada línea conserva SU fecha, no una común (bug real corregido 2026-09-08)', () => {
+    const cobro1 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X' }, 500, '2026-03-15', 'pago-1');
+    const cobro2 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X' }, 300, '2026-04-20', 'pago-2');
+    const reversa = construirAsientosRectificacion(
+      [...cobro1, ...cobro2].map((a) => ({ cuenta: a.cuenta, debe: a.debe, haber: a.haber, concepto: a.concepto, fecha: a.fecha })),
+      'factura',
+      'f1',
+      'cobro',
+    );
+    expect(reversa.filter((a) => a.fecha === '2026-03-15')).toHaveLength(2);
+    expect(reversa.filter((a) => a.fecha === '2026-04-20')).toHaveLength(2);
   });
 
   it('regresión: original + reversa + corregido dejan el saldo neto de cada cuenta correcto (no duplicado)', () => {
@@ -187,11 +217,10 @@ describe('construirAsientosRectificacion', () => {
       importe_iva: 0,
     });
     const reversa = construirAsientosRectificacion(
-      original.map((a) => ({ cuenta: a.cuenta, debe: a.debe, haber: a.haber, concepto: a.concepto })),
+      original.map((a) => ({ cuenta: a.cuenta, debe: a.debe, haber: a.haber, concepto: a.concepto, fecha: a.fecha })),
       'gasto',
       'g1',
       'creacion',
-      '2026-07-02',
     );
     const corregido = construirAsientosGasto({
       id: 'g1',

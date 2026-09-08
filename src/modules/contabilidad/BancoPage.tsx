@@ -12,6 +12,8 @@ import { fechaVisitaCorta } from '../../lib/fechas';
 import { GastoForm } from '../finanzas/gastos/GastoForm';
 import { VincularFacturaModal } from './VincularFacturaModal';
 import type { MovimientoBanco } from './types';
+import { rectificarAsientos } from '../../lib/asientosContables';
+import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
 
 const FILTROS = ['Todos', 'Pendiente', 'Vinculado', 'Ignorado'] as const;
 type Filtro = (typeof FILTROS)[number];
@@ -48,19 +50,58 @@ export default function BancoPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  // Solo deshace el estado del movimiento en sí — si ya se había marcado una factura como cobrada
-  // o creado un gasto a partir de él, eso hay que corregirlo aparte en Facturas/Gastos.
+  // Si el movimiento estaba vinculado a una factura, reversa SOLO ese pago concreto (su asiento vía
+  // pago_id, y la fila de pagos_factura) y recalcula monto_pagado/fecha_pago/estado_cobro desde los
+  // pagos que queden — antes esto solo desmarcaba el movimiento sin tocar nada del lado de la
+  // factura, dejando el cobro contabilizado para siempre aunque el vínculo ya no existiera
+  // (limitación conocida, cerrada 2026-09-08). Si estaba vinculado a un gasto, eso sigue habiendo
+  // que corregirlo aparte en Gastos — un gasto no tiene un "pago" que reversar de la misma forma.
   const deshacerMutation = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (m: MovimientoBanco) => {
+      if (m.factura_id && m.pago_id) {
+        const { data: factura, error: errorFactura } = await supabase
+          .from('facturas')
+          .select('id, pais, estructura_anterior, lineas')
+          .eq('id', m.factura_id)
+          .single();
+        if (errorFactura) throw errorFactura;
+        if (factura.pais === 'Francia' && !factura.estructura_anterior) {
+          await rectificarAsientos('factura', factura.id, 'cobro', m.pago_id);
+        }
+        const { error: errorBorrar } = await supabase.from('pagos_factura').delete().eq('id', m.pago_id);
+        if (errorBorrar) throw errorBorrar;
+        const { data: pagosRestantes, error: errorPagos } = await supabase
+          .from('pagos_factura')
+          .select('fecha, monto')
+          .eq('factura_id', factura.id);
+        if (errorPagos) throw errorPagos;
+        const totalPagado = Math.round((pagosRestantes ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
+        const estado_cobro = estadoCobroDePagos(totalPagado, totalConIvaFactura(factura));
+        const ultimaFecha = (pagosRestantes ?? []).reduce<string | null>((max, p) => (!max || p.fecha > max ? p.fecha : max), null);
+        const { error: errorUpdateFactura } = await supabase
+          .from('facturas')
+          .update({ monto_pagado: totalPagado > 0 ? totalPagado : null, fecha_pago: ultimaFecha, estado_cobro })
+          .eq('id', factura.id);
+        if (errorUpdateFactura) throw errorUpdateFactura;
+      }
       const { error } = await supabase
         .from('movimientos_banco')
-        .update({ estado: 'Pendiente', factura_id: null, gasto_id: null })
-        .eq('id', id);
+        .update({ estado: 'Pendiente', factura_id: null, gasto_id: null, pago_id: null })
+        .eq('id', m.id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_data, m) => {
       queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
-      toast.success('Vínculo deshecho — revisa la factura o el gasto si hace falta corregirlo también allí');
+      if (m.factura_id) {
+        queryClient.invalidateQueries({ queryKey: ['facturas'] });
+        queryClient.invalidateQueries({ queryKey: ['pagos_factura', m.factura_id] });
+        queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      }
+      toast.success(
+        m.gasto_id
+          ? 'Vínculo deshecho — revisa el gasto si hace falta corregirlo también allí'
+          : 'Vínculo deshecho, el pago se ha revertido en la factura',
+      );
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -214,7 +255,7 @@ export default function BancoPage() {
                     </Button>
                   )}
                   {m.estado !== 'Pendiente' && (
-                    <Button size="sm" variant="secondary" onClick={() => deshacerMutation.mutate(m.id)}>
+                    <Button size="sm" variant="secondary" onClick={() => deshacerMutation.mutate(m)}>
                       <Undo2 size={13} className="mr-1" />
                       Deshacer
                     </Button>

@@ -11,6 +11,7 @@ import { mensajeError } from '../../../lib/mensajeError';
 import { fechaCorta } from '../../../lib/fechas';
 import { numeroOrdenable } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
+import { rectificarAsientosFacturaSiHaceFalta as rectificarSiHaceFalta, vaciarPagosFactura as vaciarPagos } from '../../../lib/pagosFactura';
 import { DocumentoDetalleInline, type TipoDocumento } from '../DocumentoDetalleInline';
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../hooks/useToast';
@@ -128,67 +129,100 @@ export default function FacturasPage() {
   );
 
   const eliminarMutation = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (f: Factura) => {
       const { error } = await supabase
         .from('facturas')
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
-        .eq('id', id);
+        .eq('id', f.id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, f) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       toast.success('Factura movida a la papelera');
+      // Una factura en la papelera no debe seguir contabilizada en el libro diario/mayor ni en el
+      // compte de résultat — se reversan sus asientos aquí (y se regeneran al restaurar, ver
+      // PapeleraPage.tsx) en vez de añadir un filtro `eliminado_en` en cada uno de los sitios que
+      // leen asientos_contables.
+      try {
+        await rectificarSiHaceFalta(f, 'creacion');
+        await rectificarSiHaceFalta(f, 'cobro');
+        queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      } catch (error) {
+        toast.warning(`Factura movida a la papelera, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+      }
     },
     onError: (error) => toast.error(error.message),
   });
 
   const quitarPagoMutation = useMutation({
     mutationFn: async (f: Factura) => {
-      const { error } = await supabase
-        .from('facturas')
-        .update({ estado_cobro: 'Pendiente', fecha_pago: null, monto_pagado: null })
-        .eq('id', f.id);
-      if (error) throw error;
+      await vaciarPagos([f.id]);
       if (f.visita_id) {
-        await notaSistema(f.visita_id, `Pago de la factura ${f.numero} revertido por ${nombreUsuarioActual}`);
+        await notaSistema(f.visita_id, `Pagos de la factura ${f.numero} revertidos por ${nombreUsuarioActual}`);
       }
-      await registrarEvento('factura', f.id, 'Registro de pago revertido — vuelve a Pendiente');
+      await registrarEvento('factura', f.id, 'Pagos revertidos — vuelve a Pendiente');
     },
-    onSuccess: () => {
+    onSuccess: async (_data, f) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      toast.success('Registro de pago eliminado, factura vuelve a Pendiente');
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura', f.id] });
+      toast.success('Pagos eliminados, factura vuelve a Pendiente');
+      try {
+        await rectificarSiHaceFalta(f, 'cobro');
+        queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      } catch (error) {
+        toast.warning(`Pagos revertidos, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
+      }
     },
     onError: (error) => toast.error(error.message),
   });
 
   const eliminarVariasMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
+      const { data: filas, error: errorLectura } = await supabase
+        .from('facturas')
+        .select('id, pais, estructura_anterior')
+        .in('id', ids as string[]);
+      if (errorLectura) throw errorLectura;
       const { error } = await supabase
         .from('facturas')
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
         .in('id', ids as string[]);
       if (error) throw error;
+      return filas as Pick<Factura, 'id' | 'pais' | 'estructura_anterior'>[];
     },
-    onSuccess: (_data, ids) => {
+    onSuccess: async (filas) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      toast.success(`${ids.length} factura(s) movida(s) a la papelera`);
+      toast.success(`${filas.length} factura(s) movida(s) a la papelera`);
       limpiar();
+      const resultados = await Promise.allSettled(
+        filas.flatMap((f) => [rectificarSiHaceFalta(f, 'creacion'), rectificarSiHaceFalta(f, 'cobro')]),
+      );
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      const fallos = resultados.filter((r) => r.status === 'rejected').length;
+      if (fallos > 0) toast.warning(`Movidas a la papelera, pero ${fallos} corrección(es) del libro diario fallaron.`);
     },
     onError: (error) => toast.error(error.message),
   });
 
   const quitarPagoVariasMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
-      const { error } = await supabase
+      const idsStr = ids as string[];
+      const { data: filas, error: errorLectura } = await supabase
         .from('facturas')
-        .update({ estado_cobro: 'Pendiente', fecha_pago: null, monto_pagado: null })
-        .in('id', ids as string[]);
-      if (error) throw error;
+        .select('id, pais, estructura_anterior')
+        .in('id', idsStr);
+      if (errorLectura) throw errorLectura;
+      await vaciarPagos(idsStr);
+      return filas as Pick<Factura, 'id' | 'pais' | 'estructura_anterior'>[];
     },
-    onSuccess: () => {
+    onSuccess: async (filas) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      toast.success('Facturas marcadas como pendientes de cobro');
+      toast.success('Pagos eliminados, facturas vuelven a Pendiente');
       limpiar();
+      const resultados = await Promise.allSettled(filas.map((f) => rectificarSiHaceFalta(f, 'cobro')));
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      const fallos = resultados.filter((r) => r.status === 'rejected').length;
+      if (fallos > 0) toast.warning(`Pagos revertidos, pero ${fallos} corrección(es) del libro diario fallaron.`);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -247,7 +281,7 @@ export default function FacturasPage() {
 
   const handleEliminar = async (f: Factura) => {
     if (!(await confirmar(`¿Eliminar la factura ${f.numero ?? ''}? Se moverá a la Papelera.`))) return;
-    eliminarMutation.mutate(f.id);
+    eliminarMutation.mutate(f);
   };
 
   const handleDescargarPdf = async (f: Factura) => {
@@ -299,7 +333,7 @@ export default function FacturasPage() {
   const rapidasFactura = (f: Factura): AccionRapida[] => {
     const descargar: AccionRapida = { icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(f) };
     if (f.estado_cobro === 'Cobrada' || f.estado_cobro === 'Cobrada parcialmente') {
-      return [{ icon: Undo2, label: 'Quitar registro de pago', tono: 'neutro', onClick: () => quitarPagoMutation.mutate(f) }, descargar];
+      return [{ icon: Undo2, label: 'Vaciar pagos registrados', tono: 'neutro', onClick: () => quitarPagoMutation.mutate(f) }, descargar];
     }
     return [{ icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => setRegistrandoPago(f) }, descargar];
   };
@@ -382,7 +416,7 @@ export default function FacturasPage() {
         onCancelar={limpiar}
         acciones={[
           {
-            label: 'Quitar registro de pago',
+            label: 'Vaciar pagos registrados',
             onClick: () => quitarPagoVariasMutation.mutate(Array.from(seleccion)),
             disabled: quitarPagoVariasMutation.isPending,
           },
@@ -468,7 +502,7 @@ export default function FacturasPage() {
                       oculto: f.estado_cobro === 'Cobrada',
                     },
                     {
-                      label: 'Quitar registro de pago',
+                      label: 'Vaciar pagos registrados',
                       onClick: () => quitarPagoMutation.mutate(f),
                       oculto: f.estado_cobro !== 'Cobrada' && f.estado_cobro !== 'Cobrada parcialmente',
                     },

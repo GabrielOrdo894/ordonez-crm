@@ -301,6 +301,28 @@ export default function InicioPage() {
     },
   });
 
+  // Ingresos por período = pagos reales (pagos_factura), no facturas.fecha_pago/monto_pagado —
+  // esos dos campos son el ÚLTIMO valor tecleado en "Registrar pago", así que una factura cobrada
+  // en dos meses distintos atribuía todo el importe al mes del último pago (mismo bug ya corregido
+  // en ResultadoPage/DashboardContablePage/LibroIngresosPage, 2026-09-08). Solo para los bloques
+  // que cortan por período — `resultadoTotal`/`facturasUrgentes` (sin corte de fecha) y
+  // `resumenIva.repercutido` (a propósito por fecha de EMISIÓN, no de cobro) siguen usando
+  // `facturasKpi` tal cual, ver comentarios en cada uno.
+  const { data: pagos } = useQuery({
+    queryKey: ['pagos_factura', 'inicio'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false);
+      if (error) throw error;
+      // Sin tipos de Database para el cliente de Supabase, TS infiere el embed factura_id→facturas
+      // como array aunque en runtime PostgREST devuelve un único objeto (join many-to-one por FK).
+      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null } }[];
+    },
+  });
+
   // Solo alimenta el bloque de KPI (resumenFinanciero) — el calendario y las listas de visitas
   // de esta página siguen mostrando todo, sin filtrar por país.
   const ORDEN_PAIS = ['Francia', 'todos', 'España'] as const;
@@ -320,6 +342,10 @@ export default function InicioPage() {
   const gastosKpi = useMemo(
     () => (vistaPais === 'todos' ? gastos : (gastos ?? []).filter((g) => g.pais === vistaPais)),
     [gastos, vistaPais],
+  );
+  const pagosKpi = useMemo(
+    () => (vistaPais === 'todos' ? pagos : (pagos ?? []).filter((p) => p.facturas.pais === vistaPais)),
+    [pagos, vistaPais],
   );
 
   const cancelarVisitaMutation = useMutation({
@@ -363,10 +389,9 @@ export default function InicioPage() {
     const salidasEsPorMes = new Map<string, number>();
     const salidasFrPorMes = new Map<string, number>();
 
-    for (const f of facturasKpi ?? []) {
-      if (!f.fecha_pago || f.monto_pagado == null) continue;
-      const mes = f.fecha_pago.slice(0, 7);
-      entradasPorMes.set(mes, (entradasPorMes.get(mes) ?? 0) + f.monto_pagado);
+    for (const p of pagosKpi ?? []) {
+      const mes = p.fecha.slice(0, 7);
+      entradasPorMes.set(mes, (entradasPorMes.get(mes) ?? 0) + p.monto);
     }
 
     for (const g of gastosKpi ?? []) {
@@ -376,11 +401,10 @@ export default function InicioPage() {
       salidasPorMes.set(mes, (salidasPorMes.get(mes) ?? 0) + total);
     }
 
-    for (const f of facturas ?? []) {
-      if (!f.fecha_pago || f.monto_pagado == null) continue;
-      const mes = f.fecha_pago.slice(0, 7);
-      const mapa = f.pais === 'Francia' ? entradasFrPorMes : entradasEsPorMes;
-      mapa.set(mes, (mapa.get(mes) ?? 0) + f.monto_pagado);
+    for (const p of pagos ?? []) {
+      const mes = p.fecha.slice(0, 7);
+      const mapa = p.facturas.pais === 'Francia' ? entradasFrPorMes : entradasEsPorMes;
+      mapa.set(mes, (mapa.get(mes) ?? 0) + p.monto);
     }
 
     for (const g of gastos ?? []) {
@@ -405,7 +429,7 @@ export default function InicioPage() {
         salidasFr: salidasFrPorMes.get(mes) ?? 0,
       };
     });
-  }, [facturasKpi, gastosKpi, facturas, gastos]);
+  }, [pagosKpi, gastosKpi, pagos, gastos]);
 
   const plafondTramo15 = useMemo(() => {
     const ejercicio = limitesEjercicio(new Date().getFullYear());
@@ -528,9 +552,9 @@ export default function InicioPage() {
 
   const contabilidadMes = useMemo(() => {
     const calcularMes = (mesISO: string) => {
-      const ingresos = (facturasKpi ?? [])
-        .filter((f) => (f.fecha_pago ?? '').slice(0, 7) === mesISO && f.monto_pagado != null)
-        .reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+      const ingresos = (pagosKpi ?? [])
+        .filter((p) => p.fecha.slice(0, 7) === mesISO)
+        .reduce((s, p) => s + p.monto, 0);
       const gastosDelMes = (gastosKpi ?? [])
         .filter((g) => (g.fecha ?? '').slice(0, 7) === mesISO)
         .reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
@@ -560,9 +584,9 @@ export default function InicioPage() {
     // Desglose por país del mes actual — independiente del selector de arriba, solo se muestra
     // en la vista Consolidado de los KPI "Ingresos del mes" y "Resultado del mes".
     const ingresosPorPais = (pais: string) =>
-      (facturas ?? [])
-        .filter((f) => f.pais === pais && (f.fecha_pago ?? '').slice(0, 7) === hoyMesISO && f.monto_pagado != null)
-        .reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
+      (pagos ?? [])
+        .filter((p) => p.facturas.pais === pais && p.fecha.slice(0, 7) === hoyMesISO)
+        .reduce((s, p) => s + p.monto, 0);
     const gastosPorPais = (pais: string) =>
       (gastos ?? [])
         .filter((g) => g.pais === pais && (g.fecha ?? '').slice(0, 7) === hoyMesISO)
@@ -573,7 +597,7 @@ export default function InicioPage() {
     const resultadoFr = ingresosFr - gastosPorPais('Francia');
 
     return { ...actual, deltaIngresos, deltaGastos, margen, ingresosSerie, gastosSerie, ingresosEs, ingresosFr, resultadoEs, resultadoFr };
-  }, [facturasKpi, gastosKpi, facturas, gastos, hoyMesISO]);
+  }, [pagosKpi, gastosKpi, pagos, gastos, hoyMesISO]);
 
   const solicitudesNuevasLista = (solicitudesResumen ?? []).filter((s) => s.estado === 'Nueva');
   const nuevasSolicitudes = solicitudesNuevasLista.length;

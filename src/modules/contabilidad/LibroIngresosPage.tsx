@@ -8,13 +8,17 @@ import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
 import { fechaVisitaCorta } from '../../lib/fechas';
 
-type FacturaCobrada = {
+// Un pago real (pagos_factura) con los datos de su factura embebidos — un ingreso real es un PAGO,
+// no una factura: antes esta pantalla mostraba una fila por factura cobrada usando su único
+// fecha_pago/monto_pagado (sobrescritos en cada "Registrar pago"), así que una factura pagada en
+// dos veces mostraba solo el último pago con el importe total — el primer cobro real desaparecía
+// del libro. Mismo superconjunto de columnas que ResultadoPage.tsx — comparten esta queryKey y
+// Tanstack Query cachea por key, no por select (ver LibroMayorPage.tsx para el mismo patrón).
+type PagoIngreso = {
   id: string;
-  numero: string | null;
-  cliente_nombre: string | null;
-  fecha_pago: string | null;
-  monto_pagado: number | null;
-  tipo_iva: string | null;
+  fecha: string;
+  monto: number;
+  facturas: { numero: string | null; cliente_nombre: string | null; tipo_iva: string | null };
 };
 
 type Ingreso = {
@@ -28,34 +32,36 @@ type Ingreso = {
 export default function LibroIngresosPage() {
   const [busqueda, setBusqueda] = useState('');
 
-  const { data: facturas, isLoading } = useQuery({
-    queryKey: ['facturas', 'cobradas'],
+  const { data: pagos, isLoading } = useQuery({
+    queryKey: ['pagos_factura', 'ingresos'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('facturas')
-        .select('id, numero, cliente_nombre, fecha_pago, monto_pagado, tipo_iva')
-        .is('eliminado_en', null)
-        .not('monto_pagado', 'is', null)
-        .order('fecha_pago', { ascending: false });
+        .from('pagos_factura')
+        .select('id, fecha, monto, facturas!inner(numero, cliente_nombre, tipo_iva, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false)
+        .order('fecha', { ascending: false });
       if (error) throw error;
-      return data as FacturaCobrada[];
+      // Sin tipos de Database para el cliente de Supabase, TS infiere el embed como array aunque
+      // en runtime PostgREST devuelve un único objeto (join many-to-one por FK) — de ahí `unknown`.
+      return data as unknown as PagoIngreso[];
     },
   });
 
   const ingresos = useMemo<Ingreso[]>(() => {
-    return (facturas ?? []).map((f) => {
-      const pct = porcentajeIva(f.tipo_iva);
-      const conIva = f.monto_pagado ?? 0;
+    return (pagos ?? []).map((p) => {
+      const pct = porcentajeIva(p.facturas.tipo_iva);
+      const conIva = p.monto;
       const sinIva = pct > 0 ? conIva / (1 + pct / 100) : conIva;
       return {
-        id: f.id,
-        fecha: f.fecha_pago ?? '',
-        titulo: `${f.numero ?? ''} · ${f.cliente_nombre ?? ''}`,
+        id: p.id,
+        fecha: p.fecha,
+        titulo: `${p.facturas.numero ?? ''} · ${p.facturas.cliente_nombre ?? ''}`,
         sinIva,
         conIva,
       };
     });
-  }, [facturas]);
+  }, [pagos]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
