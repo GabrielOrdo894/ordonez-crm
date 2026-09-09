@@ -34,6 +34,7 @@ import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { useAuth, type Rol } from '../../hooks/useAuth';
+import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
@@ -203,6 +204,7 @@ function TarjetaHeader({
 export default function InicioPage() {
   const { abrirNuevaVisita, abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const { user, rol } = useAuth();
+  const esMobil = useEsMobil();
   const { config: configFiscal } = useFiscalConfig();
   const { echeances } = useEcheances();
   const toast = useToast();
@@ -430,6 +432,17 @@ export default function InicioPage() {
       };
     });
   }, [pagosKpi, gastosKpi, pagos, gastos]);
+
+  // En móvil, 12 meses en barra hacen el gráfico ilegible (barras diminutas) — nos quedamos con los
+  // que tienen algún movimiento, siempre incluyendo el mes actual aunque esté vacío, con un tope de
+  // 6 (mes actual + 5 anteriores como máximo). En desktop se sigue viendo el histórico de 12 meses.
+  const datosGraficoVisible = useMemo(() => {
+    if (!esMobil) return datosGrafico;
+    const conDatos = datosGrafico.filter(
+      (d, i) => i === datosGrafico.length - 1 || d.entradas > 0 || d.salidas > 0,
+    );
+    return conDatos.slice(-6);
+  }, [datosGrafico, esMobil]);
 
   const plafondTramo15 = useMemo(() => {
     const ejercicio = limitesEjercicio(new Date().getFullYear());
@@ -723,7 +736,7 @@ export default function InicioPage() {
           )}
         </div>
         <ResponsiveContainer width="100%" height={380}>
-          <ComposedChart data={datosGrafico} barGap={8} barCategoryGap="4%">
+          <ComposedChart data={datosGraficoVisible} barGap={8} barCategoryGap="4%">
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
