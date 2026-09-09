@@ -1,6 +1,8 @@
 # Precios de mercado — referencia externa para el revisor de presupuestos
 
-**Última actualización general:** 2026-08-28 (familia ALI ampliada dos veces el mismo día: primero con mano de
+**Última actualización general:** 2026-09-09 (familia **RAD — Suelo radiante hidráulico** nueva, primera vez que
+la empresa presupuesta esta partida — obra disparadora en Hendaya, Francia. Agente `vigia-precios-mercado`).
+Actualización anterior: 2026-08-28 (familia ALI ampliada dos veces el mismo día: primero con mano de
 obra sola de alicatado/solado en España, hasta entonces inexistente — hallazgo real en presupuesto P-2026-0045;
 después con precio de marca real por m² de las 8 marcas de cerámica/gres que distribuye Alkain — Quick-Step,
 Keraben, Porcelanosa, Durstone, STN Cerámica, Cerdomus, Apavisa y Marazzi — para comparar contra el material
@@ -9,9 +11,10 @@ genérico CYPE ya existente en la familia. Agente `vigia-precios-mercado`). Actu
 
 **Resumen de lo cubierto:** reforma integral de vivienda, demolición/albañilería, reforma de baño, reforma de
 cocina, alicatado/solado, suelos (parquet/laminado), fachadas (SATE/ITE), techos (falso techo/cubiertas), pintura
-(interior/fachada), carpintería general (puertas, armarios, mobiliario de cocina), fontanería y electricidad — en
-España (zona Gipuzkoa/Costa Vasca: Irún, Hondarribia, Donostia-San Sebastián, Rentería, Bera de Bidasoa) y en
-Francia (zona Pays Basque/Côte Basque: Hendaye, Urrugne, Saint-Jean-de-Luz, Bayonne).
+(interior/fachada), carpintería general (puertas, armarios, mobiliario de cocina), fontanería, electricidad y
+suelo radiante hidráulico — en España (zona Gipuzkoa/Costa Vasca: Irún, Hondarribia, Donostia-San Sebastián,
+Rentería, Bera de Bidasoa) y en Francia (zona Pays Basque/Côte Basque: Hendaye, Urrugne, Saint-Jean-de-Luz,
+Bayonne).
 
 **Lagunas conocidas (sin dato de zona fiable, solo nacional o con menos fuentes de las deseables):** tejados/cubiertas
 tiene ya buen dato **nacional** en ambos países (CYPE en España, ALTA; prix-pose.com en Francia, ALTA — segunda
@@ -21,7 +24,9 @@ discrepancias altas entre fuentes ALTA y MEDIA — ver nota de la familia TEC. C
 ningún dato de zona, solo nacional con ajuste porcentual. Punto de agua/electricidad con desglose muy fino por tipo
 de punto en Francia (se documentó con rango amplio), y para Irún/Hondarídabia específicamente hay menos datos
 publicados que para Donostia/Bayonne — se usa el dato de Donostia/Bayonne como techo de zona y el nacional+ajuste
-como base para esas poblaciones más pequeñas.
+como base para esas poblaciones más pequeñas. **Suelo radiante hidráulico (RAD, nueva 2026-09-09) tampoco tiene
+dato de zona** — hay instaladores activos confirmados en ambas zonas (Ekidom, Gurener, Berofil en Gipuzkoa; DEC
+Energies, Morel Energy en Bayonne-Hendaye) pero ninguno publica precio por m², solo nacional + ajuste.
 
 **Ajuste de zona aplicado:** cuando la fuente da solo media nacional, se aplica una horquilla de ajuste de zona:
 - **España (Gipuzkoa/Costa Vasca):** +15% a +30% sobre la media nacional para Irún/Hondarribia/Rentería/Bera de
@@ -327,6 +332,60 @@ del documento (+15-30% España / +15-25% Francia) hasta que aparezca un dato dir
 | Plomberie SdB complète | € total HT | 1.500 | 3.250 | 5.000 | Francia, nacional | [needhelp.com](https://www.needhelp.com/content/article/prix-renovation-salle-de-bain) | 2026-07-25 | ALTA |
 | Plomberie cuisine complète | € total HT | 800 | 1.650 | 2.500 | Francia, nacional | [needhelp.com](https://www.needhelp.com/content/article/prix-renovation-salle-de-bain) | 2026-07-25 | ALTA |
 
+## RAD — Suelo radiante hidráulico (calefacción por agua)
+
+**Primera vez que la empresa presupuesta esta partida** (2026-09-09, obra disparadora en Hendaya, Francia).
+Se documenta con el mismo desglose en tres bloques que usa `creador-presupuestos` (material / mano de obra /
+mortero de recrecido como servicio subcontratado aparte), más las filas de detalle que sustentan cada bloque.
+**Sin dato de precio de zona en ninguno de los dos países** — hay instaladores activos confirmados en Gipuzkoa
+(Ekidom, Gurener, Berofil, todos en Donostia/alrededores) y en Bayonne-Hendaye (DEC Energies, Morel Energy en
+Bidart) pero ninguno publica precio por m²; aplicar el ajuste de zona estándar del documento (+15-30% España /
++15-25% Francia) sobre las filas nacionales de abajo.
+
+| Partida | Unidad | Mín | Medio | Máx | País/Zona | Fuente | Fecha | Fiabilidad |
+|---|---|---|---|---|---|---|---|---|
+| **Material** (panel aislante+lámina+banda perimetral+tubo PER/PE-Xa con barrera de oxígeno, sin colector) — síntesis propia aprobada por Gabriel 2026-09-09 a partir de las filas de abajo | €/m² | 30 | 42 | 55 | España + Francia, nacional (síntesis) | ver desglose de fuentes abajo | 2026-09-09 | MEDIA (síntesis propia, no una fuente única) |
+| **Mano de obra de instalación** (colocación aislante, tendido tubería, conexión a colector, prueba de presión) — síntesis propia aprobada por Gabriel 2026-09-09 | €/m² | 28 | 35 | 42 | España + Francia, nacional (síntesis) | ver desglose de fuentes abajo | 2026-09-09 | MEDIA (síntesis propia, no una fuente única) |
+| **Mortero de recrecido autonivelante (chape fluide)**, servicio subcontratado, material+aplicación incluidos — técnicamente debe ser un producto de alta conductividad térmica, no un autonivelante genérico (ver aviso) — síntesis propia aprobada por Gabriel 2026-09-09 | €/m² | 25 | 35 | 45 | España + Francia, nacional (síntesis) | ver desglose de fuentes abajo | 2026-09-09 | MEDIA (síntesis propia, no una fuente única) |
+| Panel aislante EPS con tetones + banda perimetral + tubo PE-Xa con barrera de oxígeno (9,9mm), sistema "de baja altura" (12mm total, apto para reforma) — solo material, excluye colector y el mortero autonivelante fino de 15mm que trae integrado el sistema | €/m² | 73,43 | 73,43 | 73,43 | España, nacional (CYPE) | [generadordeprecios.info ICE130](https://generadordeprecios.info/obra_nueva/Instalaciones/IC_Calefaccion__refrigeracion__cl/ICE_Emisores_por_agua_para_calefac/ICE130_Sistema_de_calefaccion_y_refrigerac.html) | 2026-09-09 | ALTA — ⚠ ver aviso de outlier abajo |
+| Mano de obra del mismo sistema CYPE (técnico calefacción + ayudante, colocación+prueba, excluye aplicación del mortero fino integrado) | €/m² | 32,87 | 32,87 | 32,87 | España, nacional (CYPE) | mismo desglose que fila anterior | 2026-09-09 | ALTA |
+| Colector premontado con caudalímetros, 4 circuitos, completo con termómetros/purgadores/armario | €/ud | 1.036,27 | 1.036,27 | 1.036,27 | España, nacional (CYPE) | [generadordeprecios.info ICE100](https://generadordeprecios.info/obra_nueva/Instalaciones/IC_Calefaccion__refrigeracion__cl/ICE_Emisores_por_agua_para_calefac/ICE100_Colector_para_calefaccion_y_refrige.html) | 2026-09-09 | ALTA |
+| — colector prorrateado a m² (estimación propia: ~65-70m² por colector de 4 circuitos, no dato de la fuente) | €/m² | 14 | 15 | 16 | España, nacional (cálculo propio sobre CYPE) | prorrateo propio sobre fila anterior | 2026-09-09 | MEDIA (cálculo propio) |
+| Panel aislante+accesorios, fourniture sola | €/m² | 12 | 16 | 20 | Francia, nacional | [abctravaux.org](https://abctravaux.org/prix-pose-plancher-chauffant-au-m2-tarifs-2026-tout-compris) | 2026-09-09 | MEDIA |
+| Tube PER Ø16+fixations, fourniture sola | €/m² | 10 | 14 | 18 | Francia, nacional | [abctravaux.org](https://abctravaux.org/prix-pose-plancher-chauffant-au-m2-tarifs-2026-tout-compris) | 2026-09-09 | MEDIA |
+| Collecteur inox+pompe+vannes, por vivienda (no €/m²) | € total | 800 | 1.300 | 1.800 | Francia, nacional | [abctravaux.org](https://abctravaux.org/prix-pose-plancher-chauffant-au-m2-tarifs-2026-tout-compris) | 2026-09-09 | MEDIA |
+| Kit tube PER BAO 1.320m+collecteur 12 sorties, hors dalles isolantes, precio de trade/mayorista (para 190-200m²) | €/m² TTC | 8,91 | 8,91 | 8,91 | Francia, nacional | [discount-plomberie.com](https://discount-plomberie.com/kits-plancher-chauffant-au-m/2604-kit-plancher-chauffant-190200m.html) | 2026-09-09 | BAJA — precio de mayorista/trade, sin aislante ni mano de obra, usar solo como suelo del rango |
+| Main d'œuvre pose (technicien chauffage) | €/m² TTC | 20 | 27 | 35 | Francia, nacional | [abctravaux.org](https://abctravaux.org/prix-pose-plancher-chauffant-au-m2-tarifs-2026-tout-compris) | 2026-09-09 | MEDIA |
+| Instalación completa (material+mano de obra+prueba, excl. mortero/pavimento), solo calefacción | €/m² IVA incl. | 40 | — | 55 | España, nacional | [mysueloradiante.com](https://www.mysueloradiante.com/suelo-radiante/precio/) | 2026-09-09 | MEDIA |
+| Instalación completa, calefacción+refrigeración | €/m² IVA incl. | 50 | — | 70 | España, nacional | [mysueloradiante.com](https://www.mysueloradiante.com/suelo-radiante/precio/) | 2026-09-09 | MEDIA |
+| Instalación completa, obra nueva | €/m² | 35 | — | 50 | España, nacional | [lacasasostenible.com](https://www.lacasasostenible.com/precio-suelo-radiante-por-m2/) | 2026-09-09 | MEDIA |
+| Plancher chauffant hydraulique completo, todo incluido excepto pavimento y generador | €/m² TTC | 70 | 100 | 120 | Francia, nacional | [lamaisonsaintgobain.fr](https://www.lamaisonsaintgobain.fr/guides-travaux/tout-savoir-sur-le-chauffage-et-la-ventilation/prix-plancher-chauffant-hydraulique-electrique) | 2026-09-09 | ALTA |
+| Plancher chauffant hydraulique, rango combinado sin desglose (corrobora la fila anterior) | €/m² | 50 | — | 150 | Francia, nacional | [prix-pose.com](https://www.prix-pose.com/plancher-chauffant-hydraulique) | 2026-09-09 | ALTA |
+| Mortero autonivelante de cemento, alta conductividad térmica (Mapei Novoplan Maxi, 30mm) — producto técnicamente correcto para suelo radiante, material+mano de obra de bombeo | €/m² | 59,82 | 59,82 | 59,82 | España, nacional (CYPE) | [generadordeprecios.info RSB026](https://generadordeprecios.info/obra_nueva/Revestimientos_y_trasdosados/Pavimentos/RSB_Bases_de_pavimento_y_grandes_r/RSB026_Base_de_mortero_autonivelante_de_ce.html) | 2026-09-09 | ALTA |
+| Mortero autonivelante genérico, aplicación (sin garantía de conductividad térmica adecuada para suelo radiante) | €/m² | 11 | 11 | 11 | España, nacional | [habitissimo.es](https://www.habitissimo.es/presupuestos/morteros-autonivelantes) | 2026-09-09 | BAJA — portal de leads, usar solo como suelo del rango |
+| Mortero autonivelante/anhidrita, calidad media (agregado de foros/proveedores, sin metodología citada) | €/m² | 17 | 20 | 25 | España, nacional | agregado (pavimentosibersol.com, autopromotor.info) | 2026-09-09 | MEDIA |
+| Chape liquide anhydrite (recomendada para plancher chauffant, espesor 4-6cm) | €/m² TTC | 25 | — | 55 | Francia, nacional | [prix-pose.com](https://www.prix-pose.com/chape-liquide) | 2026-09-09 | ALTA — materiales solos: 10-25€/m² |
+| Chape (anhydrite/ciment), específico plancher chauffant | €/m² TTC | 25 | — | 40 | Francia, nacional | [abctravaux.org](https://abctravaux.org/prix-pose-plancher-chauffant-au-m2-tarifs-2026-tout-compris) | 2026-09-09 | MEDIA |
+
+**Aviso RAD 1 — ⚠ el dato CYPE de material (73,43€/m² solo panel+tubo, + colector prorrateado ≈ 87-89€/m² total)
+se trata como outlier a vigilar, no como referencia central.** Motivo: ese material CYPE solo ya casi iguala el
+precio de la **instalación completa** (material+mano de obra) que dan las fuentes francesas de mayor confianza
+(70-120€/m² todo incluido, lamaisonsaintgobain.fr/prix-pose.com, ambas ALTA) — muy probablemente CYPE está
+modelando un sistema de marca premium (panel con capa adhesiva, "de baja altura") no representativo del material
+estándar que compraría Reformas Ordoñez. La base real usada para el rango propuesto (30-55€/m²) es la
+convergencia entre abctravaux.org (panel 12-20 + tubo 10-18 = 22-38€/m², + colector prorrateado 8-18€/m² según
+tamaño de vivienda ≈ 30-56€/m²) y las guías de mercado español/francés.
+
+**Aviso RAD 2 — ⚠ dispersión real en mortero/chape, de origen técnico, no solo comercial.** Un mortero
+autonivelante genérico (11-25€/m², BAJA/MEDIA) puede no tener la conductividad térmica necesaria para un suelo
+radiante — el producto correcto (anhidrita o cemento de alta conductividad, tipo Mapei Novoplan Maxi) cuesta
+45-60€/m² (CYPE 59,82 ALTA; prix-pose.com anhidrita 25-55 ALTA; abctravaux 25-40 MEDIA). El rango propuesto
+(25-45€/m²) se sesga hacia la banda alta a propósito por este motivo — presupuestar con el mortero barato
+genérico sería un riesgo técnico, no solo una diferencia de precio.
+
+**Sin dato de Batiprix/Batichiffrage:** son bases de pago no indexadas públicamente, no se han podido consultar
+para esta familia — se usa prix-pose.com y lamaisonsaintgobain.fr como las fuentes ALTA francesas disponibles.
+
 ## SAN — Sanitarios, mueble y mampara de baño (PVP proveedor Alkain — catálogos Gamma/Roca)
 
 **Naturaleza distinta al resto del documento:** esta familia no es precio de mercado/competencia — es **PVP de
@@ -420,6 +479,12 @@ margen.
   tarifa oficial de fabricante ni precio negociado por Alkain; ninguna de las 8 marcas (Quick-Step, Keraben,
   Porcelanosa, Durstone, STN Cerámica, Cerdomus, Apavisa, Marazzi) publica tarifa PVP oficial en PDF para
   azulejo/gres.
+- **Suelo radiante hidráulico RAD (nueva 2026-09-09):** generadordeprecios.info (CYPE, España — ALTA, aunque el
+  dato de material del sistema completo se trató como outlier, ver aviso en la familia); abctravaux.org (Francia
+  — MEDIA, único desglose fino encontrado); prix-pose.com y lamaisonsaintgobain.fr (Francia — ALTA) para el total
+  instalado; mysueloradiante.com y lacasasostenible.com (España — MEDIA, guías de vendedor de sistemas, no lead
+  portals) para el total instalado; habitissimo.es (BAJA, portal de leads) solo como suelo del rango de mortero.
+  Sin Batiprix/Batichiffrage (bases de pago no accesibles) ni dato de precio de zona en ningún caso.
 
 ## Próxima actualización recomendada
 
@@ -439,6 +504,10 @@ margen.
   general (Keraben/STN/Durstone/Cerdomus, 16-47€/m²) — pendiente de que `calibrador-tarifas` decida si recalibra
   a la baja para el caso general, o si mantiene 104€/m² solo para cuando el cliente elige marca premium
   (Porcelanosa/Apavisa, 54-107€/m² real).
+- **Buscar dato de zona para RAD (nueva 2026-09-09):** ningún instalador de Gipuzkoa/Bayonne-Hendaye publica
+  precio por m² de suelo radiante hidráulico, solo confirma actividad. Y contrastar el dato CYPE de material
+  (tratado como outlier en esta ronda) con un proveedor real de tubería/paneles si la empresa empieza a comprar
+  este material con regularidad — hoy es una síntesis de guías de mercado, no un coste de compra confirmado.
 - Revisar en 3 meses o cuando la empresa entre en un tipo de obra nuevo no cubierto aquí.
 - Cuando lleguen los catálogos nuevos de Alkain (Gamma/Roca u otra marca que empiecen a distribuir), actualizar la
   familia SAN con los precios vigentes — y si en ese momento el catálogo Roca sí trae PVP explícito por producto,

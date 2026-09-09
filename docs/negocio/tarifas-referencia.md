@@ -103,6 +103,29 @@ razonable, no un cálculo confirmado.
 | Parquet madera, instalado (material + mano) | m² | España | 97 € | |
 | Parquet stratifié, pose comprise | m² | Francia | 44 € | |
 
+## Suelo radiante hidráulico (calefacción por agua)
+
+Primera calibración de esta partida (2026-09-09), a partir de la familia `RAD` nueva en
+`docs/negocio/precios-mercado.md` (síntesis propia del vigía, sin fuente única, confianza MEDIA — ver aviso de
+outlier CYPE descartado y de dispersión técnica en mortero en esa familia). Sin dato de precio de zona en ningún
+país; se aplica el ajuste de zona estándar del documento (+20%, punto medio de la banda +15-30% España / +15-25%
+Francia) sobre el medio nacional síntesis. **Material sin margen** (política del 31-08-2026, caso P-2026-0046): sin
+proveedor real confirmado para esta partida todavía, se deja en el precio de mercado de zona tal cual, no se trata
+como mano de obra. Mano de obra y mortero de recrecido técnico sí llevan margen de posicionamiento (mano de obra
+siempre; el mortero es un servicio subcontratado "todo incluido", no material comprado aparte, mismo criterio que
+otras subcontratas de la casa). El mortero debe ser SIEMPRE el producto técnico de alta conductividad, nunca el
+autonivelante genérico barato — riesgo técnico documentado en `precios-mercado.md`, no solo diferencia de precio.
+Aprobado por Gabriel el 2026-09-09.
+
+| Partida | Unidad | País | Precio referencia | Notas |
+|---|---|---|---|---|
+| Material (panel aislante+lámina+tubería PER-EVOH+colector prorrateado) | m² | España | 50 € | precio de mercado de zona sin margen (42 € medio nacional síntesis ×1.20 zona) — sin proveedor real confirmado todavía; en cuanto exista, pasar a coste real de compra sin margen, igual que otras filas "pendiente de recalibrar a precio real" de este documento; confianza MEDIA |
+| Material (panel aislante+lámina+tubería PER-EVOH+colector prorrateado) | m² | Francia | 50 € HT | mismo cálculo y misma nota, zona Francia; confianza MEDIA |
+| Mano de obra de instalación (aislante, tendido, conexión colector, prueba de presión) | m² | España | 50 € | zona +20% sobre medio nacional síntesis (35 €) + margen +20% (partida técnica, primera vez); confianza MEDIA |
+| Mano de obra de instalación (aislante, tendido, conexión colector, prueba de presión) | m² | Francia | 50 € HT | mismo cálculo; confianza MEDIA |
+| Mortero de recrecido autonivelante técnico (chape fluide alta conductividad), servicio subcontratado material+aplicación | m² | España | 48 € | zona +20% sobre medio nacional síntesis (35 €) + margen +15%; usar SIEMPRE producto técnico, nunca genérico, ver aviso en precios-mercado.md; confianza MEDIA |
+| Mortero de recrecido autonivelante técnico (chape fluide alta conductividad), servicio subcontratado material+aplicación | m² | Francia | 48 € HT | mismo cálculo; confianza MEDIA |
+
 ## Fachadas / SATE / ITE
 
 | Partida | Unidad | País | Precio referencia | Notas |
