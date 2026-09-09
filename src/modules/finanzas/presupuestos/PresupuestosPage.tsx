@@ -112,6 +112,20 @@ export default function PresupuestosPage() {
     }
   }, [location.state]);
 
+  // Refresco automático al entrar en Presupuestos — detecta si algún Borrador se mandó ya por
+  // email (PDF adjunto con el número en el nombre del fichero) y lo marca Pendiente solo, mismo
+  // patrón que SolicitudesPage.tsx. Silencioso si falla, no bloquea la carga de la página.
+  useEffect(() => {
+    supabase.functions.invoke('revisar-gmail').then(({ error }) => {
+      if (error) {
+        console.error('Revisión automática de presupuestos enviados:', error.message);
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if ((location.state as { autoCrear?: boolean } | null)?.autoCrear) {
       setCreandoNuevo(true);

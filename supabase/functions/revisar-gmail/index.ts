@@ -41,6 +41,7 @@ function esLlamadaAutorizada(req: Request): boolean {
 type GmailHeader = { name: string; value: string };
 type GmailMessagePart = {
   mimeType?: string;
+  filename?: string;
   body?: { data?: string };
   parts?: GmailMessagePart[];
   headers?: GmailHeader[];
@@ -139,6 +140,16 @@ function extraerCuerpo(payload: GmailMessagePart | undefined): string {
     if (anidado) return anidado;
   }
   return '';
+}
+
+// Nombres de fichero de todos los adjuntos de un mensaje (recorre parts anidados) — usado por
+// detectarPresupuestosEnviadosPorEmail para leer el nombre del PDF sin descargar su contenido.
+function extraerNombresAdjuntos(payload: GmailMessagePart | undefined): string[] {
+  if (!payload) return [];
+  const nombres: string[] = [];
+  if (payload.filename) nombres.push(payload.filename);
+  for (const p of payload.parts ?? []) nombres.push(...extraerNombresAdjuntos(p));
+  return nombres;
 }
 
 function htmlATexto(html: string): string {
@@ -1013,6 +1024,80 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
   return creadas;
 }
 
+// Marca un presupuesto como Pendiente automáticamente cuando Gabriel lo manda por email con el
+// PDF adjunto tal cual lo descarga el CRM (nombre "P-2026-00NN.pdf", el mismo con el que
+// PresupuestosPage.tsx nombra la descarga) — antes había que acordarse de marcarlo a mano en el
+// CRM aparte de mandar el correo. Solo detecta envíos por email (WhatsApp sigue siendo manual) y
+// solo si el nombre del adjunto no se ha cambiado antes de mandarlo. Petición de Gabriel 2026-09-09.
+async function detectarPresupuestosEnviadosPorEmail(token: string, supabase: SupabaseClient, log: string[]) {
+  const { data: borradores } = await supabase
+    .from('presupuestos')
+    .select('id, numero')
+    .eq('estado', 'Borrador')
+    .is('eliminado_en', null)
+    .not('numero', 'is', null);
+  if (!borradores || borradores.length === 0) {
+    log.push('Envíos de presupuestos: sin presupuestos en Borrador, no hace falta revisar Enviados.');
+    return 0;
+  }
+  const numeroAId = new Map((borradores as { id: string; numero: string }[]).map((p) => [p.numero, p.id]));
+
+  const query = `in:sent has:attachment filename:pdf newer_than:90d`;
+  const listado = await gmailFetch<{ messages?: { id: string }[] }>(
+    `messages?q=${encodeURIComponent(query)}&maxResults=50`,
+    token,
+  );
+  const mensajes = listado.messages ?? [];
+  log.push(`Envíos de presupuestos: ${mensajes.length} email(s) con PDF adjunto en Enviados (últimos 90 días) a revisar contra ${borradores.length} presupuesto(s) en Borrador.`);
+
+  const numerosVistos = new Set<string>();
+  let marcados = 0;
+  for (const { id } of mensajes) {
+    let msg: GmailMessage;
+    try {
+      msg = await gmailFetch<GmailMessage>(`messages/${id}?format=full`, token);
+    } catch (err) {
+      log.push(`Error leyendo mensaje enviado ${id}: ${String(err)}`);
+      continue;
+    }
+    const nombresAdjuntos = extraerNombresAdjuntos(msg.payload);
+    for (const nombre of nombresAdjuntos) {
+      const match = nombre.match(/P-\d{4}-\d{4}/);
+      if (!match) continue;
+      const numero = match[0];
+      if (numerosVistos.has(numero)) continue;
+      const presupuestoId = numeroAId.get(numero);
+      if (!presupuestoId) continue;
+      numerosVistos.add(numero);
+
+      const { error: errorUpdate } = await supabase
+        .from('presupuestos')
+        .update({ estado: 'Pendiente' })
+        .eq('id', presupuestoId)
+        .eq('estado', 'Borrador'); // por si dos hilos distintos adjuntan el mismo PDF, solo el primero aplica el cambio
+      if (errorUpdate) {
+        log.push(`Error marcando presupuesto ${numero} como Pendiente: ${errorUpdate.message}`);
+        continue;
+      }
+      const { data: yaRegistrado } = await supabase
+        .from('funnel_eventos')
+        .select('id')
+        .eq('etapa', 'presupuesto_enviado')
+        .eq('presupuesto_id', presupuestoId)
+        .limit(1);
+      if (!yaRegistrado || yaRegistrado.length === 0) {
+        const { error: errorFunnel } = await supabase
+          .from('funnel_eventos')
+          .insert({ etapa: 'presupuesto_enviado', presupuesto_id: presupuestoId, fuente: 'email_directo' });
+        if (errorFunnel) log.push(`Error registrando funnel_eventos para presupuesto ${numero}: ${errorFunnel.message}`);
+      }
+      marcados++;
+      log.push(`Presupuesto ${numero} detectado como adjunto en Enviados — marcado como Pendiente.`);
+    }
+  }
+  return marcados;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -1033,10 +1118,11 @@ Deno.serve(async (req: Request) => {
     const programadosDetectados = await revisarRespuestasProgramadas(token, supabase, log);
     const enviosSolicitudes = await revisarEnviosSolicitudes(token, supabase, log);
     const conversacionesDirectas = await detectarConversacionesDirectas(token, supabase, log, listaNegra);
+    const presupuestosEnviados = await detectarPresupuestosEnviadosPorEmail(token, supabase, log);
     const solicitudesNuevas = solicitudesFormulario + conversacionesDirectas;
     const respuestasDetectadas = respuestasPresupuestos + respuestasSolicitudes;
 
-    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, programadosDetectados, log });
+    return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, programadosDetectados, presupuestosEnviados, log });
   } catch (err) {
     // console.error (no solo el body de la respuesta) para poder ver el error real en
     // function_logs — el body de una respuesta no-2xx no queda guardado en los logs de Supabase,
