@@ -1,9 +1,23 @@
-import { lazy } from 'react';
+import { lazy, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
+import { supabase } from './lib/supabase';
 import LoginPage from './modules/auth/LoginPage';
 import NuevaContrasenaPage from './modules/auth/NuevaContrasenaPage';
 import { AppLayout } from './components/layout/AppLayout';
+
+const CLAVE_FECHA_SESION = 'crm_sesion_fecha';
+
+function fechaLocalHoy() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function msHastaProximaMedianoche() {
+  const ahora = new Date();
+  const medianoche = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1, 0, 0, 0, 0);
+  return medianoche.getTime() - ahora.getTime();
+}
 
 const InicioPage = lazy(() => import('./modules/visitas/InicioPage'));
 const VisitasPage = lazy(() => import('./modules/visitas/VisitasPage'));
@@ -38,6 +52,29 @@ const MensajeriaPage = lazy(() => import('./modules/mensajeria/MensajeriaPage'))
 
 export default function App() {
   const { session, loading, recuperandoContrasena, contrasenaActualizada } = useAuth();
+
+  // Cierre de sesión forzado a medianoche (hora local) — Gabriel no quiere sesiones abiertas de
+  // forma indefinida. Comprueba al cargar (si la fecha guardada ya no es hoy, expulsa al momento —
+  // cubre el caso de un dispositivo cerrado que pasó la medianoche sin la app abierta) y programa
+  // además un cierre en cuanto llegue la próxima medianoche si la pestaña sigue abierta.
+  useEffect(() => {
+    if (!session) return;
+    const hoy = fechaLocalHoy();
+    const fechaGuardada = localStorage.getItem(CLAVE_FECHA_SESION);
+    if (fechaGuardada && fechaGuardada !== hoy) {
+      localStorage.removeItem(CLAVE_FECHA_SESION);
+      supabase.auth.signOut();
+      return;
+    }
+    localStorage.setItem(CLAVE_FECHA_SESION, hoy);
+
+    const timeoutId = setTimeout(() => {
+      localStorage.removeItem(CLAVE_FECHA_SESION);
+      supabase.auth.signOut();
+    }, msHastaProximaMedianoche());
+
+    return () => clearTimeout(timeoutId);
+  }, [session]);
 
   if (loading) return null;
 
