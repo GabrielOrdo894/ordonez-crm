@@ -83,6 +83,45 @@ function normalizarTelefono(tel: string): string {
 }
 type PresupuestoVinculado = { visita_id: string | null; estado: string };
 type PresupuestoBorrador = { numero: string | null; cliente_nombre: string | null; created_at: string };
+type SolicitudSinTipo = { id: string; telefono: string | null; email: string | null; visita_id: string | null; presupuesto_vinculado_id: string | null };
+type VisitaContacto = { telefono: string | null; email: string | null };
+
+// Duplicado de sincronizarTipoSolicitud (src/lib/sincronizarTipoSolicitud.ts) — un Edge Function
+// no puede importar código del frontend (mismo patrón que normalizarTelefono de arriba). Rellena
+// tipo_solicitud ('visita' | 'presupuesto_orientativo') para las solicitudes "sin determinar" que
+// ya tienen una señal real, cada mañana, aunque nadie entre a /solicitudes ese día (petición de
+// Gabriel 2026-09-09). Se ejecuta siempre, incluso si ya se envió el email de hoy.
+async function sincronizarTipoSolicitud(supabase: SupabaseClient): Promise<void> {
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id, telefono, email, visita_id, presupuesto_vinculado_id')
+    .is('tipo_solicitud', null);
+  if (error || !solicitudes || solicitudes.length === 0) return;
+
+  const { data: visitas, error: errorVisitas } = await supabase
+    .from('visitas')
+    .select('telefono, email')
+    .is('eliminado_en', null)
+    .neq('estado', 'Cancelada');
+  if (errorVisitas) return;
+
+  const telefonosVisita = new Set(
+    ((visitas ?? []) as VisitaContacto[]).map((v) => (v.telefono ? normalizarTelefono(v.telefono) : null)).filter((t): t is string => !!t),
+  );
+  const emailsVisita = new Set(
+    ((visitas ?? []) as VisitaContacto[]).map((v) => (v.email ? v.email.toLowerCase() : null)).filter((e): e is string => !!e),
+  );
+
+  for (const s of solicitudes as SolicitudSinTipo[]) {
+    const tel = s.telefono ? normalizarTelefono(s.telefono) : null;
+    const email = s.email ? s.email.toLowerCase() : null;
+    const tieneVisita = !!s.visita_id || (!!tel && telefonosVisita.has(tel)) || (!!email && emailsVisita.has(email));
+    const tieneOrientativo = !!s.presupuesto_vinculado_id;
+    const tipo = tieneVisita ? 'visita' : tieneOrientativo ? 'presupuesto_orientativo' : null;
+    if (!tipo) continue;
+    await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).eq('id', s.id);
+  }
+}
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -197,6 +236,8 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    await sincronizarTipoSolicitud(supabase);
 
     const hoy = isoHoy();
     const limite7d = isoEnDias(7);

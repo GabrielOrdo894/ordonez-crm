@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { sincronizarTipoSolicitud } from '../../lib/sincronizarTipoSolicitud';
 import {
   registrarEventoFunnel,
   contarUnicosEnFunnel,
@@ -252,6 +253,14 @@ export default function SolicitudesPage() {
       }
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
+    });
+  }, [queryClient]);
+
+  // Reclasifica visita/presupuesto orientativo cada vez que se entra en la sección — mismo
+  // criterio de "silencioso si falla" que el efecto de arriba, no bloquea la carga de la página.
+  useEffect(() => {
+    sincronizarTipoSolicitud().then(() => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
     });
   }, [queryClient]);
 
