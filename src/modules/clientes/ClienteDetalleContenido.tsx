@@ -34,7 +34,7 @@ import { direccionEnDosLineas } from '../../lib/direcciones';
 import type { Linea } from '../finanzas/lineas';
 import { RecordatorioPagoModal } from '../finanzas/facturas/RecordatorioPagoModal';
 import type { Factura } from '../finanzas/facturas/types';
-import { GaleriaForm } from '../galeria/GaleriaForm';
+import { encontrarObraPorContacto, abrirOCrearFichaGaleria } from '../galeria/obras';
 import { ClientePrivacidadTab } from './ClientePrivacidadTab';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { generarPdfFichaCliente } from '../../lib/generarPdfFichaCliente';
@@ -187,7 +187,6 @@ export function ClienteDetalleContenido({
   const [tab, setTab] = useState<TabKey>(tabInicial ?? 'resumen');
   const [notaTexto, setNotaTexto] = useState('');
   const [notaFechaSeguimiento, setNotaFechaSeguimiento] = useState('');
-  const [mostrarFormGaleria, setMostrarFormGaleria] = useState(false);
   const [editandoDatos, setEditandoDatos] = useState(false);
   const [formEdicion, setFormEdicion] = useState<FormEdicion | null>(null);
 
@@ -200,6 +199,28 @@ export function ClienteDetalleContenido({
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
   const ultimaVisita = cliente.visitas[0] ?? null;
   const visitaIds = useMemo(() => cliente.visitas.map((v) => v.id), [cliente]);
+
+  // Ya no crea con texto libre — busca si este cliente corresponde a una obra verificada
+  // (presupuesto Aceptado / factura / acompte) y abre o crea su ficha en Galería (2026-09-09).
+  const irAGaleriaMutation = useMutation({
+    mutationFn: async () => {
+      const obra = await encontrarObraPorContacto({
+        visitaId: ultimaVisita?.id ?? null,
+        telefono: cliente.telefono,
+        email: cliente.email,
+      });
+      if (!obra) return null;
+      return abrirOCrearFichaGaleria(obra);
+    },
+    onSuccess: (id) => {
+      if (!id) {
+        toast.warning('Este cliente todavía no tiene presupuesto aceptado ni factura — la Galería solo admite obras verificadas');
+        return;
+      }
+      navigate('/galeria', { state: { abrirGaleriaId: id } });
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo abrir la galería')),
+  });
 
   const iniciarEdicion = () => {
     if (!ultimaVisita) return;
@@ -962,10 +983,11 @@ export function ClienteDetalleContenido({
                 </span>
               )}
               <button
-                onClick={() => setMostrarFormGaleria(true)}
-                className="text-xs text-brand hover:underline"
+                onClick={() => irAGaleriaMutation.mutate()}
+                disabled={irAGaleriaMutation.isPending}
+                className="text-xs text-brand hover:underline disabled:opacity-60"
               >
-                + Añadir a galería
+                {irAGaleriaMutation.isPending ? 'Abriendo...' : '+ Añadir a galería'}
               </button>
             </div>
           </div>
@@ -1208,17 +1230,6 @@ export function ClienteDetalleContenido({
       )}
 
       <RecordatorioPagoModal factura={recordandoPago} onClose={() => setRecordandoPago(null)} />
-
-      <GaleriaForm
-        open={mostrarFormGaleria}
-        onClose={() => setMostrarFormGaleria(false)}
-        visitaPrefill={{
-          visita_id: ultimaVisita.id,
-          titulo: `${ultimaVisita.tipo ?? 'Reforma'} — ${cliente.nombre} ${cliente.apellidos}`,
-          tipo_obra: ultimaVisita.tipo ?? '',
-          zona: ultimaVisita.zona ?? '',
-        }}
-      />
     </div>
   );
 }

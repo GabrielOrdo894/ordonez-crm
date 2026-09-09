@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import JSZip from 'jszip';
 import { mensajeError } from '../../lib/mensajeError';
@@ -8,6 +8,7 @@ import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
+import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Badge } from '../../components/ui/Badge';
 import { TIPOS_FOTO } from './types';
@@ -39,6 +40,8 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
   const [descargandoZip, setDescargandoZip] = useState(false);
   const [editando, setEditando] = useState(false);
   const [arrastrando, setArrastrando] = useState<number | null>(null);
+  const [metaTitulo, setMetaTitulo] = useState('');
+  const [metaDescripcion, setMetaDescripcion] = useState('');
 
   const { data: proyecto } = useQuery({
     queryKey: ['galeria', proyectoId],
@@ -98,18 +101,34 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
 
   const fotoActual = fotosPorTab[indiceActual] ?? null;
 
+  useEffect(() => {
+    setMetaTitulo(fotoActual?.titulo ?? '');
+    setMetaDescripcion(fotoActual?.descripcion ?? '');
+  }, [fotoActual?.url]);
+
   const cambiarTab = (tipo: TipoFoto) => {
     setTabActiva(tipo);
     setIndiceActual(0);
   };
 
+  const handleGuardarMeta = () => {
+    if (!proyecto || !fotoActual) return;
+    const titulo = metaTitulo.trim() || null;
+    const descripcion = metaDescripcion.trim() || null;
+    if (titulo === fotoActual.titulo && descripcion === fotoActual.descripcion) return;
+    actualizarFotosMutation.mutate(
+      proyecto.fotos.map((f) => (f.url === fotoActual.url ? { ...f, titulo, descripcion } : f)),
+    );
+  };
+
   const TAMANO_MAX_FOTO = 10 * 1024 * 1024; // 10 MB
+  const TAMANO_MAX_VIDEO = 100 * 1024 * 1024; // 100 MB
 
   const handleSubirFotos = async (files: FileList) => {
     if (!proyecto) return;
     const listaActual = proyecto.fotos.filter((f) => f.tipo === categoriaSubida);
     if (listaActual.length + files.length > 20 || proyecto.fotos.length + files.length > 20) {
-      toast.error('Máximo 20 fotos por proyecto');
+      toast.error('Máximo 20 fotos/vídeos por proyecto');
       return;
     }
     setSubiendo(true);
@@ -117,12 +136,14 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
     let ordenSiguiente = listaActual.length > 0 ? Math.max(...listaActual.map((f) => f.orden)) + 1 : 0;
 
     for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) {
-        toast.error(`"${file.name}": solo se admiten imágenes`);
+      const esVideo = file.type.startsWith('video/');
+      if (!esVideo && !file.type.startsWith('image/')) {
+        toast.error(`"${file.name}": solo se admiten imágenes o vídeos`);
         continue;
       }
-      if (file.size > TAMANO_MAX_FOTO) {
-        toast.error(`"${file.name}" pesa demasiado (máximo ${TAMANO_MAX_FOTO / 1024 / 1024} MB)`);
+      const tamanoMax = esVideo ? TAMANO_MAX_VIDEO : TAMANO_MAX_FOTO;
+      if (file.size > tamanoMax) {
+        toast.error(`"${file.name}" pesa demasiado (máximo ${tamanoMax / 1024 / 1024} MB)`);
         continue;
       }
       const path = `${proyecto.id}/${crypto.randomUUID()}_${file.name}`;
@@ -132,14 +153,22 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
         continue;
       }
       const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-      nuevas.push({ url: data.publicUrl, nombre: file.name, tipo: categoriaSubida, orden: ordenSiguiente });
+      nuevas.push({
+        url: data.publicUrl,
+        nombre: file.name,
+        tipo: categoriaSubida,
+        orden: ordenSiguiente,
+        tipo_archivo: esVideo ? 'video' : 'foto',
+        titulo: null,
+        descripcion: null,
+      });
       ordenSiguiente += 1;
     }
 
     setSubiendo(false);
     if (nuevas.length > 0) {
       actualizarFotosMutation.mutate([...proyecto.fotos, ...nuevas]);
-      toast.success(`${nuevas.length} foto(s) subida(s)`);
+      toast.success(`${nuevas.length} archivo(s) subido(s)`);
     }
   };
 
@@ -272,18 +301,22 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
           <div className="bg-gray-50 border border-gray-200 rounded-sm h-64 flex items-center justify-center relative overflow-hidden">
             {fotoActual ? (
               <>
-                <img src={fotoActual.url} alt={fotoActual.nombre} className="max-w-full max-h-full object-contain" />
+                {fotoActual.tipo_archivo === 'video' ? (
+                  <video src={fotoActual.url} controls className="max-w-full max-h-full" />
+                ) : (
+                  <img src={fotoActual.url} alt={fotoActual.nombre} className="max-w-full max-h-full object-contain" />
+                )}
                 <button
                   onClick={() => handleDescargarFoto(fotoActual)}
                   className="absolute top-2 right-2 bg-surface/90 hover:bg-surface text-gray-700 rounded-sm p-1.5"
-                  title="Descargar foto"
+                  title="Descargar"
                 >
                   <Download size={14} />
                 </button>
                 <button
                   onClick={() => handleEliminarFoto(fotoActual)}
                   className="absolute top-2 right-10 bg-surface/90 hover:bg-surface text-red-600 rounded-sm p-1.5"
-                  title="Eliminar foto"
+                  title="Eliminar"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -326,9 +359,35 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
                     i === indiceActual ? 'border-brand' : 'border-transparent'
                   }`}
                 >
-                  <img src={f.url} alt={f.nombre} className="w-full h-full object-cover" />
+                  {f.tipo_archivo === 'video' ? (
+                    <video src={f.url} muted className="w-full h-full object-cover pointer-events-none" />
+                  ) : (
+                    <img src={f.url} alt={f.nombre} className="w-full h-full object-cover" />
+                  )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {fotoActual && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-200 pt-3">
+              <Input
+                label="Título"
+                value={metaTitulo}
+                onChange={(e) => setMetaTitulo(e.target.value)}
+                onBlur={handleGuardarMeta}
+                placeholder="Ej. Baño antes de la reforma"
+              />
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Descripción</label>
+                <input
+                  value={metaDescripcion}
+                  onChange={(e) => setMetaDescripcion(e.target.value)}
+                  onBlur={handleGuardarMeta}
+                  className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
+                  placeholder="Detalle opcional de esta foto/vídeo"
+                />
+              </div>
             </div>
           )}
 
@@ -341,14 +400,17 @@ export function GaleriaDetalleModal({ proyectoId, onClose, onEliminado }: Galeri
             />
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               multiple
               disabled={subiendo}
               onChange={(e) => e.target.files && handleSubirFotos(e.target.files)}
               className="text-xs flex-1"
             />
           </div>
-          <p className="text-xs text-gray-400 -mt-2">Máximo 20 fotos por proyecto. Arrastra las miniaturas para reordenarlas.</p>
+          <p className="text-xs text-gray-400 -mt-2">
+            Máximo 20 fotos/vídeos por proyecto (vídeo hasta {TAMANO_MAX_VIDEO / 1024 / 1024} MB). Arrastra las miniaturas para
+            reordenarlas.
+          </p>
         </div>
       </Modal>
 

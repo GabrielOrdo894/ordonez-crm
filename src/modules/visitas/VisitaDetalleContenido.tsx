@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useMutation } from '@tanstack/react-query';
 import { Calendar, MapPin, Image as ImageIcon } from 'lucide-react';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { RutaPreview } from '../google/RutaPreview';
-import { GaleriaForm } from '../galeria/GaleriaForm';
+import { encontrarObraPorContacto, abrirOCrearFichaGaleria } from '../galeria/obras';
+import { useToast } from '../../hooks/useToast';
+import { mensajeError } from '../../lib/mensajeError';
 import { fechaVisitaLarga } from '../../lib/fechas';
 import { VisitaChecklist } from './VisitaChecklist';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
@@ -16,7 +19,26 @@ export function urlGoogleMaps(v: Visita) {
 
 export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
   const urlMaps = urlGoogleMaps(visita);
-  const [mostrarFormGaleria, setMostrarFormGaleria] = useState(false);
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  // Ya no crea con texto libre — busca si esta visita corresponde a una obra verificada
+  // (presupuesto Aceptado / factura / acompte) y abre o crea su ficha en Galería (2026-09-09).
+  const irAGaleriaMutation = useMutation({
+    mutationFn: async () => {
+      const obra = await encontrarObraPorContacto({ visitaId: visita.id, telefono: visita.telefono, email: visita.email });
+      if (!obra) return null;
+      return abrirOCrearFichaGaleria(obra);
+    },
+    onSuccess: (id) => {
+      if (!id) {
+        toast.warning('Esta visita todavía no tiene presupuesto aceptado ni factura — la Galería solo admite obras verificadas');
+        return;
+      }
+      navigate('/galeria', { state: { abrirGaleriaId: id } });
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo abrir la galería')),
+  });
 
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -117,24 +139,14 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
       <div className="border-t border-gray-200 pt-3">
         <VisitaChecklist visitaId={visita.id} checklist={visita.checklist} />
         <button
-          onClick={() => setMostrarFormGaleria(true)}
-          className="flex items-center gap-1.5 text-xs text-brand hover:underline mt-3"
+          onClick={() => irAGaleriaMutation.mutate()}
+          disabled={irAGaleriaMutation.isPending}
+          className="flex items-center gap-1.5 text-xs text-brand hover:underline mt-3 disabled:opacity-60"
         >
           <ImageIcon size={13} />
-          + Foto a galería (vinculada a esta visita)
+          {irAGaleriaMutation.isPending ? 'Abriendo...' : 'Foto/vídeo a galería'}
         </button>
       </div>
-
-      <GaleriaForm
-        open={mostrarFormGaleria}
-        onClose={() => setMostrarFormGaleria(false)}
-        visitaPrefill={{
-          visita_id: visita.id,
-          titulo: `${visita.tipo ?? 'Reforma'} — ${visita.nombre} ${visita.apellidos}`,
-          tipo_obra: visita.tipo ?? '',
-          zona: visita.zona ?? '',
-        }}
-      />
     </div>
   );
 }
