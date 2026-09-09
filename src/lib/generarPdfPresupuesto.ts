@@ -916,6 +916,53 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
   // izquierda, así que preview y PDF final podían no coincidir (bug real corregido 2026-08-12).
   const xPlanForma = configPlantilla.planPagoIzquierda ? margen : margen + anchoCol + gapCol;
   const xResumenFirma = configPlantilla.planPagoIzquierda ? margen + anchoCol + gapCol : margen;
+
+  // Resumen de pago + firma (derecha) y plan de pago + condiciones de pago + datos bancarios
+  // (izquierda) se tratan como UN bloque único de cara al salto de página — antes cada trozo
+  // decidía su propio salto por separado, así que el bloque podía partirse a caballo entre dos
+  // páginas (reportado por Gabriel 2026-09-09, caso real P-2026-0053: condiciones de pago y datos
+  // bancarios saltaban solos a la página 2 dejando media página vacía debajo, y la Nota de después
+  // volvía a saltar a una TERCERA página porque comparaba su posición contra la `y` de la columna
+  // derecha, que se había quedado calculada en la página 1). Se estima aquí la altura de cada
+  // columna con las mismas fórmulas que las usan más abajo para dibujar (sin dibujar nada todavía)
+  // y, si el bloque completo no cabe en lo que queda de página, se pasa a la siguiente ANTES de
+  // pintar una sola columna — así las dos arrancan siempre en la misma página.
+  let alturaColDerecha = 26 + 6; // caja de resumen de pago + gap
+  if (esOrientativo) {
+    alturaColDerecha += doc.splitTextToSize(t.notaSinIva, anchoCol).length * 3.6 + 2;
+  }
+  if (mencionIvaReducida(p.tipo_iva)) alturaColDerecha += 6;
+  alturaColDerecha += 4;
+  if (!esOrientativo) alturaColDerecha += 32; // caja de firma
+
+  let alturaColIzquierda = 0;
+  if (p.plan_pago.length > 0) {
+    // Estimación conservadora (mismo criterio que condiciones de pago/datos bancarios más abajo):
+    // las filas del plan de pago son etiquetas cortas y en la práctica casi nunca envuelven a 2
+    // líneas, pero se mide por si acaso en vez de asumir 1 línea siempre.
+    const anchoConcepto = anchoCol - 14 - 24; // ancho total menos las columnas fijas de % e importe
+    alturaColIzquierda += 9; // cabecera de la tabla
+    for (const plazo of p.plan_pago) {
+      alturaColIzquierda += Math.max(1, doc.splitTextToSize(plazo.concepto, anchoConcepto).length) * 4.5 + 3;
+    }
+    alturaColIzquierda += 10; // mismo gap que "+ 10" tras la tabla al dibujarla de verdad
+  }
+  if (condicionesPago && (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)) {
+    let altoCond = 11;
+    for (const valor of [condicionesPago.delai, condicionesPago.penalizacion, condicionesPago.medio]) {
+      if (valor) altoCond += 4 + doc.splitTextToSize(valor, anchoCol).length * 4 + 2;
+    }
+    alturaColIzquierda += altoCond;
+  }
+  if (entidad.iban) {
+    const numCampos = [entidad.nombre_titular, entidad.iban, entidad.bic, entidad.banco].filter(Boolean).length;
+    alturaColIzquierda += 11 + numCampos * 5.5;
+  }
+
+  if (y + Math.max(alturaColDerecha, alturaColIzquierda) > 270) {
+    doc.addPage();
+    y = 20;
+  }
   const yInicioColumnas = y;
 
   // Derecha: resumen de pago
