@@ -201,7 +201,7 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   if (gal.error) throw new Error(`galeria: ${gal.error.message}`);
 
   // Las filas de `galeria`/`gastos` se borran más abajo, pero los ficheros de Storage no se
-  // borraban solos (a diferencia de GaleriaDetalleModal.tsx, que sí limpia Storage al borrar un
+  // borraban solos (a diferencia de GaleriaDetallePage.tsx, que sí limpia Storage al borrar un
   // proyecto normal) — se quedaban huérfanos incluso en una purga "de verdad" (hallazgo real,
   // revisión 2026-08-12 para galería, 2026-08-14 para justificantes de gastos). Best-effort: un
   // fallo al borrar Storage no debe abortar la purga del resto de datos personales.

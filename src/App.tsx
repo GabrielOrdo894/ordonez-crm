@@ -30,6 +30,9 @@ const ClienteDetallePage = lazy(() => import('./modules/clientes/ClienteDetalleP
 const PipelinePage = lazy(() => import('./modules/pipeline/PipelinePage'));
 const PlanningObraPage = lazy(() => import('./modules/planning/PlanningObraPage'));
 const GaleriaPage = lazy(() => import('./modules/galeria/GaleriaPage'));
+const GaleriaDetallePage = lazy(() => import('./modules/galeria/GaleriaDetallePage'));
+const GaleriaMediaPage = lazy(() => import('./modules/galeria/GaleriaMediaPage'));
+const GaleriaNuevaPage = lazy(() => import('./modules/galeria/GaleriaNuevaPage'));
 const PresupuestosPage = lazy(() => import('./modules/finanzas/presupuestos/PresupuestosPage'));
 const FacturasPage = lazy(() => import('./modules/finanzas/facturas/FacturasPage'));
 const GastosPage = lazy(() => import('./modules/finanzas/gastos/GastosPage'));
@@ -98,6 +101,9 @@ export default function App() {
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/planning-obra" element={<PlanningObraPage />} />
           <Route path="/galeria" element={<GaleriaPage />} />
+          <Route path="/galeria/nueva" element={<GaleriaNuevaPage />} />
+          <Route path="/galeria/:id" element={<GaleriaDetallePage />} />
+          <Route path="/galeria/:id/media" element={<GaleriaMediaPage />} />
           <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
           <Route path="/finanzas/facturas" element={<FacturasPage />} />
           <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />

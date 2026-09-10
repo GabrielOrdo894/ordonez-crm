@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Star, Plus, Copy, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Trash2, Star, Plus, Copy, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { camposContactoFaltantes } from '../../../lib/datosContacto';
@@ -415,6 +415,21 @@ export function PresupuestoForm({
 
   const sumaPorcentajesPlazo = Math.round(form.plan_pago.reduce((s, p) => s + p.porcentaje, 0) * 10) / 10;
 
+  // Genera el enlace de firma de Documenso automáticamente al guardar, si el presupuesto es
+  // elegible (no orientativo, con email de cliente) y todavía no tiene uno — así el mensaje de
+  // envío siempre puede incluirlo sin que haga falta acordarse de pulsar "Obtener enlace de firma"
+  // a mano (hallazgo real de Gabriel 2026-09-10: se habían enviado presupuestos sin él). Best-effort:
+  // un fallo aquí no debe impedir guardar el presupuesto ya guardado correctamente.
+  const generarEnlaceDocumensoSiHaceFalta = async (p: Presupuesto) => {
+    if (p.tipo === 'orientativo' || !p.cliente_email || p.firmado || p.documenso_signing_url) return;
+    try {
+      const resultado = await enviarPresupuestoAFirmar(p);
+      setLinkDocumenso(resultado.signingUrl);
+    } catch (err) {
+      console.error('No se pudo generar el enlace de firma automáticamente:', err instanceof Error ? err.message : err);
+    }
+  };
+
   const guardarMutation = useMutation({
     mutationFn: async () => {
       const nuevo: NuevoPresupuesto = {
@@ -453,11 +468,13 @@ export function PresupuestoForm({
         documenso_envelope_id: presupuesto?.documenso_envelope_id ?? null,
         documenso_signing_url: presupuesto?.documenso_signing_url ?? null,
         documenso_estado: presupuesto?.documenso_estado ?? null,
+        documenso_pdf_firmado_path: presupuesto?.documenso_pdf_firmado_path ?? null,
       };
 
       if (presupuesto) {
         const { error } = await supabase.from('presupuestos').update(nuevo).eq('id', presupuesto.id);
         if (error) throw error;
+        await generarEnlaceDocumensoSiHaceFalta({ ...presupuesto, ...nuevo, id: presupuesto.id });
         return presupuesto.id;
       }
 
@@ -476,6 +493,7 @@ export function PresupuestoForm({
       if (desdeOrientativo) {
         await registrarEvento('presupuesto', desdeOrientativo.id, `Presupuesto normal ${numero} creado a partir de este orientativo`);
       }
+      await generarEnlaceDocumensoSiHaceFalta(data as Presupuesto);
       return data.id;
     },
     onSuccess: async () => {
@@ -520,6 +538,21 @@ export function PresupuestoForm({
     if (!linkDocumenso) return;
     navigator.clipboard.writeText(linkDocumenso);
     toast.success('Enlace copiado');
+  };
+
+  // El PDF firmado (con firma + audit trail) lo descarga documenso-webhook al bucket privado
+  // 'presupuestos-firmados' al firmarse — igual que los justificantes de gastos, se sirve con un
+  // signed URL en vez de una URL pública.
+  const handleDescargarPdfFirmado = async () => {
+    if (!presupuesto?.documenso_pdf_firmado_path) return;
+    const { data, error } = await supabase.storage
+      .from('presupuestos-firmados')
+      .createSignedUrl(presupuesto.documenso_pdf_firmado_path, 3600);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleDescargarPdf = async () => {
@@ -1055,10 +1088,20 @@ export function PresupuestoForm({
           {presupuesto && !esOrientativo && (
             <FaseCard numero={7} titulo="Firma">
               {presupuesto.firmado ? (
-                <p className="text-sm text-gray-600">
-                  Firmado {presupuesto.firma_metodo === 'documenso' ? 'electrónicamente (Documenso) ' : ''}
-                  por {presupuesto.firma_nombre} el {presupuesto.firma_fecha?.slice(0, 10)}
-                </p>
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-gray-600">
+                    Firmado {presupuesto.firma_metodo === 'documenso' ? 'electrónicamente (Documenso) ' : ''}
+                    por {presupuesto.firma_nombre} el {presupuesto.firma_fecha?.slice(0, 10)}
+                  </p>
+                  {presupuesto.documenso_pdf_firmado_path && (
+                    <Button size="sm" variant="secondary" onClick={handleDescargarPdfFirmado} className="self-start">
+                      <span className="flex items-center gap-1.5">
+                        <Download size={13} />
+                        Descargar presupuesto firmado (PDF)
+                      </span>
+                    </Button>
+                  )}
+                </div>
               ) : linkDocumenso ? (
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">

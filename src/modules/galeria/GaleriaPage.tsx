@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ImageOff, Star } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
@@ -8,35 +8,19 @@ import { mensajeError } from '../../lib/mensajeError';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
-import { Modal } from '../../components/ui/Modal';
-import { GaleriaDetalleModal } from './GaleriaDetalleModal';
 import { cargarObrasDisponibles, abrirOCrearFichaGaleria } from './obras';
 import type { GaleriaProyecto } from './types';
-
-type FormManual = { titulo: string; tipo_obra: string; zona: string; fecha_obra: string; descripcion: string };
-
-function formManualVacio(): FormManual {
-  return { titulo: '', tipo_obra: '', zona: '', fecha_obra: '', descripcion: '' };
-}
 
 export default function GaleriaPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const location = useLocation();
+  const navigate = useNavigate();
   const [filtroTipo, setFiltroTipo] = useState('Todos');
   const [filtroZona, setFiltroZona] = useState('Todas');
   const [soloDestacados, setSoloDestacados] = useState(false);
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [obraSeleccionada, setObraSeleccionada] = useState('');
-  const [proyectoAbierto, setProyectoAbierto] = useState<string | null>(null);
-  const [creandoManual, setCreandoManual] = useState(false);
-  const [formManual, setFormManual] = useState<FormManual>(formManualVacio());
-
-  useEffect(() => {
-    const st = location.state as { abrirGaleriaId?: string } | null;
-    if (st?.abrirGaleriaId) setProyectoAbierto(st.abrirGaleriaId);
-  }, [location.state]);
 
   const { data: proyectos, isLoading } = useQuery({
     queryKey: ['galeria'],
@@ -59,45 +43,9 @@ export default function GaleriaPage() {
     onSuccess: (id) => {
       queryClient.invalidateQueries({ queryKey: ['galeria'] });
       setObraSeleccionada('');
-      setProyectoAbierto(id);
+      navigate(`/galeria/${id}`);
     },
     onError: (error) => toast.error(mensajeError(error, 'No se pudo abrir la obra')),
-  });
-
-  // Fallback manual (2026-09-09, petición de Gabriel): si la obra real no aparece en el
-  // desplegable de arriba (caso raro no cubierto por presupuesto/factura, ej. fotos de referencia
-  // de un proveedor), se puede crear la ficha a mano — sin presupuesto_id/factura_id, igual que
-  // antes de este cambio, pero como excepción explícita en vez del único camino de creación.
-  const crearManualMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase
-        .from('galeria')
-        .insert({
-          visita_id: null,
-          proyecto_id: null,
-          presupuesto_id: null,
-          factura_id: null,
-          titulo: formManual.titulo || null,
-          tipo_obra: formManual.tipo_obra || null,
-          zona: formManual.zona || null,
-          fecha_obra: formManual.fecha_obra || null,
-          descripcion: formManual.descripcion || null,
-          fotos: [],
-          destacado: false,
-          publicado: false,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      return data.id as string;
-    },
-    onSuccess: (id) => {
-      queryClient.invalidateQueries({ queryKey: ['galeria'] });
-      setCreandoManual(false);
-      setFormManual(formManualVacio());
-      setProyectoAbierto(id);
-    },
-    onError: (error) => toast.error(mensajeError(error, 'No se pudo crear la ficha')),
   });
 
   const tiposDisponibles = useMemo(() => {
@@ -158,7 +106,7 @@ export default function GaleriaPage() {
       </div>
       <p className="text-xs text-gray-400 -mt-2 mb-4">
         Solo aparecen obras verificadas: con presupuesto Aceptado, factura o anticipo.{' '}
-        <button onClick={() => setCreandoManual(true)} className="text-brand hover:underline">
+        <button onClick={() => navigate('/galeria/nueva')} className="text-brand hover:underline">
           ¿No encuentras la obra? Crear ficha manualmente
         </button>
       </p>
@@ -200,7 +148,7 @@ export default function GaleriaPage() {
           return (
             <button
               key={p.id}
-              onClick={() => setProyectoAbierto(p.id)}
+              onClick={() => navigate(`/galeria/${p.id}`)}
               className="text-left bg-surface border border-gray-200 rounded-sm overflow-hidden hover:border-brand"
             >
               <div className="h-40 bg-gray-50 flex items-center justify-center overflow-hidden">
@@ -228,62 +176,6 @@ export default function GaleriaPage() {
           );
         })}
       </div>
-
-      <GaleriaDetalleModal proyectoId={proyectoAbierto} onClose={() => setProyectoAbierto(null)} onEliminado={() => setProyectoAbierto(null)} />
-
-      <Modal
-        open={creandoManual}
-        onClose={() => setCreandoManual(false)}
-        title="Crear ficha manualmente"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setCreandoManual(false)}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => crearManualMutation.mutate()}
-              disabled={crearManualMutation.isPending || !formManual.titulo.trim()}
-            >
-              {crearManualMutation.isPending ? 'Creando...' : 'Crear'}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <p className="text-xs text-gray-400">
-            Solo para casos que la lista de obras no cubre (ej. fotos de referencia de un proveedor) — no queda
-            vinculada a ningún presupuesto ni factura.
-          </p>
-          <Input
-            label="Título"
-            required
-            value={formManual.titulo}
-            onChange={(e) => setFormManual((f) => ({ ...f, titulo: e.target.value }))}
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
-              label="Tipo de obra"
-              value={formManual.tipo_obra}
-              onChange={(e) => setFormManual((f) => ({ ...f, tipo_obra: e.target.value }))}
-            />
-            <Input label="Zona" value={formManual.zona} onChange={(e) => setFormManual((f) => ({ ...f, zona: e.target.value }))} />
-          </div>
-          <Input
-            label="Fecha"
-            type="date"
-            value={formManual.fecha_obra}
-            onChange={(e) => setFormManual((f) => ({ ...f, fecha_obra: e.target.value }))}
-          />
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Descripción</label>
-            <textarea
-              value={formManual.descripcion}
-              onChange={(e) => setFormManual((f) => ({ ...f, descripcion: e.target.value }))}
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[70px] focus:border-brand focus:outline-none"
-            />
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

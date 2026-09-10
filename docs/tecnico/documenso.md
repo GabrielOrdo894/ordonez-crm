@@ -10,7 +10,18 @@ Documenso, crea un firmante (el email del cliente) y devuelve un enlace de firma
 
 Cuando el cliente firma en ese enlace, un webhook de Documenso llama a la Edge Function
 `documenso-webhook`, que marca el presupuesto como `firmado = true` y `estado = 'Aceptado'`
-automáticamente (mismo comportamiento que la firma manual).
+automáticamente (mismo comportamiento que la firma manual). Desde 2026-09-10 además: descarga el
+PDF ya firmado (con firma + audit trail) y lo guarda en el bucket privado `presupuestos-firmados`
+(columna `documenso_pdf_firmado_path`, descargable desde la sección "Firma" del presupuesto con un
+signed URL, igual que los justificantes de gastos), y avisa por email a
+reformasordonezeus@gmail.com de que se ha firmado.
+
+**El enlace ya no depende de un clic manual**: al guardar un presupuesto no orientativo con email
+de cliente, si todavía no tiene `documenso_signing_url`, `PresupuestoForm.tsx` lo genera solo
+(mismo `enviarPresupuestoAFirmar`, best-effort) — corrige un hallazgo real de Gabriel
+(2026-09-10): se habían enviado presupuestos sin el enlace de firma porque había que acordarse de
+pulsar "Obtener enlace de firma" a mano. El agente `envio-presupuestos` comprueba este campo antes
+de redactar el mensaje de envío y lo incluye siempre que exista.
 
 ## Piezas
 

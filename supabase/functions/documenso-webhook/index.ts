@@ -1,7 +1,14 @@
 // Edge Function: recibe el webhook de Documenso cuando un presupuesto se firma
 // y lo marca automáticamente como firmado + Aceptado. Se registra en Documenso
 // (Settings → Webhooks) apuntando a esta función. Ver docs/tecnico/documenso.md.
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+//
+// Desde 2026-09-10 también: (1) descarga el PDF ya firmado de Documenso y lo guarda en el bucket
+// privado `presupuestos-firmados` para poder descargarlo desde el CRM, y (2) avisa por email a
+// reformasordonezeus@gmail.com — hasta ahora la firma solo se veía si alguien entraba al CRM
+// (hallazgo real de Gabriel: presupuestos enviados sin el enlace de firma y sin ningún aviso al
+// firmarse). Ambos pasos son best-effort: si fallan, se loguean pero no revierten el
+// firmado/Aceptado ya guardado, que es lo importante.
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +64,133 @@ async function igualesEnTiempoConstante(a: string, b: string): Promise<boolean> 
   return diff === 0;
 }
 
+const DOCUMENSO_API = 'https://app.documenso.com/api/v2';
+
+async function llamarDocumensoJson(path: string, apiKey: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`${DOCUMENSO_API}${path}`, { headers: { Authorization: apiKey } });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message ?? data?.error ?? `Documenso devolvió ${res.status} en ${path}`);
+  return data;
+}
+
+// Descarga el PDF ya firmado (con firma + audit trail) y lo guarda en el bucket privado
+// `presupuestos-firmados` — el enlace de firma de Documenso deja de servir el documento una vez
+// completado, así que sin esto no había forma de recuperar el PDF firmado desde el CRM.
+async function descargarYGuardarPdfFirmado(
+  supabase: SupabaseClient,
+  presupuesto: { id: string; documenso_envelope_id: string | null },
+  apiKey: string,
+): Promise<void> {
+  if (!presupuesto.documenso_envelope_id) return;
+
+  const detalle = await llamarDocumensoJson(`/envelope/${presupuesto.documenso_envelope_id}`, apiKey);
+  const items = (detalle.items ?? (detalle.envelope as Record<string, unknown> | undefined)?.items) as
+    | { id: string }[]
+    | undefined;
+  const itemId = items?.[0]?.id;
+  if (!itemId) throw new Error('El envelope no tiene ningún item para descargar');
+
+  const res = await fetch(`${DOCUMENSO_API}/envelope/item/${itemId}/download?version=signed`, {
+    headers: { Authorization: apiKey },
+  });
+  if (!res.ok) throw new Error(`No se pudo descargar el PDF firmado (${res.status})`);
+  const pdfBytes = new Uint8Array(await res.arrayBuffer());
+
+  const path = `${presupuesto.id}.pdf`;
+  const { error: errorSubida } = await supabase.storage
+    .from('presupuestos-firmados')
+    .upload(path, pdfBytes, { contentType: 'application/pdf', upsert: true });
+  if (errorSubida) throw new Error(`No se pudo guardar el PDF firmado en Storage: ${errorSubida.message}`);
+
+  const { error: errorUpdate } = await supabase
+    .from('presupuestos')
+    .update({ documenso_pdf_firmado_path: path })
+    .eq('id', presupuesto.id);
+  if (errorUpdate) throw new Error(`No se pudo guardar la ruta del PDF firmado: ${errorUpdate.message}`);
+}
+
+// --- Envío de email de aviso — mismo patrón de Gmail que supabase/functions/alerta-diaria
+// (duplicado a propósito, un Edge Function no puede importar código de otro, ver más arriba). ---
+
+async function obtenerAccessTokenGmail(supabase: SupabaseClient): Promise<string> {
+  const { data: config, error } = await supabase
+    .from('google_config')
+    .select('refresh_token, refresh_token_gmail')
+    .eq('id', 1)
+    .maybeSingle();
+  if (error) throw new Error(`No se pudo leer google_config: ${error.message}`);
+  const refreshToken = config?.refresh_token_gmail || config?.refresh_token;
+  if (!refreshToken) throw new Error('Google no está conectado (falta refresh_token en google_config)');
+
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos');
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description ?? data.error ?? 'No se pudo renovar el token de Google');
+  return data.access_token;
+}
+
+function base64UrlEncodeUtf8(texto: string): string {
+  const utf8 = new TextEncoder().encode(texto);
+  let binario = '';
+  for (const byte of utf8) binario += String.fromCharCode(byte);
+  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function codificarAsunto(asunto: string): string {
+  const utf8 = new TextEncoder().encode(asunto);
+  let binario = '';
+  for (const byte of utf8) binario += String.fromCharCode(byte);
+  return `=?UTF-8?B?${btoa(binario)}?=`;
+}
+
+const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
+
+async function avisarFirmaPorEmail(
+  supabase: SupabaseClient,
+  presupuesto: { numero: string | null; cliente_nombre: string | null },
+  firmaNombre: string | null,
+): Promise<void> {
+  const token = await obtenerAccessTokenGmail(supabase);
+  const asunto = `Presupuesto ${presupuesto.numero ?? ''} firmado — ${presupuesto.cliente_nombre ?? 'cliente'}`;
+  const cuerpo = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#111827">
+    <p><strong>${presupuesto.cliente_nombre ?? 'El cliente'}</strong> ha firmado electrónicamente el presupuesto <strong>${
+      presupuesto.numero ?? ''
+    }</strong> con Documenso${firmaNombre ? ` (firmado por ${firmaNombre})` : ''}.</p>
+    <p>El presupuesto ya se ha marcado como Aceptado en el CRM, y el PDF firmado está disponible para descargar desde su ficha.</p>
+  </div>`;
+  const mensajeMime = [
+    `From: ${REMITENTE_BASE}`,
+    `To: ${REMITENTE_BASE}`,
+    `Subject: ${codificarAsunto(asunto)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset="UTF-8"',
+    '',
+    cuerpo,
+  ].join('\r\n');
+
+  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
+  });
+  if (!res.ok) {
+    const detalle = await res.text().catch(() => '');
+    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -95,7 +229,11 @@ Deno.serve(async (req: Request) => {
   // no debe poder marcarse Aceptado/firmado mientras sigue oculto ahí — quedaría "aceptado y
   // firmado" de verdad sin que nadie lo vea salvo que entre a la papelera a propósito (bug real
   // corregido 2026-08-18).
-  const busqueda = supabase.from('presupuestos').select('id, numero, visita_id, cliente_tel, firmado').is('eliminado_en', null).limit(1);
+  const busqueda = supabase
+    .from('presupuestos')
+    .select('id, numero, visita_id, cliente_tel, cliente_nombre, firmado, documenso_envelope_id')
+    .is('eliminado_en', null)
+    .limit(1);
   const { data: presupuestos, error: buscarError } = externalId
     ? await busqueda.eq('id', externalId)
     : await busqueda.eq('documenso_envelope_id', envelopeId);
@@ -133,6 +271,23 @@ Deno.serve(async (req: Request) => {
   });
   const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_firmado', presupuesto_id: presupuesto.id });
   if (errorFunnel) console.error('No se pudo registrar el evento de funnel presupuesto_firmado:', errorFunnel.message);
+
+  // Best-effort: el presupuesto ya quedó firmado/Aceptado arriba pase lo que pase aquí abajo.
+  const apiKey = Deno.env.get('DOCUMENSO_API_KEY');
+  if (apiKey) {
+    try {
+      await descargarYGuardarPdfFirmado(supabase, presupuesto, apiKey);
+    } catch (err) {
+      console.error('No se pudo descargar/guardar el PDF firmado:', err instanceof Error ? err.message : err);
+    }
+  } else {
+    console.error('Falta el secreto DOCUMENSO_API_KEY — no se pudo descargar el PDF firmado');
+  }
+  try {
+    await avisarFirmaPorEmail(supabase, presupuesto, firmaNombre);
+  } catch (err) {
+    console.error('No se pudo avisar por email de la firma:', err instanceof Error ? err.message : err);
+  }
 
   // Sincroniza la etapa de pipeline del cliente, igual que hace la firma manual en el frontend
   // (sincronizarPipelineCliente) — aquí no hay usuario con sesión abierta que lo dispare.

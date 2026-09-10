@@ -217,7 +217,7 @@ export function ClienteDetalleContenido({
         toast.warning('Este cliente todavía no tiene presupuesto aceptado ni factura — la Galería solo admite obras verificadas');
         return;
       }
-      navigate('/galeria', { state: { abrirGaleriaId: id } });
+      navigate(`/galeria/${id}`);
     },
     onError: (error) => toast.error(mensajeError(error, 'No se pudo abrir la galería')),
   });

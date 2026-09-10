@@ -60,6 +60,9 @@ export type Presupuesto = {
   documenso_envelope_id: string | null;
   documenso_signing_url: string | null;
   documenso_estado: string | null;
+  // Path en el bucket privado 'presupuestos-firmados' — solo se rellena cuando documenso-webhook
+  // descarga el PDF ya firmado tras el evento DOCUMENT_COMPLETED (ver docs/tecnico/documenso.md).
+  documenso_pdf_firmado_path: string | null;
   eliminado_en?: string | null;
   eliminado_por?: string | null;
   traduccion?: TraduccionPresupuesto | null;
