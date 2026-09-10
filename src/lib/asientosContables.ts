@@ -281,14 +281,26 @@ export async function rectificarAsientos(
 ) {
   let query = supabase
     .from('asientos_contables')
-    .select('cuenta, debe, haber, concepto, fecha')
+    .select('cuenta, debe, haber, concepto, fecha, created_at')
     .eq('documento_tipo', documentoTipo)
     .eq('documento_id', documentoId)
-    .eq('tipo_evento', tipoEvento);
+    .eq('tipo_evento', tipoEvento)
+    .order('created_at', { ascending: false });
   if (pagoId) query = query.eq('pago_id', pagoId);
-  const { data: previos, error } = await query;
+  const { data: historico, error } = await query;
   if (error) throw error;
-  if (!previos || previos.length === 0) return;
+  if (!historico || historico.length === 0) return;
+
+  // Solo se reversa el ÚLTIMO lote insertado, no todo el histórico acumulado. insertarAsientos()
+  // mete cada lote en una única sentencia INSERT, y Postgres le da a todas sus filas el mismo
+  // `now()` — eso basta para agrupar "las filas de esta misma llamada" sin ninguna columna nueva.
+  // Antes se reversaba TODO lo que hubiera para ese documento/evento, incluidas reversas de
+  // ediciones anteriores: el saldo neto seguía cuadrando siempre (reversar la reversa se cancela
+  // sola, ver test), pero cada edición duplicaba aproximadamente el número de filas del histórico
+  // completo — un documento editado 4-5 veces (habitual) acumulaba decenas de apuntes casi
+  // duplicados, difícil de leer ante una inspección fiscal (bug real, corregido 2026-09-10).
+  const ultimoLote = historico[0].created_at;
+  const previos = historico.filter((a) => a.created_at === ultimoLote);
 
   await insertarAsientos(construirAsientosRectificacion(previos, documentoTipo, documentoId, tipoEvento));
 }

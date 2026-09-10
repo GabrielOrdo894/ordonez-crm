@@ -112,14 +112,24 @@ async function sincronizarTipoSolicitud(supabase: SupabaseClient): Promise<void>
     ((visitas ?? []) as VisitaContacto[]).map((v) => (v.email ? v.email.toLowerCase() : null)).filter((e): e is string => !!e),
   );
 
+  // Agrupadas por tipo resultante para como máximo 2 updates por lote, igual que la copia del
+  // frontend (src/lib/sincronizarTipoSolicitud.ts, corregido el mismo día) — y comprobando el
+  // error del update, que antes se ignoraba en silencio aquí (bug real, corregido 2026-09-10; la
+  // copia del frontend sí hacía console.warn).
+  const idsPorTipo: Record<'visita' | 'presupuesto_orientativo', string[]> = { visita: [], presupuesto_orientativo: [] };
   for (const s of solicitudes as SolicitudSinTipo[]) {
     const tel = s.telefono ? normalizarTelefono(s.telefono) : null;
     const email = s.email ? s.email.toLowerCase() : null;
     const tieneVisita = !!s.visita_id || (!!tel && telefonosVisita.has(tel)) || (!!email && emailsVisita.has(email));
     const tieneOrientativo = !!s.presupuesto_vinculado_id;
     const tipo = tieneVisita ? 'visita' : tieneOrientativo ? 'presupuesto_orientativo' : null;
-    if (!tipo) continue;
-    await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).eq('id', s.id);
+    if (tipo) idsPorTipo[tipo].push(s.id);
+  }
+
+  for (const tipo of ['visita', 'presupuesto_orientativo'] as const) {
+    if (idsPorTipo[tipo].length === 0) continue;
+    const { error: errorUpdate } = await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).in('id', idsPorTipo[tipo]);
+    if (errorUpdate) console.error(`sincronizarTipoSolicitud: no se pudo actualizar el lote "${tipo}":`, errorUpdate.message);
   }
 }
 

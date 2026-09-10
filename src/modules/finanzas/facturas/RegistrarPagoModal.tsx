@@ -209,7 +209,13 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
               type="number"
               value={monto}
               onChange={(e) => setMonto(Number(e.target.value))}
-              hint={monto < pendiente - 0.01 ? 'Menor que lo pendiente: quedará "Cobrada parcialmente".' : undefined}
+              hint={
+                monto < pendiente - 0.01
+                  ? 'Menor que lo pendiente: quedará "Cobrada parcialmente".'
+                  : monto > pendiente + 0.01
+                    ? `Mayor que lo pendiente (${pendiente.toFixed(2)} €) — revisa el importe antes de guardar.`
+                    : undefined
+              }
             />
             <Button onClick={() => agregarPagoMutation.mutate()} disabled={agregarPagoMutation.isPending || monto <= 0}>
               {agregarPagoMutation.isPending ? 'Guardando...' : 'Añadir pago'}

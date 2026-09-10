@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { rectificarAsientos } from '../../lib/asientosContables';
 import { useToast } from '../../hooks/useToast';
 import { mensajeError } from '../../lib/mensajeError';
 import { Button } from '../../components/ui/Button';
@@ -289,6 +290,13 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
         .in('id', facturaIds),
     );
   }
+  // Los gastos de Francia ya contabilizados tienen sus asientos en asientos_contables (insert-only
+  // por ley, ver asientosContables.ts) — hay que reversarlos ANTES de borrar la fila, si no el
+  // Libro Diario/Mayor se queda con apuntes que referencian un gasto que ya no existe. No hace
+  // falta filtrar por país: para un gasto de España (sin asientos) rectificarAsientos no encuentra
+  // nada y no hace nada (bug real, corregido 2026-09-10 — la papelera de facturas ya reversaba sus
+  // asientos al purgar, esta purga RGPD se había quedado sin ese mismo paso).
+  await Promise.all(gastoIds.map((id) => rectificarAsientos('gasto', id, 'creacion')));
   await pasoBorrado('gastos', () => supabase.from('gastos').delete().in('visita_id', visitaIds));
   await pasoBorrado('galeria', () => supabase.from('galeria').delete().in('visita_id', visitaIds));
   await pasoBorrado('visitas', () => supabase.from('visitas').delete().in('id', visitaIds));

@@ -343,6 +343,20 @@ export function PresupuestoForm({
     [esOrientativo, form.lineas, porcentaje],
   );
 
+  // El importe de cada plazo se deriva de totalConIva * porcentaje cada vez que cambian las
+  // líneas — antes quedaba congelado en el importe calculado en el momento del clic (preset o
+  // alta manual de un plazo), así que editar/añadir/borrar una línea después dejaba el plan de
+  // pago del PDF sin sumar el total real del presupuesto (bug real, corregido 2026-09-10). El
+  // porcentaje sigue siendo la fuente de verdad; esto solo mantiene el importe sincronizado con él.
+  useEffect(() => {
+    setForm((f) => {
+      if (f.plan_pago.length === 0) return f;
+      const recalculado = f.plan_pago.map((p) => ({ ...p, importe: totalConIva * (p.porcentaje / 100) }));
+      const cambio = recalculado.some((p, i) => Math.abs(p.importe - f.plan_pago[i].importe) > 0.001);
+      return cambio ? { ...f, plan_pago: recalculado } : f;
+    });
+  }, [totalConIva]);
+
   const aplicarPreset = (preset: '50/50' | '40-40-20' | 'firma') => {
     if (preset === 'firma') {
       setForm((f) => ({ ...f, plan_pago: [{ concepto: 'A la firma', porcentaje: 100, importe: totalConIva }] }));

@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, CalendarClock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
-import { crearEventoVisita, actualizarEventoVisita } from '../../lib/googleCalendar';
+import { sincronizarGoogleCalendarVisita } from '../../lib/googleCalendar';
 import { sumarMinutos, minutosEntre } from '../../lib/horas';
 import { fechaVisitaLarga } from '../../lib/fechas';
 import { useAuth } from '../../hooks/useAuth';
@@ -72,33 +72,14 @@ function ReprogramarForm({ visita }: { visita: Visita }) {
       await notaSistema(visita.id, `Visita reprogramada por ${nombreUsuarioActual}: ${antes} → ${despues}`);
 
       const visitaActualizada = { ...visita, ...form };
-      if (visita.google_event_id) {
-        actualizarEventoVisita(visita.google_event_id, visitaActualizada).catch((error) =>
-          toast.warning(`Visita reprogramada, pero no se pudo actualizar el evento en Google Calendar: ${error.message}`),
-        );
-      } else {
-        crearEventoVisita(visitaActualizada)
-          .then(async (eventId) => {
-            if (!eventId) return;
-            const { error } = await supabase
-              .from('visitas')
-              .update({ google_event_id: eventId })
-              .eq('id', visita.id);
-            if (error)
-              toast.warning(`Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${error.message}`);
-          })
-          .catch((error) =>
-            toast.warning(`Visita reprogramada, pero no se sincronizó con Google Calendar: ${error.message}`),
-          );
-      }
-
-      const { data: r, error: errorAviso } = await supabase.functions.invoke('notificar-visita', {
-        body: { visitaId: visita.id, motivo: 'reprogramacion' },
+      const avisos = await sincronizarGoogleCalendarVisita({
+        visitaId: visita.id,
+        googleEventId: visita.google_event_id,
+        visita: visitaActualizada,
+        notificar: true,
+        motivoNotificacion: 'reprogramacion',
       });
-      if (errorAviso || r?.ok === false)
-        toast.warning(
-          `Visita reprogramada, pero no se pudo enviar el email de aviso: ${errorAviso?.message ?? r?.error}`,
-        );
+      avisos.forEach((aviso) => toast.warning(`Visita reprogramada, pero ${aviso.charAt(0).toLowerCase()}${aviso.slice(1)}`));
 
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita reprogramada correctamente');

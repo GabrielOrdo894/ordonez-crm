@@ -28,6 +28,7 @@ import { AvisosPanel } from './AvisosPanel';
 import {
   ESTADOS_SOLICITUD,
   FUENTE_LABEL,
+  SELECT_SOLICITUDES,
   TIPO_SOLICITUD_LABEL,
   estadoSeguimiento,
   type MensajeEnvioFila,
@@ -137,7 +138,7 @@ export default function SolicitudesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('solicitudes')
-        .select('*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero)')
+        .select(SELECT_SOLICITUDES)
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
@@ -283,11 +284,18 @@ export default function SolicitudesPage() {
 
   const eliminarSolicitudesMutation = useMutation({
     mutationFn: async (ids: (string | number)[]) => {
+      // Limpiar funnel_eventos ANTES de borrar la solicitud — igual que ya hace TablaPresupuestos
+      // al purgar un presupuesto desde /papelera. Sin esto, sus eventos (p.ej. solicitud_entrada)
+      // se quedaban huérfanos e inflaban para siempre el embudo de 90 días sin que quedara ninguna
+      // fila que lo explicara (bug real, corregido 2026-09-10).
+      const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().in('solicitud_id', ids as string[]);
+      if (errorFunnel) throw errorFunnel;
       const { error } = await supabase.from('solicitudes').delete().in('id', ids as string[]);
       if (error) throw error;
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel_eventos'] });
       toast.success(`${ids.length} solicitud(es) eliminada(s)`);
       limpiarSeleccionUnificada();
     },

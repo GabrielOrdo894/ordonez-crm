@@ -167,7 +167,7 @@ export default function FiscalidadPage() {
       {pestana === 'simulador' && <TabSimulador />}
       {pestana === 'calendario' && <TabCalendario />}
       {pestana === 'documentos' && <TabDocumentos />}
-      {pestana === 'inmovilizado' && <TabInmovilizado />}
+      {pestana === 'inmovilizado' && <TabInmovilizado anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'liasse' && <TabLiasseFiscale anio={anioFiscal} onAnioChange={setAnioFiscal} />}
       {pestana === 'cierre' && <TabCierreEjercicio />}
 

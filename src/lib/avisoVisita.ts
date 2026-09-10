@@ -9,13 +9,22 @@ import { supabase } from './supabase';
 // antes solo se avisaba de presupuestos/facturas/proyectos, dejando fotos y gastos de kilometraje
 // huérfanos sin ningún aviso).
 export async function avisoDocumentosActivosDeVisita(visitaId: string): Promise<string> {
-  const [presupuestos, facturas, proyectos, gastos, galeria] = await Promise.all([
+  const resultados = await Promise.all([
     supabase.from('presupuestos').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId).is('eliminado_en', null),
     supabase.from('facturas').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId).is('eliminado_en', null),
     supabase.from('proyectos').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId),
     supabase.from('gastos').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId),
     supabase.from('galeria').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId),
   ]);
+  const [presupuestos, facturas, proyectos, gastos, galeria] = resultados;
+  // Si alguna de las 5 comprobaciones falla, NO se puede asumir "0 documentos" — decir eso sería
+  // mentir en el diálogo de confirmación justo antes de borrar/purgar (bug real, corregido
+  // 2026-09-10). Se avisa explícitamente en vez de callar el fallo.
+  const conError = resultados.some((r) => r.error);
+  if (conError) {
+    resultados.forEach((r) => r.error && console.error('avisoDocumentosActivosDeVisita:', r.error.message));
+    return ' No se pudo comprobar si esta visita tiene documentos vinculados (presupuestos, facturas, planning, gastos o galería) — revísalo a mano antes de continuar.';
+  }
   const partes = [
     presupuestos.count ? `${presupuestos.count} presupuesto(s)` : null,
     facturas.count ? `${facturas.count} factura(s)` : null,

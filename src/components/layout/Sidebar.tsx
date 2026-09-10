@@ -48,6 +48,7 @@ import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
 import {
+  SELECT_SOLICITUDES,
   estadoSeguimiento,
   type PresupuestoConRespuesta,
   type PresupuestoPendienteEnvio,
@@ -247,14 +248,15 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
     refetchInterval: 10000,
   });
 
-  // Mismas queryKey/queryFn que SolicitudesPage/useNotificaciones a propósito — comparten caché
-  // de Tanstack Query, así que el badge se actualiza solo (sin pedir nada extra al servidor) en
+  // Mismas queryKey/queryFn que SolicitudesPage/InicioPage a propósito — comparten caché de
+  // Tanstack Query, así que el badge se actualiza solo (sin pedir nada extra al servidor) en
   // cuanto la revisión automática de Gmail de AppLayout u otra pantalla invalida ['solicitudes']
-  // o ['presupuestos', 'respuestas-pendientes'].
+  // o ['presupuestos', 'respuestas-pendientes']. El select viene de SELECT_SOLICITUDES para que
+  // nunca pueda desincronizarse del resto (bug real, corregido 2026-09-10).
   const { data: solicitudesParaBadge, error: errorSolicitudesBadge } = useQuery({
     queryKey: ['solicitudes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('solicitudes').select(SELECT_SOLICITUDES).order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
     },

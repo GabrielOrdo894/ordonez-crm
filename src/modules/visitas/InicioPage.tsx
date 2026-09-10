@@ -46,7 +46,7 @@ import { useEcheances } from '../fiscalidad/useEcheances';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { ETAPAS_PIPELINE } from '../clientes/types';
-import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { SELECT_SOLICITUDES, estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { CalendarioMini } from './CalendarioMini';
 import { ResenaGoogleBanner } from './ResenaGoogleBanner';
 import { NotificacionesBell } from '../notificaciones/NotificacionesBell';
@@ -269,10 +269,13 @@ export default function InicioPage() {
     },
   });
 
+  // Mismas queryKey/select que SolicitudesPage/Sidebar a propósito — comparten caché de Tanstack
+  // Query. El select viene de SELECT_SOLICITUDES para que nunca pueda desincronizarse del resto
+  // (bug real, corregido 2026-09-10).
   const { data: solicitudesResumen } = useQuery({
     queryKey: ['solicitudes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('solicitudes').select(SELECT_SOLICITUDES).order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
     },

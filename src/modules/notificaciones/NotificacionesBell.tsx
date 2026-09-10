@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useNotificaciones, type CategoriaNotificacion, type Notificacion } from './useNotificaciones';
+import { useFocoAtrapado } from '../../hooks/useFocoAtrapado';
 
 const ICONOS: Record<CategoriaNotificacion, LucideIcon> = {
   fiscal: Landmark,
@@ -60,6 +61,11 @@ export function NotificacionesBell() {
     setAbierto(false);
     setDetalle(null);
   };
+
+  // Cierre con Escape + trampa de Tab + devolución de foco al botón de la campana — este drawer no
+  // usa <Modal> por ser lateral en vez de centrado, pero antes se quedaba sin ninguna de las tres
+  // garantías que Modal.tsx sí tenía (bug real, corregido 2026-09-10).
+  const panelRef = useFocoAtrapado(abierto, cerrarPanel);
 
   function Fila({ n, hecha }: { n: Notificacion; hecha: boolean }) {
     const Icon = ICONOS[n.categoria];
@@ -227,7 +233,14 @@ export function NotificacionesBell() {
       {abierto && (
         <>
           <div className="fixed inset-0 bg-black/40 z-50 animate-[fade-in_150ms_ease-out]" onClick={cerrarPanel} />
-          <div className="fixed top-0 right-0 h-full w-full max-w-sm bg-surface z-50 shadow-lg flex flex-col animate-[drawer-in-right_220ms_ease-out]">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Notificaciones"
+            tabIndex={-1}
+            className="fixed top-0 right-0 h-full w-full max-w-sm bg-surface z-50 shadow-lg flex flex-col animate-[drawer-in-right_220ms_ease-out]"
+          >
             {detalle ? (
               <VistaDetalle n={detalle} />
             ) : (

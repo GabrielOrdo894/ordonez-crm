@@ -258,8 +258,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
 
   const esIntracomunitario = form.tipo_iva === TIPO_INTRACOM;
   const esImportacion = form.tipo_iva === TIPO_IMPORTACION;
-  const cuentasAmortizacion = GRUPOS_CATEGORIA.find((g) => g.id === 'amortissements')?.cuentas ?? [];
-  const esAmortizacion = cuentasAmortizacion.includes(form.cuenta_contable);
+  // Solo 681 (dotations aux amortissements — sin IVA, apunte contable interno) — NO toda la
+  // familia 68x. 686 (dotations financières) es un gasto financiero real, con contrapartida en
+  // banco como cualquier otro y con su propio IVA si lo lleva (p. ej. comisión bancaria con TVA);
+  // agruparlo aquí con 681 le forzaba "Exento" y le quitaba el IVA deducible sin poder evitarlo
+  // (bug real, corregido 2026-09-10 — mismo criterio que ya aplicaba asientosContables.ts desde
+  // el 31 ago. 2026, esta comprobación se había quedado sin actualizar).
+  const esAmortizacion = form.cuenta_contable.startsWith('681');
   const porcentaje =
     esIntracomunitario || esImportacion || esAmortizacion || form.es_kilometrico ? 0 : porcentajeIva(form.tipo_iva);
   const importeTotalEfectivo = form.es_kilometrico ? calcularIndemnizacionKm(form.km, form.vehiculo_cv) : form.importe_total;
@@ -278,7 +283,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     }
   }, [form.es_kilometrico, form.tipo_iva]);
 
-  const handleImporteChange = (valor: number) => {
+  const handleImporteChange = (valorBruto: number) => {
+    // Mismo clamp que ya aplica LineasEditor.tsx en precio_unit — un importe negativo aquí
+    // contamina el Asistente de IVA, el Libro Mayor y, si la cuenta es de inmovilizado, el
+    // valor_adquisicion del activo (bug real, corregido 2026-09-10).
+    const valor = Math.max(0, valorBruto);
     if (modoImporte === 'base') {
       setForm((f) => ({ ...f, importe_total: porcentaje > 0 ? valor * (1 + porcentaje / 100) : valor }));
     } else {
@@ -622,6 +631,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                     <Input
                       type="number"
+                      min={0}
                       value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : form.importe_total}
                       onChange={(e) => handleImporteChange(Number(e.target.value))}
                     />

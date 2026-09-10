@@ -16,6 +16,16 @@ export const TIPO_SOLICITUD_LABEL: Record<TipoSolicitud, string> = {
   presupuesto_orientativo: 'Presupuesto orientativo',
 };
 
+// Select completo de `solicitudes` (con el join a presupuesto vinculado) — única fuente de verdad
+// para toda pantalla que use la queryKey ['solicitudes'] de Tanstack Query. Varias pantallas la
+// comparten (SolicitudesPage, Sidebar, InicioPage); como Tanstack cachea por queryKey, si alguna
+// pidiera columnas distintas bajo la misma clave, la última en resolver "ganaría" la caché para
+// las demás sin ningún error visible (bug real, corregido 2026-09-10). Importar y usar siempre
+// esta constante en la queryFn en vez de escribir el select a mano, para que no pueda volver a
+// desincronizarse.
+export const SELECT_SOLICITUDES =
+  '*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero)';
+
 export type Solicitud = {
   id: string;
   created_at: string;

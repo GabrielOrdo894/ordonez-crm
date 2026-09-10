@@ -40,6 +40,23 @@ function normalizarTelefono(tel: string): string {
   return tel.replace(/[^\d]/g, '').slice(-9);
 }
 
+// Compara hasheando ambos valores (SHA-256, longitud fija) byte a byte sin cortocircuitar, en vez
+// de `!==` directo sobre las cadenas — un timing attack sobre un `!==` normal podría, en teoría,
+// deducir el secreto carácter a carácter por cuánto tarda en fallar la comparación (riesgo bajo en
+// un webhook de bajo volumen, pero barato de cerrar del todo). Corregido 2026-09-10.
+async function igualesEnTiempoConstante(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [hashA, hashB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(a)),
+    crypto.subtle.digest('SHA-256', enc.encode(b)),
+  ]);
+  const viewA = new Uint8Array(hashA);
+  const viewB = new Uint8Array(hashB);
+  let diff = 0;
+  for (let i = 0; i < viewA.length; i++) diff |= viewA[i] ^ viewB[i];
+  return diff === 0;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -47,7 +64,7 @@ Deno.serve(async (req: Request) => {
   // petición en vez de aceptarlas todas sin comprobar nada (ver docs/tecnico/documenso.md § 4 y 6).
   const secretoEsperado = Deno.env.get('DOCUMENSO_WEBHOOK_SECRET');
   const secretoRecibido = req.headers.get('x-documenso-secret');
-  if (!secretoEsperado || secretoRecibido !== secretoEsperado) {
+  if (!secretoEsperado || !secretoRecibido || !(await igualesEnTiempoConstante(secretoRecibido, secretoEsperado))) {
     return jsonResponse({ error: 'Firma de webhook inválida' }, 401);
   }
 

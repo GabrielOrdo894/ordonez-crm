@@ -290,6 +290,63 @@ export async function actualizarEventoVisita(eventId: string, v: EventoVisita): 
   }
 }
 
+// Punto único para crear/actualizar el evento de Calendar de una visita, guardar su
+// google_event_id si es nuevo, y avisar por email (notificar-visita) — antes este mismo bloque de
+// 3 pasos vivía casi idéntico en VisitaForm.tsx (crear visita y editar visita) y
+// VisitaReprogramarPage.tsx: cualquier corrección futura (como ya pasó una vez con los
+// recordatorios 'popup' vs 'email') se tenía que repetir a mano en los tres sitios, con riesgo
+// real de aplicarla en dos y olvidarla en el tercero (bug real, corregido 2026-09-10).
+//
+// Nunca lanza — cada fallo se acumula como un texto en el array devuelto para que quien llama
+// decida cómo mostrarlo (normalmente toast.warning por cada uno), sin perder la visita ya
+// guardada en BD por un problema de Calendar/email.
+export async function sincronizarGoogleCalendarVisita(opts: {
+  visitaId: string;
+  googleEventId: string | null;
+  visita: EventoVisita;
+  // false en la edición de una visita que ya tenía evento (fuera del flujo de reprogramar) — ese
+  // caso nunca mandaba email antes, solo actualizaba Calendar. true en alta, primera creación del
+  // evento, y reprogramación, que sí lo mandaban siempre — mismo comportamiento que tenían los tres
+  // sitios por separado antes de unificarse aquí.
+  notificar: boolean;
+  // Pasado tal cual al body de notificar-visita (p. ej. 'reprogramacion') — omitido en alta/edición.
+  motivoNotificacion?: string;
+}): Promise<string[]> {
+  const { visitaId, googleEventId, visita, notificar, motivoNotificacion } = opts;
+  const avisos: string[] = [];
+
+  if (googleEventId) {
+    try {
+      await actualizarEventoVisita(googleEventId, visita);
+    } catch (error) {
+      avisos.push(`No se sincronizó el cambio con Google Calendar: ${(error as Error).message}`);
+    }
+  } else {
+    try {
+      const eventId = await crearEventoVisita(visita);
+      if (eventId) {
+        const { error } = await supabase.from('visitas').update({ google_event_id: eventId }).eq('id', visitaId);
+        if (error) {
+          avisos.push(`Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${error.message}`);
+        }
+      }
+    } catch (error) {
+      avisos.push(`No se sincronizó con Google Calendar: ${(error as Error).message}`);
+    }
+  }
+
+  if (notificar) {
+    const { data: r, error: errorAviso } = await supabase.functions.invoke('notificar-visita', {
+      body: motivoNotificacion ? { visitaId, motivo: motivoNotificacion } : { visitaId },
+    });
+    if (errorAviso || r?.ok === false) {
+      avisos.push(`No se pudo enviar el email de confirmación de la visita: ${errorAviso?.message ?? r?.error}`);
+    }
+  }
+
+  return avisos;
+}
+
 // Borra el evento de una visita cancelada — 404/410 significan que ya no existe (borrado a mano
 // por Gabriel, por ejemplo), no es un error real, así que se ignoran igual que un éxito.
 export async function eliminarEventoVisita(eventId: string): Promise<void> {

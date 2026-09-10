@@ -24,7 +24,7 @@ import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
 import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { mencionIvaReducida } from '../modules/finanzas/iva';
 import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
-import { porcentajeIva, paisDesdeTipoIva, calcularTotalesRango, totalLineaMax } from '../modules/finanzas/presupuestos/types';
+import { porcentajeIva, paisDesdeTipoIva, calcularTotales, calcularTotalesRango, totalLineaMax } from '../modules/finanzas/presupuestos/types';
 import { formatearUnidadTexto, formatearPrecio, formatearRangoPrecio } from '../modules/finanzas/lineas';
 import { direccionEnDosLineas } from './direcciones';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
@@ -903,8 +903,7 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
   const paginaResumenPago = totalPaginasPdf(doc);
 
   // ---- Resumen de pago (izquierda) + Plan de pago / Forma de pago (derecha) ----
-  const totalSinIva = p.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_sin_iva), 0);
-  const totalConIva = p.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
+  const { totalSinIva, totalConIva } = calcularTotales(p.lineas);
   const rangoTotales = esOrientativo ? calcularTotalesRango(p.lineas, pct) : null;
 
   // gapCol=6 para que anchoCol coincida exactamente con el de generarPdfFactura.ts (misma tabla

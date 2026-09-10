@@ -16,7 +16,7 @@ import { Button } from '../../components/ui/Button';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
 import { CalendarPicker } from '../google/CalendarPicker';
-import { crearEventoVisita, actualizarEventoVisita } from '../../lib/googleCalendar';
+import { sincronizarGoogleCalendarVisita } from '../../lib/googleCalendar';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { sumarMinutos, minutosEntre } from '../../lib/horas';
 import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
@@ -462,17 +462,26 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     let previas: { nombre: string; apellidos: string; telefono: string; email: string | null }[] =
       [];
     if (telefono) {
-      const { data, error } = await supabase
-        .from('visitas')
-        .select('nombre, apellidos, telefono, email')
-        .eq('telefono', telefono)
-        .is('eliminado_en', null)
-        .order('created_at', { ascending: true });
-      if (error) {
-        toast.error(error.message);
-        return;
+      const nucleo = normalizarTelefono(telefono);
+      if (nucleo) {
+        // ILIKE por los últimos 9 dígitos (núcleo del número) en vez de comparar el teléfono tal
+        // cual — un cliente conocido en formato nacional ("0612345678") o internacional
+        // ("+33612345678") tiene que cruzar igual, mismo criterio que agruparClientes()/
+        // datosContactoCliente() en el resto del CRM (bug real, corregido 2026-09-10). El filtro
+        // exacto por normalizarTelefono() después del ILIKE evita falsos positivos por
+        // coincidencia parcial de substring.
+        const { data, error } = await supabase
+          .from('visitas')
+          .select('nombre, apellidos, telefono, email')
+          .ilike('telefono', `%${nucleo}%`)
+          .is('eliminado_en', null)
+          .order('created_at', { ascending: true });
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+        previas = (data ?? []).filter((v) => normalizarTelefono(v.telefono) === nucleo);
       }
-      previas = data ?? [];
     }
     if (previas.length === 0 && email) {
       const { data, error } = await supabase
@@ -509,12 +518,19 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     }
   };
 
+  // Un email o teléfono mal escrito rompe en silencio la deduplicación por contacto en el resto
+  // del CRM (verificarClienteRepetidor, funnel de Solicitudes, RGPD...) — antes solo se comprobaba
+  // que no estuvieran vacíos, sin validar el formato (bug real, corregido 2026-09-10).
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
   const validar = (): boolean => {
     const nuevosErrores: Partial<Record<keyof FormState, string>> = {};
     if (!form.nombre) nuevosErrores.nombre = 'Obligatorio';
     if (!form.apellidos) nuevosErrores.apellidos = 'Obligatorio';
     if (!form.telefono) nuevosErrores.telefono = 'Obligatorio';
+    else if (form.telefono.replace(/\D/g, '').length < 9) nuevosErrores.telefono = 'Parece incompleto (menos de 9 dígitos)';
     if (!form.email) nuevosErrores.email = 'Obligatorio';
+    else if (!EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (!form.fecha_visita) nuevosErrores.fecha_visita = 'Obligatorio';
     setErrors(nuevosErrores);
@@ -541,31 +557,9 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       return data as Visita;
     },
     onSuccess: async (data) => {
-      crearEventoVisita(data)
-        .then(async (eventId) => {
-          if (!eventId) return;
-          const { error: errorGuardarEventId } = await supabase
-            .from('visitas')
-            .update({ google_event_id: eventId })
-            .eq('id', data.id);
-          if (errorGuardarEventId) {
-            toast.warning(
-              `Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`,
-            );
-          }
-          const { data: r, error } = await supabase.functions.invoke('notificar-visita', {
-            body: { visitaId: data.id },
-          });
-          if (error || r?.ok === false)
-            toast.warning(
-              `No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`,
-            );
-        })
-        .catch((error) =>
-          toast.warning(
-            `Visita guardada, pero no se sincronizó con Google Calendar: ${error.message}`,
-          ),
-        );
+      sincronizarGoogleCalendarVisita({ visitaId: data.id, googleEventId: null, visita: data, notificar: true }).then(
+        (avisos) => avisos.forEach((aviso) => toast.warning(aviso)),
+      );
       await notaSistema(data.id, `Visita registrada por ${nombreUsuarioActual}`);
       // Si la visita viene de "Crear visita desde esta solicitud", enlaza de vuelta
       // solicitudes.visita_id y registra el evento de funnel — permite medir cuánto tarda una
@@ -576,7 +570,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           .from('solicitudes')
           .update({ visita_id: data.id })
           .eq('id', prefill.solicitudId);
-        if (errorEnlace) console.warn('No se pudo enlazar la solicitud con la visita:', errorEnlace.message);
+        if (errorEnlace) toast.warning(`No se pudo enlazar la solicitud con la visita: ${errorEnlace.message}`);
         await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       }
@@ -604,41 +598,20 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      if (visita && !visita.google_event_id) {
-        crearEventoVisita({ ...visita, ...form, fotos_previas: fotos })
-          .then(async (eventId) => {
-            if (!eventId) return;
-            const { error: errorGuardarEventId } = await supabase
-              .from('visitas')
-              .update({ google_event_id: eventId })
-              .eq('id', visita.id);
-            if (errorGuardarEventId) {
-              toast.warning(
-                `Evento creado en Google Calendar, pero no se pudo guardar su ID en la visita: ${errorGuardarEventId.message}`,
-              );
-            }
-            const { data: r, error } = await supabase.functions.invoke('notificar-visita', {
-              body: { visitaId: visita.id },
-            });
-            if (error || r?.ok === false)
-              toast.warning(
-                `No se pudo enviar el email de confirmación de la visita: ${error?.message ?? r?.error}`,
-              );
-          })
-          .catch((error) =>
-            toast.warning(
-              `Visita actualizada, pero no se sincronizó con Google Calendar: ${error.message}`,
-            ),
-          );
-      } else if (visita && visita.google_event_id) {
+      if (visita) {
         // Antes solo se creaba el evento la primera vez — reprogramar (fecha, hora o dirección
-        // distintas) dejaba el Calendar con los datos viejos, sin ningún aviso (mejora real,
-        // auditoría de Visitas 2026-08-18).
-        actualizarEventoVisita(visita.google_event_id, { ...visita, ...form, fotos_previas: fotos }).catch((error) =>
-          toast.warning(
-            `Visita actualizada, pero no se sincronizó el cambio con Google Calendar: ${error.message}`,
-          ),
-        );
+        // distintas) sin google_event_id dejaba el Calendar con los datos viejos, sin ningún aviso
+        // (mejora real, auditoría de Visitas 2026-08-18). sincronizarGoogleCalendarVisita ya decide
+        // sola crear vs actualizar según si hay googleEventId.
+        sincronizarGoogleCalendarVisita({
+          visitaId: visita.id,
+          googleEventId: visita.google_event_id,
+          visita: { ...visita, ...form, fotos_previas: fotos },
+          // Solo manda email de confirmación si es la primera vez que se crea el evento — editar
+          // una visita que ya tenía Calendar sincronizado nunca mandaba email, solo actualizaba
+          // el evento (mismo comportamiento que tenía este código antes de unificarse).
+          notificar: !visita.google_event_id,
+        }).then((avisos) => avisos.forEach((aviso) => toast.warning(aviso)));
       }
       if (visita) await notaSistema(visita.id, `Visita modificada por ${nombreUsuarioActual}`);
       if (visita && visita.estado !== 'Realizada' && form.estado === 'Realizada') {

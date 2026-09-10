@@ -40,6 +40,12 @@ export async function sincronizarTipoSolicitud() {
     (visitas ?? []).map((v) => (v.email ? v.email.toLowerCase() : null)).filter((e): e is string => !!e),
   );
 
+  // Agrupadas por tipo resultante para hacer como máximo 2 updates por lote (.in('id', [...]))
+  // en vez de un update por fila en un bucle secuencial — se dispara en cada entrada a
+  // /solicitudes y cada mañana desde alerta-diaria, y un backlog grande de solicitudes sin
+  // clasificar (p. ej. tras un fallo de la detección automática) escalaba mal con un round-trip
+  // por fila (bug real, corregido 2026-09-10).
+  const idsPorTipo: Record<'visita' | 'presupuesto_orientativo', string[]> = { visita: [], presupuesto_orientativo: [] };
   for (const s of solicitudes) {
     const tel = s.telefono ? normalizarTelefono(s.telefono) : null;
     const email = s.email ? s.email.toLowerCase() : null;
@@ -47,9 +53,12 @@ export async function sincronizarTipoSolicitud() {
     const tieneOrientativo = !!s.presupuesto_vinculado_id;
 
     const tipo: 'visita' | 'presupuesto_orientativo' | null = tieneVisita ? 'visita' : tieneOrientativo ? 'presupuesto_orientativo' : null;
-    if (!tipo) continue;
+    if (tipo) idsPorTipo[tipo].push(s.id);
+  }
 
-    const { error: errorUpdate } = await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).eq('id', s.id);
-    if (errorUpdate) console.warn('sincronizarTipoSolicitud: no se pudo actualizar', s.id, errorUpdate.message);
+  for (const tipo of ['visita', 'presupuesto_orientativo'] as const) {
+    if (idsPorTipo[tipo].length === 0) continue;
+    const { error: errorUpdate } = await supabase.from('solicitudes').update({ tipo_solicitud: tipo }).in('id', idsPorTipo[tipo]);
+    if (errorUpdate) console.warn(`sincronizarTipoSolicitud: no se pudo actualizar el lote "${tipo}":`, errorUpdate.message);
   }
 }

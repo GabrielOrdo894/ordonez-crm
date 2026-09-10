@@ -25,11 +25,19 @@ export function useResultadoEjercicio(desde: string, hasta: string) {
 
   // Solo Francia: la EURL declara el Impôt sur les Sociétés únicamente sobre la actividad
   // francesa, así que todo lo fiscal (IS, cotisations, salario/dividendos, alertas de tramo)
-  // debe ignorar las facturas/gastos de España. Se filtra aquí en memoria, no en la query
-  // Supabase — 'facturas'/'gastos' son las mismas claves de caché que usan Facturas/Gastos
-  // (que sí necesitan ver los dos países), así que filtrar en la query rompería esas páginas.
+  // debe ignorar las facturas/gastos de España. También se excluyen las facturas
+  // estructura_anterior (cobros de la etapa como autónomo, antes de la EURL) — no son ingreso
+  // real de la sociedad y no deben entrar en el IS, mismo criterio que el resto del CRM desde el
+  // 22 ago. 2026. Se filtra aquí en memoria, no en la query Supabase — 'facturas'/'gastos' son las
+  // mismas claves de caché que usan Facturas/Gastos (que sí necesitan ver los dos países y todas
+  // las facturas), así que filtrar en la query rompería esas páginas.
   const facturasPeriodo = (facturas ?? []).filter(
-    (f) => f.pais === 'Francia' && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta,
+    (f) =>
+      f.pais === 'Francia' &&
+      !f.estructura_anterior &&
+      f.fecha_factura &&
+      f.fecha_factura >= desde &&
+      f.fecha_factura <= hasta,
   );
   const gastosPeriodo = (gastos ?? []).filter(
     (g) => g.pais === 'Francia' && g.fecha && g.fecha >= desde && g.fecha <= hasta,

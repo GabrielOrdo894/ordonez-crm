@@ -133,13 +133,20 @@ function ActivoForm({ open, onClose, activo }: { open: boolean; onClose: () => v
   );
 }
 
-export function TabInmovilizado() {
+// El ejercicio seleccionado vive en FiscalidadPage (no aquí) — mismo patrón que TabIS/
+// TabLiasseFiscale, para que se recuerde al moverte entre pestañas. Antes esta pestaña no tenía
+// selector y "Generar dotación" solo podía apuntar al año calendario en curso: cerrando un
+// ejercicio ya terminado (p. ej. en enero/febrero del año siguiente) no había forma de generar su
+// dotación desde la UI (bug real, corregido 2026-09-10).
+const ANIOS = [new Date().getFullYear() - 1, new Date().getFullYear()];
+
+export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
   const toast = useToast();
   const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [formAbierto, setFormAbierto] = useState(false);
   const [editando, setEditando] = useState<ActivoInmovilizado | null>(null);
-  const anioActual = new Date().getFullYear();
+  const anioActual = anio;
 
   const { data: activos, isLoading } = useQuery({
     queryKey: ['inmovilizado'],
@@ -200,6 +207,14 @@ export function TabInmovilizado() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Select
+        label="Ejercicio"
+        options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))}
+        value={String(anio)}
+        onChange={(e) => onAnioChange(Number(e.target.value))}
+        className="w-32"
+      />
+
       <ResumenTitular icono={Boxes}>
         {filas.length === 0 ? (
           'Sin activos registrados todavía — da de alta el primero abajo.'

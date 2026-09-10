@@ -21,7 +21,7 @@ import type { TamanoTitulo, AlineacionEncabezado } from '../modules/finanzas/Doc
 import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { mencionIvaReducida } from '../modules/finanzas/iva';
 import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
-import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura } from '../modules/finanzas/facturas/types';
+import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura, calcularTotales } from '../modules/finanzas/facturas/types';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
 import { formatearUnidadTexto, formatearPrecio } from '../modules/finanzas/lineas';
@@ -703,8 +703,7 @@ async function construirPdfFactura(f: Factura) {
   let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
   // ---- Resumen de pago (izquierda) + Forma de pago (derecha) ----
-  const totalSinIva = f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_sin_iva), 0);
-  const totalConIva = f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
+  const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
 
   const gapCol = 6;
   const anchoCol = (anchoContenido - gapCol) / 2;

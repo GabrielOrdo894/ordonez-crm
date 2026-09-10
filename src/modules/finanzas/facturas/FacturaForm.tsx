@@ -180,6 +180,26 @@ export function FacturaForm({
     enabled: !!form.presupuesto_id && form.tipo === 'normal',
   });
 
+  // Nada impedía crear dos facturas 'normal' del mismo presupuesto — cada una descontaría sus
+  // propios acomptes, así que un error humano podía descontar el mismo anticipo dos veces (bug
+  // real, corregido 2026-09-10). Solo se comprueba al CREAR (no al editar la que ya existe).
+  const { data: facturaNormalExistente } = useQuery({
+    queryKey: ['facturas', 'normal-existente', form.presupuesto_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('id, numero')
+        .eq('presupuesto_id', form.presupuesto_id!)
+        .eq('tipo', 'normal')
+        .is('eliminado_en', null)
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string; numero: string | null } | null;
+    },
+    enabled: !!form.presupuesto_id && form.tipo === 'normal' && !factura,
+  });
+
   const { data: presupuestoOrigen } = useQuery({
     queryKey: ['presupuesto', 'numero', form.presupuesto_id],
     queryFn: async () => {
@@ -192,6 +212,27 @@ export function FacturaForm({
       return data as { numero: string | null; condiciones_pago: Record<string, string> | null };
     },
     enabled: !!form.presupuesto_id && !desdePresupuesto,
+  });
+
+  // Aviso si ya existen rectificativas previas sobre esta misma factura original — las líneas
+  // que se proponen abajo (lineasRectificativa) son el reverso ÍNTEGRO de la original, no
+  // descuentan lo que una rectificativa anterior ya corrigió. Sin este aviso, una segunda
+  // rectificativa podía duplicar sin darse cuenta la corrección ya hecha por la primera (bug
+  // real, corregido 2026-09-10) — Gabriel tiene que revisar/ajustar las líneas a mano si ya hay
+  // rectificativas previas.
+  const { data: rectificativasPrevias } = useQuery({
+    queryKey: ['facturas', 'rectificativas-de', facturaOriginal?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('id, numero, lineas')
+        .eq('factura_original_id', facturaOriginal!.id)
+        .eq('tipo', 'rectificativa')
+        .is('eliminado_en', null);
+      if (error) throw error;
+      return data as { id: string; numero: string | null; lineas: Linea[] }[];
+    },
+    enabled: !!facturaOriginal,
   });
 
   useEffect(() => {
@@ -458,6 +499,12 @@ export function FacturaForm({
   });
 
   const handleGuardar = () => {
+    if (!factura && form.tipo === 'normal' && facturaNormalExistente) {
+      toast.error(
+        `Este presupuesto ya tiene una factura normal (${facturaNormalExistente.numero ?? 'S/N'}) — no se puede crear otra, descontaría los mismos acomptes dos veces.`,
+      );
+      return;
+    }
     const mensaje = validarLineas(form.lineas, form.tipo === 'rectificativa');
     if (mensaje) {
       toast.error(mensaje);
@@ -686,6 +733,20 @@ export function FacturaForm({
               )}
             </div>
           </section>
+
+          {form.tipo === 'rectificativa' && rectificativasPrevias && rectificativasPrevias.length > 0 && (
+            <section className="border border-amber-300 bg-amber-50 rounded-sm p-3">
+              <p className="text-sm font-semibold text-amber-800 mb-1">
+                Esta factura ya tiene {rectificativasPrevias.length} rectificativa(s) previa(s):{' '}
+                {rectificativasPrevias.map((r) => r.numero ?? 'S/N').join(', ')}
+              </p>
+              <p className="text-xs text-amber-700">
+                Las líneas de abajo son el reverso íntegro de la factura original, sin descontar lo que esas
+                rectificativas anteriores ya corrigieron. Revisa y ajusta las líneas a mano para que reflejen solo
+                el saldo que realmente queda por rectificar.
+              </p>
+            </section>
+          )}
 
           <section>
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-1 mb-3">

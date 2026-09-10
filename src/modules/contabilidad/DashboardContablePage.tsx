@@ -74,14 +74,23 @@ export default function DashboardContablePage() {
   const { desde, hasta } = useMemo(() => rangoPeriodo(periodo, desdeCustom, hastaCustom), [periodo, desdeCustom, hastaCustom]);
   const { bilanActivo } = useComptaFrancia(anioActual);
 
+  // Mismo select que el resto de consumidores de la queryKey ['facturas'] (FacturasPage,
+  // Rentabilidad, ambos Dashboard, Clientes, useResultadoEjercicio...) — Tanstack Query cachea por
+  // queryKey, así que si esta pantalla pidiera columnas/filtros distintos bajo la misma clave,
+  // quien monte primero decidiría qué ven las demás (bug real, ya pasó una vez). El filtro de
+  // estructura_anterior se aplica después, en memoria, con `facturasEurl` más abajo.
   const { data: facturas } = useQuery({
     queryKey: ['facturas'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null).eq('estructura_anterior', false);
+      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
       if (error) throw error;
       return data as Factura[];
     },
   });
+
+  // Ingresos que sí son de la EURL actual — excluye cobros de la estructura anterior a la
+  // sociedad (autónomo), igual que el resto del CRM desde el 22 ago. 2026.
+  const facturasEurl = useMemo(() => (facturas ?? []).filter((f) => !f.estructura_anterior), [facturas]);
 
   // Ingresos = dinero realmente cobrado por período — un PAGO (pagos_factura), no el
   // monto_pagado/fecha_pago de la factura (esos dos campos son el ÚLTIMO valor tecleado en
@@ -128,24 +137,31 @@ export default function DashboardContablePage() {
   const kpis = useMemo(() => {
     const ingresos = pagosPeriodo.reduce((s, p) => s + p.monto, 0);
     const gastosTotal = gastosPeriodo.reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
-    const repercutido = (facturas ?? [])
-      .filter((f) => f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
-      .reduce((s, f) => {
-        const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
-        return s + (totalConIva - totalSinIva);
-      }, 0);
-    const deducible = gastosPeriodo.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+    // El IVA español (Modelo 303) y la TVA francesa (CA3) son declaraciones a administraciones
+    // distintas que nunca se compensan entre sí — mezclarlas en un único saldo neto podía leerse
+    // como "300€ a favor" cuando en realidad eran, p. ej., 900€ a pagar en España y 600€ a favor en
+    // Francia (bug real, corregido 2026-09-10; AsistenteIvaPage ya lo hacía bien, solo para
+    // Francia). Se calcula el saldo por separado para cada país.
+    const saldoIvaPorPais = (pais: 'España' | 'Francia') => {
+      const repercutido = facturasEurl
+        .filter((f) => f.pais === pais && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
+        .reduce((s, f) => {
+          const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+          return s + (totalConIva - totalSinIva);
+        }, 0);
+      const deducible = gastosPeriodo.filter((g) => g.pais === pais).reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+      return { repercutido, deducible, saldo: repercutido - deducible };
+    };
     const resultado = ingresos - gastosTotal;
     return {
       ingresos,
       gastos: gastosTotal,
       resultado,
       margen: ingresos > 0 ? (resultado / ingresos) * 100 : null,
-      ivaRepercutido: repercutido,
-      ivaDeducible: deducible,
-      ivaSaldo: repercutido - deducible,
+      ivaEspana: saldoIvaPorPais('España'),
+      ivaFrancia: saldoIvaPorPais('Francia'),
     };
-  }, [pagosPeriodo, gastosPeriodo, facturas, desde, hasta]);
+  }, [pagosPeriodo, gastosPeriodo, facturasEurl, desde, hasta]);
 
   const evolucionMensual = useMemo(() => {
     const meses = Array.from({ length: 12 }, (_, i) => {
@@ -193,15 +209,14 @@ export default function DashboardContablePage() {
   }, [pagosPeriodo, gastosPeriodo]);
 
   const facturasEstado = useMemo(() => {
-    const todas = facturas ?? [];
-    const pendientes = todas.filter((f) => f.estado_cobro === 'Pendiente' || f.estado_cobro === 'Cobrada parcialmente');
-    const vencidas = todas.filter((f) => f.estado_cobro === 'Vencida');
+    const pendientes = facturasEurl.filter((f) => f.estado_cobro === 'Pendiente' || f.estado_cobro === 'Cobrada parcialmente');
+    const vencidas = facturasEurl.filter((f) => f.estado_cobro === 'Vencida');
     const montoDe = (lista: Factura[]) => lista.reduce((s, f) => s + (calcularTotales(f.lineas).totalConIva - (f.monto_pagado ?? 0)), 0);
     return {
       pendientes: { count: pendientes.length, monto: montoDe(pendientes) },
       vencidas: { count: vencidas.length, monto: montoDe(vencidas) },
     };
-  }, [facturas]);
+  }, [facturasEurl]);
 
   const topProveedores = useMemo(() => {
     const map = new Map<string, number>();
@@ -216,16 +231,16 @@ export default function DashboardContablePage() {
   }, [gastosPeriodo]);
 
   const topFacturas = useMemo(() => {
-    return (facturas ?? [])
+    return facturasEurl
       .filter((f) => f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
       .map((f) => ({ factura: f, total: calcularTotales(f.lineas).totalConIva }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 5);
-  }, [facturas, desde, hasta]);
+  }, [facturasEurl, desde, hasta]);
 
   const topClientes = useMemo(() => {
     const map = new Map<string, { nombre: string; total: number }>();
-    for (const f of facturas ?? []) {
+    for (const f of facturasEurl) {
       if (!f.cliente_tel) continue;
       const clave = normalizarTelefono(f.cliente_tel);
       const actual = map.get(clave) ?? { nombre: f.cliente_nombre ?? clave, total: 0 };
@@ -235,7 +250,7 @@ export default function DashboardContablePage() {
     return Array.from(map.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 5);
-  }, [facturas]);
+  }, [facturasEurl]);
 
   const presupuestosResumen = useMemo(() => {
     const todos = presupuestos ?? [];
@@ -243,7 +258,7 @@ export default function DashboardContablePage() {
     const aceptadosSinFacturar = todos.filter((p) => {
       if (p.estado !== 'Aceptado') return false;
       const telAceptado = p.cliente_tel ? normalizarTelefono(p.cliente_tel) : null;
-      return !(facturas ?? []).some(
+      return !facturasEurl.some(
         (f) => f.presupuesto_id === p.id || (telAceptado && f.cliente_tel && normalizarTelefono(f.cliente_tel) === telAceptado),
       );
     });
@@ -253,7 +268,7 @@ export default function DashboardContablePage() {
       pendientes: { count: pendientes.length, monto: valorPendientes },
       aceptadosSinFacturar: { count: aceptadosSinFacturar.length, monto: valorAceptadosSinFacturar },
     };
-  }, [presupuestos, facturas]);
+  }, [presupuestos, facturasEurl]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -305,10 +320,20 @@ export default function DashboardContablePage() {
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">IVA / TVA del período</p>
-          <p className={`text-2xl font-semibold ${kpis.ivaSaldo >= 0 ? 'text-red-600' : 'text-brand'}`}>
-            {Math.abs(kpis.ivaSaldo).toFixed(2)} €
-          </p>
-          <p className="text-xs text-gray-400">{kpis.ivaSaldo >= 0 ? 'a pagar' : 'a favor'}</p>
+          {/* Nunca un único saldo neto: Modelo 303 (España) y CA3 (Francia) son declaraciones
+              distintas que no se compensan entre sí (bug real, corregido 2026-09-10). */}
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs text-gray-500">España</span>
+            <span className={`text-base font-semibold ${kpis.ivaEspana.saldo >= 0 ? 'text-red-600' : 'text-brand'}`}>
+              {Math.abs(kpis.ivaEspana.saldo).toFixed(2)} € {kpis.ivaEspana.saldo >= 0 ? 'a pagar' : 'a favor'}
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between mt-1">
+            <span className="text-xs text-gray-500">Francia</span>
+            <span className={`text-base font-semibold ${kpis.ivaFrancia.saldo >= 0 ? 'text-red-600' : 'text-brand'}`}>
+              {Math.abs(kpis.ivaFrancia.saldo).toFixed(2)} € {kpis.ivaFrancia.saldo >= 0 ? 'a pagar' : 'a favor'}
+            </span>
+          </div>
         </div>
       </div>
 

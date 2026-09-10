@@ -98,8 +98,14 @@ export function lineaVacia(): Linea {
 }
 
 export function calcularLinea(linea: Linea, porcentajeIvaLinea: number): Linea {
-  const totalSinIva = linea.es_incluido ? 0 : linea.cantidad * linea.precio_unit;
-  const totalConIva = totalSinIva * (1 + porcentajeIvaLinea / 100);
+  const totalSinIvaBruto = linea.es_incluido ? 0 : linea.cantidad * linea.precio_unit;
+  const totalConIvaBruto = totalSinIvaBruto * (1 + porcentajeIvaLinea / 100);
+  // Redondeo a céntimo por línea — mismo criterio que ya aplicaba lineaDeduccionAcomptes
+  // (facturas/types.ts) a su precio_unit, pero aquí de forma consistente en TODAS las líneas.
+  // Sin esto, sumar muchas líneas con decimales de coma flotante podía descuadrar el total en
+  // 0,01€ (bug real, corregido 2026-09-10).
+  const totalSinIva = Math.round(totalSinIvaBruto * 100) / 100;
+  const totalConIva = Math.round(totalConIvaBruto * 100) / 100;
   return { ...linea, total_sin_iva: totalSinIva, total_con_iva: totalConIva };
 }
 
