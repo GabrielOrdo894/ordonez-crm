@@ -254,7 +254,7 @@ function parseFormularioEmailJS(texto: string) {
   };
 }
 
-async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient, log: string[]) {
+async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient, log: string[], listaNegra: string[]) {
   const query = `(from:${LANDBOT_SENDER} OR from:${WORDPRESS_SENDER} OR (from:${NUESTRO_EMAIL} to:${NUESTRO_EMAIL} subject:"${EMAILJS_ASUNTO}")) newer_than:7d`;
   const listado = await gmailFetch<{ messages?: { id: string; threadId: string }[] }>(
     `messages?q=${encodeURIComponent(query)}&maxResults=30`,
@@ -284,6 +284,15 @@ async function ingerirSolicitudesNuevas(token: string, supabase: SupabaseClient,
       fuente = 'web_emailjs';
       datos = parseFormularioEmailJS(texto);
     } else {
+      continue;
+    }
+
+    // Lista negra (Configuración → IA y mensajes de clientes → Lista negra de emails) — hasta
+    // 2026-09-11 solo se consultaba en detectarConversacionesDirectas más abajo; un email
+    // bloqueado que rellenara el formulario web (Landbot/WordPress/EmailJS) igualmente generaba
+    // una solicitud nueva, sin pasar por el filtro (hueco real, petición de Gabriel 2026-09-11).
+    if (datos.email && estaExcluido(datos.email, listaNegra)) {
+      log.push(`Solicitud de ${datos.email} ignorada — está en la lista negra.`);
       continue;
     }
 
@@ -1112,7 +1121,7 @@ Deno.serve(async (req: Request) => {
       ? (empresaRow.datos.solicitudes_emails_excluidos as string[])
       : [];
 
-    const solicitudesFormulario = await ingerirSolicitudesNuevas(token, supabase, log);
+    const solicitudesFormulario = await ingerirSolicitudesNuevas(token, supabase, log, listaNegra);
     const respuestasPresupuestos = await revisarRespuestasPresupuestos(token, supabase, log);
     const respuestasSolicitudes = await revisarRespuestasSolicitudes(token, supabase, log);
     const programadosDetectados = await revisarRespuestasProgramadas(token, supabase, log);

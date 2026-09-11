@@ -1,6 +1,6 @@
 // Edge Function: alerta-diaria
 //
-// Cron diario (ver migración `alerta-diaria-urgentes` en pg_cron) que revisa 4 categorías
+// Cron diario (ver migración `alerta-diaria-urgentes` en pg_cron) que revisa varias categorías
 // urgentes del CRM y, SOLO si hay algo pendiente de verdad, manda un resumen por email a
 // reformasordonezeus@gmail.com — porque las notificaciones normales solo viven dentro de la
 // app (campanita) y si nadie abre el CRM unos días pasan desapercibidas.
@@ -9,20 +9,20 @@
 // email diga lo mismo que la campana in-app):
 //   1. Facturas vencidas (estado_cobro = 'Vencida')
 //   2. Presupuestos caducados sin respuesta (Pendiente, fecha_validez < hoy)
-//   3. Presupuestos a punto de caducar (Pendiente, fecha_validez en los próximos 7 días)
-//   4. Solicitudes nuevas sin revisar (estado = 'Nueva' y nunca se contestaron, mensaje_enviado_en null)
-//   5. Gastos de kilometraje pendientes de revisar (estado_gasto = 'pendiente')
-//   6. Respuestas de cliente a presupuestos sin revisar (seguimiento en estado 'Nueva', ver
-//      estadoSeguimiento en src/modules/solicitudes/types.ts) — categorías 5 y 6 añadidas
+//   3. Solicitudes nuevas sin revisar (estado = 'Nueva' y nunca se contestaron, mensaje_enviado_en null)
+//   4. Gastos de kilometraje pendientes de revisar (estado_gasto = 'pendiente')
+//   5. Respuestas de cliente a presupuestos sin revisar (seguimiento en estado 'Nueva', ver
+//      estadoSeguimiento en src/modules/solicitudes/types.ts) — categorías 4 y 5 añadidas
 //      2026-08-18, antes se quedaban fuera de este email pese a estar ya en la campana in-app.
-//   7. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
+//   6. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
 //      no-null — ya se había contestado y el cliente respondió otra vez en el mismo hilo; antes
-//      salía mezclado con la categoría 4 como "solicitud nueva", corregido 2026-08-19).
-//   8. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
+//      salía mezclado con la categoría 3 como "solicitud nueva", corregido 2026-08-19).
+//   7. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
 //      in-app desde 2026-08-20 pero nunca se añadió aquí (2026-08-30).
-//   9. Presupuestos en Borrador (cualquier tipo) sin marcar como enviados, 2+ días desde su
-//      creación — antes no se detectaba en ningún sitio: un borrador podía quedarse olvidado
-//      indefinidamente (hallazgo real, 2026-08-30: 3 orientativos en Borrador, uno de 11 días).
+//
+// "Presupuestos a punto de caducar (7 días)" y "Presupuestos en Borrador sin enviar" salieron de
+// este email a petición de Gabriel (2026-09-11, no le aportaban valor en el resumen diario) — se
+// quedan solo en la campana in-app (useNotificaciones.ts), no se ha tocado nada de esa lógica.
 //
 // Idempotente por día (`alerta_diaria_estado`, fila única con `ultima_fecha_enviada`) — si se
 // dispara más de una vez el mismo día (reintento, prueba manual) no se duplica el email
@@ -82,7 +82,6 @@ function normalizarTelefono(tel: string): string {
   return tel.replace(/\D/g, '').slice(-9);
 }
 type PresupuestoVinculado = { visita_id: string | null; estado: string };
-type PresupuestoBorrador = { numero: string | null; cliente_nombre: string | null; created_at: string };
 type SolicitudSinTipo = { id: string; telefono: string | null; email: string | null; visita_id: string | null; presupuesto_vinculado_id: string | null };
 type VisitaContacto = { telefono: string | null; email: string | null };
 
@@ -195,12 +194,6 @@ function isoHoy(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isoEnDias(dias: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + dias);
-  return d.toISOString().slice(0, 10);
-}
-
 type Fila = { titulo: string; detalle: string };
 
 function seccionHtml(titulo: string, filas: Fila[]): string {
@@ -250,7 +243,6 @@ Deno.serve(async (req: Request) => {
     await sincronizarTipoSolicitud(supabase);
 
     const hoy = isoHoy();
-    const limite7d = isoEnDias(7);
 
     const { data: estadoPrevio, error: errorEstado } = await supabase
       .from('alerta_diaria_estado')
@@ -262,9 +254,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, enviado: false, motivo: 'ya se envió hoy' });
     }
 
-    const limite2dBorrador = isoEnDias(-2);
-
-    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, presupuestosBorradorRes, solicitudesDescartadasRes] = await Promise.all([
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, solicitudesDescartadasRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -281,7 +271,6 @@ Deno.serve(async (req: Request) => {
         .not('ultima_respuesta_cliente_fecha', 'is', null),
       supabase.from('visitas').select('id, nombre, apellidos, fecha_visita, email, telefono').eq('estado', 'Realizada').is('eliminado_en', null),
       supabase.from('presupuestos').select('visita_id, estado').is('eliminado_en', null).not('visita_id', 'is', null),
-      supabase.from('presupuestos').select('numero, cliente_nombre, created_at').eq('estado', 'Borrador').is('eliminado_en', null),
       supabase.from('solicitudes').select('email, telefono').eq('estado', 'Descartada'),
     ]);
 
@@ -293,7 +282,6 @@ Deno.serve(async (req: Request) => {
       seguimientos: seguimientosRes,
       visitasRealizadas: visitasRealizadasRes,
       presupuestosVinculados: presupuestosVinculadosRes,
-      presupuestosBorrador: presupuestosBorradorRes,
       solicitudesDescartadas: solicitudesDescartadasRes,
     })) {
       if ((res as { error: { message: string } | null }).error) {
@@ -304,7 +292,6 @@ Deno.serve(async (req: Request) => {
     const facturasVencidas = (facturasRes.data ?? []) as FacturaVencida[];
     const presupuestosPendientes = (presupuestosRes.data ?? []) as PresupuestoPendiente[];
     const presupuestosCaducados = presupuestosPendientes.filter((p) => p.fecha_validez < hoy);
-    const presupuestosPorCaducar = presupuestosPendientes.filter((p) => p.fecha_validez >= hoy && p.fecha_validez <= limite7d);
     // estado='Nueva' cubre dos casos: solicitud nunca contestada (`mensaje_enviado_en` null, de
     // verdad nueva) y solicitud ya contestada que `revisar-gmail` volvió a poner en "Nueva"
     // porque el cliente respondió en el mismo hilo (`mensaje_enviado_en` no-null) — esa segunda
@@ -345,20 +332,14 @@ Deno.serve(async (req: Request) => {
       return true;
     });
 
-    const borradoresSinEnviar = ((presupuestosBorradorRes.data ?? []) as PresupuestoBorrador[]).filter(
-      (p) => p.created_at.slice(0, 10) <= limite2dBorrador,
-    );
-
     const totalUrgentes =
       facturasVencidas.length +
       presupuestosCaducados.length +
-      presupuestosPorCaducar.length +
       solicitudesNuevas.length +
       solicitudesConRespuesta.length +
       gastosPendientes.length +
       seguimientosNuevos.length +
-      visitasSinPresupuesto.length +
-      borradoresSinEnviar.length;
+      visitasSinPresupuesto.length;
 
     if (totalUrgentes === 0) {
       return jsonResponse({ ok: true, enviado: false, motivo: 'nada urgente pendiente hoy' });
@@ -375,13 +356,6 @@ Deno.serve(async (req: Request) => {
       seccionHtml(
         'Presupuestos caducados sin respuesta',
         presupuestosCaducados.map((p) => ({
-          titulo: p.numero ?? 'Sin número',
-          detalle: `${p.cliente_nombre ?? '—'} · válido hasta ${p.fecha_validez}`,
-        })),
-      ),
-      seccionHtml(
-        'Presupuestos a punto de caducar (7 días)',
-        presupuestosPorCaducar.map((p) => ({
           titulo: p.numero ?? 'Sin número',
           detalle: `${p.cliente_nombre ?? '—'} · válido hasta ${p.fecha_validez}`,
         })),
@@ -419,13 +393,6 @@ Deno.serve(async (req: Request) => {
         visitasSinPresupuesto.map((v) => ({
           titulo: `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim() || 'Sin nombre',
           detalle: v.fecha_visita ? `Visita del ${v.fecha_visita}` : 'Fecha de visita sin registrar',
-        })),
-      ),
-      seccionHtml(
-        'Presupuestos en Borrador sin enviar (2+ días)',
-        borradoresSinEnviar.map((p) => ({
-          titulo: p.numero ?? 'Sin número',
-          detalle: `${p.cliente_nombre ?? '—'} · en Borrador desde ${p.created_at.slice(0, 10)}`,
         })),
       ),
     ];
@@ -469,13 +436,11 @@ Deno.serve(async (req: Request) => {
       resumen: {
         facturasVencidas: facturasVencidas.length,
         presupuestosCaducados: presupuestosCaducados.length,
-        presupuestosPorCaducar: presupuestosPorCaducar.length,
         solicitudesNuevas: solicitudesNuevas.length,
         solicitudesConRespuesta: solicitudesConRespuesta.length,
         gastosPendientes: gastosPendientes.length,
         seguimientosNuevos: seguimientosNuevos.length,
         visitasSinPresupuesto: visitasSinPresupuesto.length,
-        borradoresSinEnviar: borradoresSinEnviar.length,
       },
     });
   } catch (err) {

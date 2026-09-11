@@ -560,16 +560,46 @@ export default function ConfiguracionPage() {
     ...alGuardar('Emails de notificación guardados', 'actualizó los emails de notificación de visitas en Configuración.'),
   });
 
+  // Borra (y su funnel_eventos) toda solicitud que coincida con la lista negra completa — no solo
+  // la entrada que se acaba de añadir — cada vez que se guarda, para que quede siempre limpio sin
+  // depender de comparar contra la lista anterior. Antes de esto, una solicitud de un email ya en
+  // la lista negra se quedaba para siempre en /solicitudes (hallazgo real de Gabriel 2026-09-11:
+  // sie.pays-basque@dgfip.finances.gouv.fr, ya en la lista negra, seguía "Nueva").
+  const borrarSolicitudesListaNegra = async (listaNegra: string[]) => {
+    if (listaNegra.length === 0) return;
+    const { data: solicitudesExistentes, error: errorSolicitudes } = await supabase.from('solicitudes').select('id, email');
+    if (errorSolicitudes) throw errorSolicitudes;
+    const coincide = (email: string | null) => {
+      if (!email) return false;
+      const e = email.trim().toLowerCase();
+      return listaNegra.some((entry) => (entry.startsWith('@') ? e.endsWith(entry) : e === entry));
+    };
+    const ids = (solicitudesExistentes ?? []).filter((s) => coincide(s.email)).map((s) => s.id);
+    if (ids.length === 0) return;
+    const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().in('solicitud_id', ids);
+    if (errorFunnel) throw errorFunnel;
+    const { error: errorBorrado } = await supabase.from('solicitudes').delete().in('id', ids);
+    if (errorBorrado) throw errorBorrado;
+  };
+
   const guardarListaNegraMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const emails = emailsExcluidos.map((e) => e.trim().toLowerCase()).filter(Boolean);
       const invalido = emails.find((e) => !ENTRADA_LISTA_NEGRA_VALIDA.test(e));
       if (invalido) {
         throw new Error(`"${invalido}" no parece un email o dominio válido (usa "nombre@dominio.com" o "@dominio.com") — corrígelo antes de guardar.`);
       }
-      return guardarDatos({ solicitudes_emails_excluidos: emails });
+      await guardarDatos({ solicitudes_emails_excluidos: emails });
+      await borrarSolicitudesListaNegra(emails);
     },
-    ...alGuardar('Lista negra guardada', 'actualizó la lista negra de emails de Solicitudes en Configuración.'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel_eventos'] });
+      toast.success('Lista negra guardada');
+      notificarCambioConfig(user, 'actualizó la lista negra de emails de Solicitudes en Configuración.');
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const handleSubirLogo = async (file: File) => {
