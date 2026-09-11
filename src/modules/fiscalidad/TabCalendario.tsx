@@ -4,6 +4,7 @@ import { AlertTriangle, CalendarClock, ExternalLink, ShieldCheck } from 'lucide-
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { supabase } from '../../lib/supabase';
 import { guardarConfigDatos } from '../../lib/empresaConfig';
 import { useToast } from '../../hooks/useToast';
@@ -88,12 +89,12 @@ function AssuranceDecennaleCard() {
 
   return (
     <div className="bg-surface border border-gray-200 rounded-sm p-4">
-      <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+      <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
         <ShieldCheck size={14} className="text-brand" /> Assurance décennale / RC professionnelle
-      </p>
-      <p className="text-xs text-gray-500 leading-relaxed mb-3">
-        Seguro obligatorio para operar como empresa de construcción en Francia — no es un trámite ante la Administración, es
-        una póliza, así que su vencimiento se guarda aquí en vez de generarse automáticamente.
+        <InfoTooltip>
+          Seguro obligatorio para operar como empresa de construcción en Francia — no es un trámite ante la
+          Administración, es una póliza, así que su vencimiento se guarda aquí en vez de generarse automáticamente.
+        </InfoTooltip>
       </p>
       {!vencimiento && (
         <div className="mb-3 bg-amber-50 border border-amber-300 rounded-sm px-3 py-2 flex items-start gap-2 text-xs text-amber-800">
@@ -140,12 +141,14 @@ export function TabCalendario() {
           </>
         )}
       </ResumenTitular>
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Genera automáticamente las 12 declaraciones mensuales de TVA (CA3) del año elegido más las échéances anuales (acomptes
-        e IS, CFE, liasse fiscale, depósito de cuentas, aprobación de cuentas, régularisation TNS y declaración de la renta del
-        gérant). Marca cada una como hecha con la casilla — queda registrado con fecha y no vuelve a aparecer como pendiente en
-        el Dashboard.
-      </p>
+      <div className="flex justify-end -mt-2 -mb-2">
+        <InfoTooltip>
+          Genera automáticamente las 12 declaraciones mensuales de TVA (CA3) del año elegido más las échéances
+          anuales (acomptes e IS, CFE, liasse fiscale, depósito de cuentas, aprobación de cuentas, régularisation TNS
+          y declaración de la renta del gérant). Marca cada una como hecha con la casilla — queda registrado con
+          fecha y no vuelve a aparecer como pendiente en el Dashboard.
+        </InfoTooltip>
+      </div>
       <AssuranceDecennaleCard />
       <div className="flex items-center justify-between">
         <Select label="Año" options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))} value={String(anio)} onChange={(e) => setAnio(Number(e.target.value))} className="w-32" />

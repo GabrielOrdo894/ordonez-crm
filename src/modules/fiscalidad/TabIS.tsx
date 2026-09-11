@@ -10,6 +10,7 @@ import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuner
 import { registrarDecision } from '../../lib/registroDecisiones';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
 import { useEjercicioFiscal } from './useEjercicioFiscal';
@@ -139,11 +140,12 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-1">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3 flex items-center gap-1.5">
           Beneficio imponible acumulado — {anio}
-        </p>
-        <p className="text-xs text-gray-500 mb-3">
-          La línea roja marca el umbral de {fmt(is.plafondReducido)} donde el excedente empieza a tributar al 25% en vez del 15%.
+          <InfoTooltip>
+            La línea roja marca el umbral de {fmt(is.plafondReducido)} donde el excedente empieza a tributar al 25%
+            en vez del 15%.
+          </InfoTooltip>
         </p>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={evolucionAcumulada}>
@@ -213,13 +215,13 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <FileText size={14} className="text-brand" /> Documentos del ejercicio
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Acta de la décision de l'associé unique aprobando las cuentas del ejercicio y la afectación del resultado —
-          paso previo obligatorio al dépôt des comptes en el Greffe. Usa el resultado neto estimado de arriba
-          ({fmt(resultadoNeto)}) y la dotación a la réserve légale (article 18 des statuts).
+          <InfoTooltip>
+            Acta de la décision de l'associé unique aprobando las cuentas del ejercicio y la afectación del
+            resultado — paso previo obligatorio al dépôt des comptes en el Greffe. Usa el resultado neto estimado de
+            arriba ({fmt(resultadoNeto)}) y la dotación a la réserve légale (article 18 des statuts).
+          </InfoTooltip>
         </p>
         <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>
           {generandoAprobacion ? 'Generando...' : `Décision d'approbation des comptes ${anio} (PDF)`}

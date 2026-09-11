@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Calculator, AlertTriangle, Receipt, Trash2, PiggyBank, Users, Landmark, Wallet } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
@@ -325,11 +326,13 @@ export function TabSimulador() {
         {fmt(irGerante.impotFinal)} de impôt sur le revenu del hogar
         {irGerante.ingresosConyuge > 0 ? ' (declaración conjunta, incluye los ingresos del cónyuge)' : ''}.
       </ResumenTitular>
-      <p className="text-xs text-gray-400 px-1">
-        Cambia cualquier cifra abajo y el resultado se actualiza al instante — es una simulación en memoria, no afecta a
-        ningún dato guardado. La rémunération se recalcula sola en cuanto cambias ingresos o gastos, para no dejar
-        beneficio sin repartir pagando Impôt sur les Sociétés de más (ver FAQ).
-      </p>
+      <div className="flex justify-end -mt-2 -mb-2">
+        <InfoTooltip>
+          Cambia cualquier cifra abajo y el resultado se actualiza al instante — es una simulación en memoria, no
+          afecta a ningún dato guardado. La rémunération se recalcula sola en cuanto cambias ingresos o gastos, para
+          no dejar beneficio sin repartir pagando Impôt sur les Sociétés de más (ver FAQ).
+        </InfoTooltip>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col gap-3">

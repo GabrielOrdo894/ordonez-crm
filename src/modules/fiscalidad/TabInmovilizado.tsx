@@ -10,6 +10,7 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Table } from '../../components/ui/Table';
 import { AccionesFila, type AccionRapida } from '../../components/ui/AccionesFila';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { cuentaLabel } from '../finanzas/gastos/categorias';
 import { CUENTAS_FR } from '../finanzas/gastos/types';
 import {
@@ -227,13 +228,15 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
         )}
       </ResumenTitular>
 
-      <div className="flex items-start justify-between gap-2 flex-wrap">
-        <p className="text-xs text-gray-500 leading-relaxed max-w-2xl">
-          Registro de inmovilizado (activos amortizables) — alimenta directamente los tableaux 2054/2055 de la liasse
-          fiscale. La amortización es lineal, prorrateada por meses completos desde la fecha de adquisición. "Generar
-          dotación" crea el gasto del año en cuenta 681 y su asiento en el libro diario, igual que si lo hicieras a
-          mano en Gastos.
-        </p>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Registro de inmovilizado</p>
+          <InfoTooltip>
+            Alimenta directamente los tableaux 2054/2055 de la liasse fiscale. La amortización es lineal,
+            prorrateada por meses completos desde la fecha de adquisición. "Generar dotación" crea el gasto del año
+            en cuenta 681 y su asiento en el libro diario, igual que si lo hicieras a mano en Gastos.
+          </InfoTooltip>
+        </div>
         <Button onClick={() => { setEditando(null); setFormAbierto(true); }}>
           <Plus size={14} className="inline mr-1 -mt-0.5" />
           Nuevo activo

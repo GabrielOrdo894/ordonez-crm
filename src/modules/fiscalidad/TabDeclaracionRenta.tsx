@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { Button } from '../../components/ui/Button';
 import { BotonExportar } from '../../components/ui/BotonExportar';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { calcularTNS, calcularIRGerante } from './calculos';
@@ -130,12 +131,14 @@ export function TabDeclaracionRenta() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Déclaration de revenus personal de Mario (formulario 2042, no la 2042-C-PRO — esa es para autónomos BIC/BNC y
-        no aplica aquí): se presenta cada año civil sobre los ingresos del año anterior, con independencia del
-        ejercicio social contable de la société. Usa la misma rémunération configurada en "Cotisations URSSAF" y el
-        mismo motor de cálculo que "Simulador completo".
-      </p>
+      <div className="flex justify-end -mb-2">
+        <InfoTooltip>
+          Déclaration de revenus personal de Mario (formulario 2042, no la 2042-C-PRO — esa es para autónomos
+          BIC/BNC y no aplica aquí): se presenta cada año civil sobre los ingresos del año anterior, con
+          independencia del ejercicio social contable de la société. Usa la misma rémunération configurada en
+          "Cotisations URSSAF" y el mismo motor de cálculo que "Simulador completo".
+        </InfoTooltip>
+      </div>
 
       <ResumenTitular icono={ScrollText}>
         Para los ingresos de <strong className="text-brand">{anio}</strong>, Mario declara{' '}

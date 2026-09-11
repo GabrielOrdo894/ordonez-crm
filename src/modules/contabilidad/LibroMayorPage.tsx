@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { BotonExportar } from '../../components/ui/BotonExportar';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
 
@@ -74,12 +75,14 @@ export default function LibroMayorPage() {
     <div>
       <div className="mb-4 flex items-start justify-between gap-2 flex-wrap">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Libro mayor</h1>
-          <p className="text-sm text-gray-500">
-            Asientos del libro diario agrupados por cuenta PCG, con saldo (debe − haber). Cuentas de gasto/venta:
-            saldo positivo = gasto/venta acumulado. Cuenta 512 (banco): saldo = caja aproximada de la actividad
-            de Francia registrada aquí.
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-1.5">
+            Libro mayor
+            <InfoTooltip>
+              Asientos del libro diario agrupados por cuenta PCG, con saldo (debe − haber). Cuentas de gasto/venta:
+              saldo positivo = gasto/venta acumulado. Cuenta 512 (banco): saldo = caja aproximada de la actividad de
+              Francia registrada aquí.
+            </InfoTooltip>
+          </h1>
         </div>
         <div className="flex items-center gap-2">
           <BotonExportar

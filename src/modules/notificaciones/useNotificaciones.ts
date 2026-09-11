@@ -177,6 +177,33 @@ export function useNotificaciones() {
     refetchInterval: 10000,
   });
 
+  // Extraído de eventosActuales para poder exponer la lista completa de visitas (no solo el
+  // resumen del aviso) — la usa el botón de descarga de PDF de la campana, que necesita
+  // dirección/tipo/descripción y no solo el texto ya recortado de la notificación.
+  const visitasSinPresupuesto = useMemo(() => {
+    const visitaIdsConPresupuestoEnviado = new Set(
+      (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
+    );
+    const emailsDescartados = new Set(
+      (solicitudes ?? [])
+        .filter((s) => s.estado === 'Descartada')
+        .map((s) => s.email?.trim().toLowerCase())
+        .filter((e): e is string => !!e),
+    );
+    const telefonosDescartados = new Set(
+      (solicitudes ?? [])
+        .filter((s) => s.estado === 'Descartada')
+        .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
+        .filter((t) => t.length > 0),
+    );
+    return (visitas ?? []).filter((v) => {
+      if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+      if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
+      if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+      return true;
+    });
+  }, [visitas, presupuestos, solicitudes]);
+
   const eventosActuales = useMemo(() => {
     const lista: Omit<Notificacion, 'hecha' | 'creadaEn'>[] = [];
 
@@ -265,31 +292,11 @@ export function useNotificaciones() {
       });
     }
 
-    // Presupuesto pendiente de enviar — visita realizada sin presupuesto enviado (todos)
-    const visitaIdsConPresupuestoEnviado = new Set(
-      (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
-    );
+    // Presupuesto pendiente de enviar — visita realizada sin presupuesto enviado (todos).
     // Una visita cuya solicitud de origen se marcó Descartada (Gabriel decidió no presupuestar esa
     // obra) no debe seguir avisando indefinidamente — mismo criterio de cruce por contacto que
-    // funnelTracking.ts/pipelineSync.ts (hallazgo real 2026-09-07, caso Raphael Szuba).
-    const emailsDescartados = new Set(
-      (solicitudes ?? [])
-        .filter((s) => s.estado === 'Descartada')
-        .map((s) => s.email?.trim().toLowerCase())
-        .filter((e): e is string => !!e),
-    );
-    const telefonosDescartados = new Set(
-      (solicitudes ?? [])
-        .filter((s) => s.estado === 'Descartada')
-        .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
-        .filter((t) => t.length > 0),
-    );
-    const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
-      if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
-      if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
-      if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
-      return true;
-    });
+    // funnelTracking.ts/pipelineSync.ts (hallazgo real 2026-09-07, caso Raphael Szuba). Cálculo en
+    // `visitasSinPresupuesto` de más arriba, compartido con el botón de descarga de PDF.
     for (const v of visitasSinPresupuesto) {
       lista.push({
         id: `presupuesto-pendiente-${v.id}`,
@@ -454,7 +461,19 @@ export function useNotificaciones() {
     }
 
     return lista;
-  }, [alertas, facturas, visitas, mensajesNoLeidos, presupuestos, galeria, esGabriel, solicitudes, seguimientos, gastosKilometricoPendientes]);
+  }, [
+    alertas,
+    facturas,
+    visitas,
+    mensajesNoLeidos,
+    presupuestos,
+    galeria,
+    esGabriel,
+    solicitudes,
+    seguimientos,
+    gastosKilometricoPendientes,
+    visitasSinPresupuesto,
+  ]);
 
   // Vuelca los eventos activos en el historial persistido (localStorage): añade los que son
   // nuevos, y AUTOCOMPLETA solos los que ya no aparecen en `eventosActuales` — es decir, cuya
@@ -510,5 +529,5 @@ export function useNotificaciones() {
   const hechas = useMemo(() => historial.filter((n) => n.hecha), [historial]);
   const urgentes = pendientes.filter((n) => n.urgente).length;
 
-  return { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion };
+  return { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion, visitasSinPresupuesto };
 }

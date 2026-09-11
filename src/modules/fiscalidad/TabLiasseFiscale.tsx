@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FileText, AlertTriangle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
@@ -105,8 +106,12 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
         </div>
 
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-1">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-1 flex items-center gap-1.5">
             Bilan simplificado — {anio}
+            <InfoTooltip>
+              "Dettes fournisseurs" siempre a 0 € — los Gastos se registran en el CRM como ya pagados en su fecha, no
+              hay estado de pago pendiente a proveedor. Limitación conocida, no un dato real verificado.
+            </InfoTooltip>
           </p>
           <p className="text-xs text-gray-500 mb-2">Actif</p>
           <table className="w-full text-sm mb-3">
@@ -128,10 +133,6 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Total passif" valor={bilanPasivo.total} negrita />
             </tbody>
           </table>
-          <p className="text-xs text-gray-400 mt-2">
-            "Dettes fournisseurs" siempre a 0 € — los Gastos se registran en el CRM como ya pagados en su fecha, no
-            hay estado de pago pendiente a proveedor. Limitación conocida, no un dato real verificado.
-          </p>
           {Math.abs(descuadre) > 0.01 && (
             <p className="text-xs text-amber-700 flex items-start gap-1.5 mt-2 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2">
               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
@@ -143,10 +144,12 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Descargar resumen para transmisión</p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          PDF con estas mismas cifras organizadas por sección (2058-A, 2054/2055, 2050/2051, 2052/2053) y el
-          registro de inmovilizado completo — para entregar a un partenaire EDI o a tu experto-contable.
+        <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+          Descargar resumen para transmisión
+          <InfoTooltip>
+            PDF con estas mismas cifras organizadas por sección (2058-A, 2054/2055, 2050/2051, 2052/2053) y el
+            registro de inmovilizado completo — para entregar a un partenaire EDI o a tu experto-contable.
+          </InfoTooltip>
         </p>
         <Button onClick={handleDescargar} disabled={generando || cargando}>
           {generando ? 'Generando...' : `Descargar resumen de liasse fiscale ${anio} (PDF)`}
@@ -154,11 +157,13 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 mb-1">Livre d'inventaire</p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Mismo actif/passif de arriba, en el formato del inventaire anual (art. L123-12 Code de commerce). Desde
-          2015 ya no hace falta libro físico cosido y foliado — basta con conservar el soporte que justifique el
-          contenido del inventario (art. R123-173-1), que es justo lo que genera este PDF.
+        <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+          Livre d'inventaire
+          <InfoTooltip>
+            Mismo actif/passif de arriba, en el formato del inventaire anual (art. L123-12 Code de commerce). Desde
+            2015 ya no hace falta libro físico cosido y foliado — basta con conservar el soporte que justifique el
+            contenido del inventario (art. R123-173-1), que es justo lo que genera este PDF.
+          </InfoTooltip>
         </p>
         <Button variant="secondary" onClick={handleDescargarInventaire} disabled={generandoInventaire || cargando}>
           {generandoInventaire ? 'Generando...' : `Descargar livre d'inventaire ${anio} (PDF)`}

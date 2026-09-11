@@ -14,6 +14,7 @@ import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto } from '../planning/PlanningObraPage';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { KpiRow } from '../../components/ui/Kpi';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 
 // "Perdido" es un estado terminal aparte, no una etapa más del embudo lineal — se queda fuera de
 // ETAPAS_PIPELINE a propósito porque el Dashboard y el Inicio calculan sus funnels de conversión
@@ -164,19 +165,20 @@ export default function PipelinePage() {
 
   return (
     <div>
-      <p className="text-xs text-gray-400 mb-3">
-        La etapa se actualiza sola según la visita, el presupuesto, la obra o la factura de cada cliente — puedes moverla
-        arrastrando la tarjeta, con las flechas, o a mano si un caso no encaja.
-      </p>
-
-      <div className="relative max-w-xs mb-4">
-        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Buscar por nombre, teléfono o zona"
-          className="w-full border border-gray-200 rounded-sm pl-8 pr-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
-        />
+      <div className="flex items-center gap-1.5 mb-4">
+        <div className="relative max-w-xs flex-1">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre, teléfono o zona"
+            className="w-full border border-gray-200 rounded-sm pl-8 pr-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
+          />
+        </div>
+        <InfoTooltip>
+          La etapa se actualiza sola según la visita, el presupuesto, la obra o la factura de cada cliente — puedes
+          moverla arrastrando la tarjeta, con las flechas, o a mano si un caso no encaja.
+        </InfoTooltip>
       </div>
 
       <KpiRow items={kpis} />

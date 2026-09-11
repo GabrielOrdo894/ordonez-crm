@@ -16,6 +16,7 @@ import {
 import { AlertTriangle, CalendarClock, Landmark, PiggyBank, Wallet } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { calcularTotales } from '../finanzas/lineas';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
@@ -136,10 +137,15 @@ export function DashboardFiscal() {
     <div className="flex flex-col gap-4">
       <QueNecesitasHoy />
 
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Vista general del ejercicio {anioActual} ({ejercicio.meses} meses): las cifras se calculan en vivo a
-        partir de tus Facturas y Gastos, y de la rémunération del gérant configurada en "Cotisations URSSAF".
-      </p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+          Vista general del ejercicio {anioActual} ({ejercicio.meses} meses)
+        </p>
+        <InfoTooltip>
+          Las cifras se calculan en vivo a partir de tus Facturas y Gastos, y de la rémunération del gérant
+          configurada en "Cotisations URSSAF".
+        </InfoTooltip>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">

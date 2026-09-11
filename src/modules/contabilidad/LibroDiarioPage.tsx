@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
@@ -59,11 +60,13 @@ export default function LibroDiarioPage() {
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-lg font-semibold text-gray-900">Libro diario</h1>
-        <p className="text-sm text-gray-500">
-          Registro cronológico de asientos contables (PCG francés), generado automáticamente al crear facturas y
-          gastos de Francia. Solo lectura — un asiento nunca se edita ni se borra, se corrige con uno nuevo.
-        </p>
+        <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-1.5">
+          Libro diario
+          <InfoTooltip>
+            Registro cronológico de asientos contables (PCG francés), generado automáticamente al crear facturas y
+            gastos de Francia. Solo lectura — un asiento nunca se edita ni se borra, se corrige con uno nuevo.
+          </InfoTooltip>
+        </h1>
       </div>
 
       {sinClasificar.mensaje && (

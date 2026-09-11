@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, ClipboardCheck, Gavel } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
@@ -26,11 +27,13 @@ function Paso({
   numero,
   titulo,
   hecho,
+  info,
   children,
 }: {
   numero: number;
   titulo: string;
   hecho: boolean;
+  info?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -39,6 +42,7 @@ function Paso({
         {hecho ? <CheckCircle2 size={16} className="text-brand shrink-0" /> : <Circle size={16} className="text-gray-300 shrink-0" />}
         <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Paso {numero}</span>
         <p className={`text-sm font-semibold ${hecho ? 'text-gray-500' : 'text-gray-900'}`}>{titulo}</p>
+        {info && <InfoTooltip>{info}</InfoTooltip>}
       </div>
       {children}
     </div>
@@ -148,12 +152,14 @@ export function TabCierreEjercicio() {
         {pasosCompletados} de 3 pasos completados para cerrar el ejercicio {anio}
         {pasosCompletados === 3 ? ' — cierre terminado.' : '.'}
       </ResumenTitular>
-      <p className="text-xs text-gray-500 leading-relaxed px-1">
-        Encadena, en el orden real, los 3 trámites del cierre: aprobar las cuentas del ejercicio, preparar la liasse
-        fiscale y depositar las cuentas en el Greffe — reutilizando los mismos cálculos y generadores de "Impôt sur
-        les Sociétés" y "Liasse fiscale". Los pasos 1 y 2 generan un PDF y marcan su échéance como hecha
-        automáticamente; el paso 3 es un trámite externo (Greffe), así que se marca a mano una vez completado.
-      </p>
+      <div className="flex justify-end -mt-2 -mb-2">
+        <InfoTooltip>
+          Encadena, en el orden real, los 3 trámites del cierre: aprobar las cuentas del ejercicio, preparar la
+          liasse fiscale y depositar las cuentas en el Greffe — reutilizando los mismos cálculos y generadores de
+          "Impôt sur les Sociétés" y "Liasse fiscale". Los pasos 1 y 2 generan un PDF y marcan su échéance como hecha
+          automáticamente; el paso 3 es un trámite externo (Greffe), así que se marca a mano una vez completado.
+        </InfoTooltip>
+      </div>
 
       <Select
         label="Ejercicio a cerrar"
@@ -169,13 +175,19 @@ export function TabCierreEjercicio() {
         </p>
       ) : (
         <>
-          <Paso numero={1} titulo="Aprobación de cuentas del socio único" hecho={pasoAprobacionHecho}>
-            <p className="text-xs text-gray-500 leading-relaxed mb-3">
-              Décision de l'associé unique aprobando el resultado neto estimado ({fmt(resultadoNeto)}) y la dotación a
-              la réserve légale — paso previo obligatorio al dépôt des comptes. La primera vez que se aprueba un
-              ejercicio, la dotación ({fmt(reservaLegal.dotacion)}) se suma automáticamente a la reserva legal
-              acumulada para que el ejercicio siguiente ya parta del valor correcto.
-            </p>
+          <Paso
+            numero={1}
+            titulo="Aprobación de cuentas del socio único"
+            hecho={pasoAprobacionHecho}
+            info={
+              <>
+                Décision de l'associé unique aprobando el resultado neto estimado ({fmt(resultadoNeto)}) y la
+                dotación a la réserve légale — paso previo obligatorio al dépôt des comptes. La primera vez que se
+                aprueba un ejercicio, la dotación ({fmt(reservaLegal.dotacion)}) se suma automáticamente a la reserva
+                legal acumulada para que el ejercicio siguiente ya parta del valor correcto.
+              </>
+            }
+          >
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>
                 {generandoAprobacion ? 'Generando...' : `Décision d'approbation des comptes ${anio} (PDF)`}
@@ -187,11 +199,17 @@ export function TabCierreEjercicio() {
             </div>
           </Paso>
 
-          <Paso numero={2} titulo="Preparación de la liasse fiscale" hecho={pasoLiasseHecho}>
-            <p className="text-xs text-gray-500 leading-relaxed mb-3">
-              Compte de résultat y bilan simplificado del ejercicio {anio}, con el registro de inmovilizado — para
-              entregar a un partenaire EDI o a tu expert-comptable.
-            </p>
+          <Paso
+            numero={2}
+            titulo="Preparación de la liasse fiscale"
+            hecho={pasoLiasseHecho}
+            info={
+              <>
+                Compte de résultat y bilan simplificado del ejercicio {anio}, con el registro de inmovilizado — para
+                entregar a un partenaire EDI o a tu expert-comptable.
+              </>
+            }
+          >
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={handleLiasse} disabled={generandoLiasse || cargando}>
                 {generandoLiasse ? 'Generando...' : `Descargar resumen de liasse fiscale ${anio} (PDF)`}
@@ -200,12 +218,18 @@ export function TabCierreEjercicio() {
             </div>
           </Paso>
 
-          <Paso numero={3} titulo="Dépôt des comptes annuels au Greffe" hecho={pasoDepositoHecho}>
-            <p className="text-xs text-gray-500 leading-relaxed mb-3">
-              Trámite externo (no lo hace el CRM): deposita el bilan, compte de résultat y annexe en el Registre du
-              Commerce et des Sociétés a través del Greffe, dentro del mes siguiente a la aprobación de cuentas.
-              Márcalo aquí una vez hecho.
-            </p>
+          <Paso
+            numero={3}
+            titulo="Dépôt des comptes annuels au Greffe"
+            hecho={pasoDepositoHecho}
+            info={
+              <>
+                Trámite externo (no lo hace el CRM): deposita el bilan, compte de résultat y annexe en el Registre du
+                Commerce et des Sociétés a través del Greffe, dentro del mes siguiente a la aprobación de cuentas.
+                Márcalo aquí una vez hecho.
+              </>
+            }
+          >
             {echeanceDeposito && (
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input

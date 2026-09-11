@@ -7,6 +7,7 @@ import { Table } from '../../components/ui/Table';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { KpiRow } from '../../components/ui/Kpi';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { parseOfx } from '../../lib/ofx';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { GastoForm } from '../finanzas/gastos/GastoForm';
@@ -168,12 +169,14 @@ export default function BancoPage() {
   return (
     <div>
       <div className="mb-4">
-        <h1 className="text-xl font-bold text-gray-900 mb-1">Movimientos bancarios</h1>
-        <p className="text-sm text-gray-500">
-          Importa el fichero OFX exportado desde la banca online y vincula cada movimiento a una factura (ingreso) o
-          crea un gasto — sin conexión automática todavía, ver Configuración → Sincronización bancaria para el plan a
-          futuro.
-        </p>
+        <h1 className="text-xl font-bold text-gray-900 mb-1 flex items-center gap-1.5">
+          Movimientos bancarios
+          <InfoTooltip>
+            Importa el fichero OFX exportado desde la banca online y vincula cada movimiento a una factura (ingreso)
+            o crea un gasto — sin conexión automática todavía, ver Configuración → Sincronización bancaria para el
+            plan a futuro.
+          </InfoTooltip>
+        </h1>
       </div>
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">

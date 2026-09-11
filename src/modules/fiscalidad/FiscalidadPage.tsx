@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import AsistenteIvaPage from '../contabilidad/AsistenteIvaPage';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { DashboardFiscal } from './DashboardFiscal';
 import { TabIS } from './TabIS';
 import { TabCotisations } from './TabCotisations';
@@ -86,12 +87,14 @@ export default function FiscalidadPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold text-gray-900 mb-1">Fiscalidad</h1>
-      <p className="text-sm text-gray-500 mb-4">
-        Impôt sur les Sociétés, cotisations TNS del gérant, declaración de su renta personal, TVA, calendario de
-        échéances, inmovilizado, preparación de la liasse fiscale y asistente de cierre de ejercicio — EURL Reformas
-        Ordoñez.
-      </p>
+      <h1 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-1.5">
+        Fiscalidad
+        <InfoTooltip>
+          Impôt sur les Sociétés, cotisations TNS del gérant, declaración de su renta personal, TVA, calendario de
+          échéances, inmovilizado, preparación de la liasse fiscale y asistente de cierre de ejercicio — EURL
+          Reformas Ordoñez.
+        </InfoTooltip>
+      </h1>
 
       <div className={`flex items-center gap-2 flex-wrap ${grupoActivo ? 'mb-2' : 'mb-4'}`}>
         {NAV.map((item) => {
@@ -132,11 +135,14 @@ export default function FiscalidadPage() {
       {pestana === 'dashboard' && <DashboardFiscal />}
       {pestana === 'tva' && (
         <div className="flex flex-col gap-4">
-          <p className="text-xs text-gray-500 leading-relaxed">
-            Declaración mensual de TVA (CA3): elige el mes, revisa las líneas calculadas automáticamente a partir de tus
-            Facturas y Gastos, y márcalo como declarado una vez presentado en impots.gouv.fr. Es la misma pestaña que
-            "Contabilidad → IVA" — cualquier cambio se ve reflejado en ambos sitios.
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Declaración de TVA (CA3)</p>
+            <InfoTooltip>
+              Declaración mensual de TVA (CA3): elige el mes, revisa las líneas calculadas automáticamente a partir
+              de tus Facturas y Gastos, y márcalo como declarado una vez presentado en impots.gouv.fr. Es la misma
+              pestaña que "Contabilidad → IVA" — cualquier cambio se ve reflejado en ambos sitios.
+            </InfoTooltip>
+          </div>
           <AsistenteIvaPage />
           <Faq
             items={[

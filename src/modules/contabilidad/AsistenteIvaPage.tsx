@@ -7,6 +7,7 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { BotonExportar } from '../../components/ui/BotonExportar';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { porcentajeIva } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
@@ -456,11 +457,12 @@ export default function AsistenteIvaPage() {
         <div className="bg-surface border border-gray-200 rounded-sm p-5 space-y-6">
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <div>
-              <p className="text-sm font-bold text-gray-900">
+              <p className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
                 Déclaration de TVA — {MESES[mes - 1]} {anio}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Régimen de encaissement: las ventas cuentan por fecha de COBRO, no de emisión — una factura sin cobrar no aparece hasta que se cobra.
+                <InfoTooltip>
+                  Régimen de encaissement: las ventas cuentan por fecha de COBRO, no de emisión — una factura sin
+                  cobrar no aparece hasta que se cobra.
+                </InfoTooltip>
               </p>
               {estadoMesActivo === 'en_curso' && (
                 <p className="text-xs text-amber-600 mt-0.5">Mes en curso — podrás declararla en cuanto termine el mes.</p>

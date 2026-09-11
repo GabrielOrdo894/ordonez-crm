@@ -21,6 +21,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { SolicitudDetalle } from './SolicitudDetalle';
 import { PendienteEnvioDetalle } from './PendienteEnvioDetalle';
 import { EntradaManualPanel } from './EntradaManualPanel';
@@ -553,11 +554,13 @@ export default function SolicitudesPage() {
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">Solicitudes & Seguimiento</h1>
-          <p className="text-sm text-gray-500">
-            Solicitud de presupuesto (incluye respuestas de clientes), pendientes de enviar por WhatsApp/SMS, avisos y
-            entrada manual — todo en un sitio.
-          </p>
+          <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-1.5">
+            Solicitudes & Seguimiento
+            <InfoTooltip>
+              Solicitud de presupuesto (incluye respuestas de clientes), pendientes de enviar por WhatsApp/SMS, avisos
+              y entrada manual — todo en un sitio.
+            </InfoTooltip>
+          </h1>
         </div>
         <Button variant="secondary" onClick={() => comprobarGmail.mutate()} disabled={comprobarGmail.isPending}>
           <span className="flex items-center gap-1.5">
@@ -581,13 +584,13 @@ export default function SolicitudesPage() {
       />
 
       <div className="bg-surface border border-gray-200 rounded-sm p-3 mb-6">
-        <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
-          Embudo de conversión · últimos 90 días
-        </p>
         {/* El tracking fino (funnel_eventos) arrancó el 11/08/2026 — las solicitudes anteriores a
             esa fecha no tienen eventos aunque ya estén gestionadas, así que el embudo puede
             parecer bajo/vacío al principio sin que sea un fallo del tracking. */}
-        <p className="text-xs text-gray-400 mb-2">Datos desde el 11/08/2026, fecha en la que se activó este seguimiento.</p>
+        <p className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2 flex items-center gap-1.5">
+          Embudo de conversión · últimos 90 días
+          <InfoTooltip>Datos desde el 11/08/2026, fecha en la que se activó este seguimiento.</InfoTooltip>
+        </p>
         {embudo[0].count === 0 ? (
           <p className="text-sm text-gray-400 py-2">Sin solicitudes registradas en este período</p>
         ) : (

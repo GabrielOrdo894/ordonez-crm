@@ -8,6 +8,7 @@ import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfNotaGastosPlantilla } from '../../lib/generarPdfNotaGastosPlantilla';
 import { Fuente } from './Fuente';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { fmtFecha } from './format';
 
 const CATEGORIA_SOCIETARIOS = "Documentos societarios — Greffe / associé unique";
@@ -256,18 +257,22 @@ export function TabDocumentos() {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-gray-500 leading-relaxed">
-        Checklist de los documentos que Reformas Ordoñez, como EURL francesa con actividad en Francia y España, tiene la
-        responsabilidad de producir, presentar o conservar de forma recurrente — más allá de las fechas límite ya cubiertas en
-        el "Calendario fiscal". Es una referencia orientativa para no perder de vista nada importante, no un listado legal
-        cerrado: confírmalo con tu expert-comptable, sobre todo si tu actividad cambia (contratar empleados, superar umbrales
-        de facturación, etc.).
-      </p>
+      <div className="flex justify-end -mb-2">
+        <InfoTooltip>
+          Checklist de los documentos que Reformas Ordoñez, como EURL francesa con actividad en Francia y España,
+          tiene la responsabilidad de producir, presentar o conservar de forma recurrente — más allá de las fechas
+          límite ya cubiertas en el "Calendario fiscal". Es una referencia orientativa para no perder de vista nada
+          importante, no un listado legal cerrado: confírmalo con tu expert-comptable, sobre todo si tu actividad
+          cambia (contratar empleados, superar umbrales de facturación, etc.).
+        </InfoTooltip>
+      </div>
 
       {CATEGORIAS.map((cat) => (
         <div key={cat.titulo} className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-sm font-semibold text-gray-900 mb-1">{cat.titulo}</p>
-          <p className="text-xs text-gray-500 leading-relaxed mb-3">{cat.intro}</p>
+          <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-1.5">
+            {cat.titulo}
+            <InfoTooltip>{cat.intro}</InfoTooltip>
+          </p>
           <div className="flex flex-col gap-2">
             {cat.documentos.map((doc) => {
               const estilo = ESTILO_ESTADO[doc.estado];

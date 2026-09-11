@@ -4,6 +4,7 @@ import { AlertTriangle, FileText, PiggyBank, Landmark } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useToast } from '../../hooks/useToast';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
@@ -175,12 +176,13 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <FileText size={14} className="text-brand" /> Documentos del gérant
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Como gérant majoritaire TNS, Mario no genera un bulletin de paie legal (no está sujeto al Code du travail) — estos dos
-          documentos son el registro real que sí hace falta: el acta que fija la rémunération y un justificante interno mensual.
+          <InfoTooltip>
+            Como gérant majoritaire TNS, Mario no genera un bulletin de paie legal (no está sujeto al Code du
+            travail) — estos dos documentos son el registro real que sí hace falta: el acta que fija la rémunération
+            y un justificante interno mensual.
+          </InfoTooltip>
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 flex items-end gap-2 flex-wrap">
@@ -222,13 +224,13 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <Landmark size={14} className="text-brand" /> Compte courant d'associé
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Plantilla reutilizable para cuando prestes dinero personal a la société (aportación) o la société te lo
-          devuelva (devolución) — sin intereses, remboursement libre según tesorería. Genera el PDF con la fecha e
-          importe de ese movimiento y queda anotado en el "Registre des décisions" (Fiscalidad → Documentos).
+          <InfoTooltip>
+            Plantilla reutilizable para cuando prestes dinero personal a la société (aportación) o la société te lo
+            devuelva (devolución) — sin intereses, remboursement libre según tesorería. Genera el PDF con la fecha e
+            importe de ese movimiento y queda anotado en el "Registre des décisions" (Fiscalidad → Documentos).
+          </InfoTooltip>
         </p>
         <div className="flex items-end gap-2 flex-wrap">
           <Select

@@ -17,10 +17,15 @@ import {
   Image as ImageIcon,
   Inbox,
   Car,
+  Download,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import { useNotificaciones, type CategoriaNotificacion, type Notificacion } from './useNotificaciones';
 import { useFocoAtrapado } from '../../hooks/useFocoAtrapado';
+import { generarPdfVisitasSinPresupuesto } from '../../lib/generarPdfVisitasSinPresupuesto';
+import { useToast } from '../../hooks/useToast';
+import { mensajeError } from '../../lib/mensajeError';
 
 const ICONOS: Record<CategoriaNotificacion, LucideIcon> = {
   fiscal: Landmark,
@@ -51,11 +56,24 @@ function fechaCompleta(iso: string) {
 }
 
 export function NotificacionesBell() {
-  const { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion } = useNotificaciones();
+  const { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion, visitasSinPresupuesto } = useNotificaciones();
   const [abierto, setAbierto] = useState(false);
   const [detalle, setDetalle] = useState<Notificacion | null>(null);
+  const [descargando, setDescargando] = useState(false);
+  const toast = useToast();
 
   const total = pendientes.length;
+
+  const descargarPdfVisitasSinPresupuesto = async () => {
+    setDescargando(true);
+    try {
+      await generarPdfVisitasSinPresupuesto(visitasSinPresupuesto);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo generar el PDF'));
+    } finally {
+      setDescargando(false);
+    }
+  };
 
   const cerrarPanel = () => {
     setAbierto(false);
@@ -263,6 +281,25 @@ export function NotificacionesBell() {
                       <p className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                         Pendientes {pendientes.length > 0 && `(${pendientes.length})`}
                       </p>
+
+                      {visitasSinPresupuesto.length > 0 && (
+                        <div className="mx-4 mb-2 flex items-center justify-between gap-2 bg-brand-light border border-brand-hover rounded-sm px-3 py-2">
+                          <span className="text-xs text-brand-dark">
+                            {visitasSinPresupuesto.length} visita{visitasSinPresupuesto.length === 1 ? '' : 's'} sin presupuesto
+                            todavía
+                          </span>
+                          <button
+                            type="button"
+                            onClick={descargarPdfVisitasSinPresupuesto}
+                            disabled={descargando}
+                            title="Descargar listado en PDF"
+                            className="shrink-0 w-7 h-7 rounded-sm flex items-center justify-center text-brand hover:bg-white disabled:opacity-50"
+                          >
+                            {descargando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                          </button>
+                        </div>
+                      )}
+
                       {pendientes.length === 0 ? (
                         <p className="px-4 pb-3 text-xs text-gray-400">Sin notificaciones pendientes.</p>
                       ) : (

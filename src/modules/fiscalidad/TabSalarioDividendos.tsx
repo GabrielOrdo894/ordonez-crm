@@ -8,6 +8,7 @@ import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
 import { fmt } from './format';
@@ -70,12 +71,13 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
       </ResumenTitular>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <Landmark size={14} className="text-brand" /> Capital social y compte courant
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Determinan el umbral libre de cotisations TNS sobre dividendos (10% de capital + compte courant, ver aviso más
-          abajo si se supera). Sin formulario propio hasta ahora, solo editables entrando a mano en Supabase.
+          <InfoTooltip>
+            Determinan el umbral libre de cotisations TNS sobre dividendos (10% de capital + compte courant, ver
+            aviso más abajo si se supera). Sin formulario propio hasta ahora, solo editables entrando a mano en
+            Supabase.
+          </InfoTooltip>
         </p>
         <div className="flex items-end gap-2 flex-wrap">
           <Input
@@ -104,16 +106,17 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
       </div>
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
-        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-1">
+        <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <TrendingUp size={14} className="text-brand" /> Optimizador salario vs dividendos
-        </p>
-        <p className="text-xs text-gray-500 leading-relaxed mb-3">
-          Reparte el beneficio del ejercicio ({fmt(beneficioBruto)} antes de rémunération) entre salario del gérant y
-          dividendos, y compara cuánto termina pagando en cotisations, IS y flat tax en cada combinación. El % de dividendos se
-          aplica sobre el <strong>beneficio distribuible</strong> (lo que queda del beneficio después de restar la
-          rémunération, sus cotisations TNS, el IS y el 5% de reserva legal que exige el Artículo 18 de los estatutos hasta
-          que esa reserva llegue al 10% del capital social) — si ese beneficio es 0 o negativo, no hay nada que repartir y el
-          slider no cambiará las cifras hasta que la empresa sea rentable en el período.
+          <InfoTooltip>
+            Reparte el beneficio del ejercicio ({fmt(beneficioBruto)} antes de rémunération) entre salario del gérant
+            y dividendos, y compara cuánto termina pagando en cotisations, IS y flat tax en cada combinación. El % de
+            dividendos se aplica sobre el <strong>beneficio distribuible</strong> (lo que queda del beneficio después
+            de restar la rémunération, sus cotisations TNS, el IS y el 5% de reserva legal que exige el Artículo 18
+            de los estatutos hasta que esa reserva llegue al 10% del capital social) — si ese beneficio es 0 o
+            negativo, no hay nada que repartir y el slider no cambiará las cifras hasta que la empresa sea rentable
+            en el período.
+          </InfoTooltip>
         </p>
         <div className="flex flex-col gap-3">
           <div>
