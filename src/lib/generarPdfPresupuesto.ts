@@ -76,6 +76,7 @@ const TEXTOS = {
     firmadoPor: 'Firmado por',
     firma: 'Firma del cliente',
     pendienteFirma: 'Pendiente de firma del cliente',
+    firmarAqui: 'Firmar digitalmente aquí',
     formaPago: 'Forma de pago',
     titular: 'Titular',
     banco: 'Banco',
@@ -106,6 +107,7 @@ const TEXTOS = {
     firmadoPor: 'Signé par',
     firma: 'Signature du client',
     pendienteFirma: 'En attente de signature du client',
+    firmarAqui: 'Signer numériquement ici',
     formaPago: 'Modalités de paiement',
     titular: 'Titulaire',
     banco: 'Banque',
@@ -1052,6 +1054,21 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       doc.text(t.pendienteFirma, xResumenFirma + 4, yResumenFirma + 20);
     }
     yResumenFirma += 32;
+
+    // Enlace de firma digital, debajo del recuadro completo (nunca dentro, para no competir con
+    // "Pendiente de firma del cliente") — solo si ya existe el enlace de Documenso y no está firmado.
+    if (!p.firmado && p.documenso_signing_url) {
+      const yEnlace = yResumenFirma + 5;
+      doc.setFont(FUENTE_PDF, 'bold');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...colorRgb);
+      doc.textWithLink(t.firmarAqui, xResumenFirma + 4, yEnlace, { url: p.documenso_signing_url });
+      const anchoEnlace = doc.getTextWidth(t.firmarAqui);
+      doc.setDrawColor(...colorRgb);
+      doc.setLineWidth(0.2);
+      doc.line(xResumenFirma + 4, yEnlace + 0.8, xResumenFirma + 4 + anchoEnlace, yEnlace + 0.8);
+      yResumenFirma = yEnlace + 4;
+    }
   }
 
   // Izquierda: plan de pago
