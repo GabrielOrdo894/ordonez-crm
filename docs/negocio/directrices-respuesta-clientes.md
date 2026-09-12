@@ -75,21 +75,21 @@ primero":
    abajo (nunca una sola, nunca preguntes qué día prefiere). Si todavía no hay
    disponibilidad (ej. hasta septiembre), dilo claro y con una fecha/semana
    concreta de cuándo sí la habrá.
-2. **Justo después, ofrece el presupuesto orientativo** como alternativa
-   mientras tanto: se puede dar una horquilla de precio con los datos que
-   facilite, sin necesidad de visita, apoyándote en que Reformas Ordoñez tiene
-   más de 25 años de experiencia en reformas. El objetivo de poner esto en
-   segundo lugar pero pronto en el mensaje es no perder al cliente mientras
-   esperamos a que llegue la fecha de visita disponible.
-3. **Si el mensaje del cliente es muy genérico** (no dice qué reforma exacta
+2. **Si el mensaje del cliente es muy genérico** (no dice qué reforma exacta
    quiere, faltan datos de contacto/obra), pide la información que falte
    después de lo anterior: nombre completo, dirección de la obra, alcance
    exacto del trabajo, fotos/medidas si puede.
-4. **Si es necesario** (el cliente pide ideas, diseño, "cómo quedaría
+3. **Si es necesario** (el cliente pide ideas, diseño, "cómo quedaría
    mejor"...) aclara que Reformas Ordoñez es una empresa de reformas, no de
    diseño ni interiorismo — trabajamos a partir de una idea que el cliente ya
    tiene, no la creamos nosotros. No hace falta incluir esta aclaración si el
    cliente ya sabe lo que quiere y no la pide.
+
+> **Descontinuado (Gabriel, 2026-09-12):** ya no se ofrece el presupuesto
+> orientativo como alternativa mientras se espera la visita — se ha quitado
+> del paso 2 original de esta lista. No mencionar "devis indicatif"/
+> "presupuesto orientativo" en los mensajes de primer contacto salvo que
+> Gabriel lo pida expresamente para un caso concreto.
 
 **Dónde guardar la respuesta:** en `negocio/solicitudes-presupuesto/<fecha> - <nombre
 o email del cliente>/`, carpeta en la raíz del repo, separada de
