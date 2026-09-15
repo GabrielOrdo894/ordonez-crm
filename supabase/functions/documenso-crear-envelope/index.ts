@@ -26,7 +26,9 @@ function esLlamadaAutorizada(req: Request): boolean {
   }
 }
 
-const DOCUMENSO_API = 'https://app.documenso.com/api/v2';
+// Autoalojado desde 2026-09-14 (antes app.documenso.com de pago, límite de 5 firmas/mes agotado) —
+// ver docs/tecnico/documenso.md.
+const DOCUMENSO_API = 'https://firma.ordonezrenov.com/api/v2';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -57,7 +59,7 @@ function extraerSigningUrl(recipientes: Recipient[] | undefined, email: string):
   if (!recipientes?.length) return null;
   const recipiente = recipientes.find((r) => r.email?.toLowerCase() === email.toLowerCase()) ?? recipientes[0];
   if (recipiente?.signingUrl) return recipiente.signingUrl;
-  if (recipiente?.token) return `https://app.documenso.com/sign/${recipiente.token}`;
+  if (recipiente?.token) return `https://firma.ordonezrenov.com/sign/${recipiente.token}`;
   return null;
 }
 

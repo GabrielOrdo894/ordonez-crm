@@ -5,6 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
 import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { normalizarTelefono } from '../clientes/types';
+import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from '../visitas/types';
 
@@ -45,7 +46,7 @@ function guardarHistorial(userId: string, historial: Notificacion[]) {
   localStorage.setItem(claveHistorial(userId), JSON.stringify(historial));
 }
 
-export type CategoriaNotificacion = 'fiscal' | 'factura' | 'visita' | 'mensaje' | 'presupuesto' | 'resena' | 'galeria' | 'solicitud' | 'gasto';
+export type CategoriaNotificacion = 'fiscal' | 'factura' | 'visita' | 'mensaje' | 'presupuesto' | 'resena' | 'galeria' | 'solicitud' | 'gasto' | 'referido';
 
 export type Notificacion = {
   id: string;
@@ -102,6 +103,12 @@ export function useNotificaciones() {
   });
 
   const esGabriel = user?.email === EMAIL_GABRIEL;
+
+  const { data: config } = useQuery({
+    queryKey: ['empresa_config', 'completa'],
+    queryFn: cargarConfigCompleta,
+  });
+  const diasEsperaResena = ((config?.datos as { resenas?: { diasEspera?: number } } | undefined)?.resenas?.diasEspera) ?? 3;
 
   const { data: presupuestos } = useQuery({
     queryKey: ['presupuestos', 'notificaciones'],
@@ -360,30 +367,35 @@ export function useNotificaciones() {
 
     // Avisos de reseña y caso de éxito — solo para Gabriel Ordoñez
     if (esGabriel) {
-      const limite2d = isoHaceDias(2);
+      const limiteCierre = isoHaceDias(diasEsperaResena);
       const limite3d = isoHaceDias(3);
       const limite6m = isoHaceMeses(6);
 
       // Solo facturas normales (nunca acompte ni rectificativa) — un acompte cobrado no significa
       // que la obra esté terminada, y no tiene sentido pedir reseña/caso de éxito hasta que se
-      // cobre la factura final (hallazgo real de Gabriel, 2026-08-20).
-      const cobradasConEmail = (facturas ?? []).filter(
-        (f) => f.tipo === 'normal' && f.estado_cobro === 'Cobrada' && f.cliente_email && f.fecha_pago,
+      // cobre la factura final (hallazgo real de Gabriel, 2026-08-20). Contacto por email O
+      // teléfono (antes exigía email — el mensaje de cierre de obra ahora también sale por
+      // WhatsApp, ver CierreObraBanner).
+      const cobradasConContacto = (facturas ?? []).filter(
+        (f) => f.tipo === 'normal' && f.estado_cobro === 'Cobrada' && (f.cliente_email || f.cliente_tel) && f.fecha_pago,
       );
 
-      for (const f of cobradasConEmail) {
-        if (!f.resena_enviada && f.fecha_pago! <= limite2d) {
+      for (const f of cobradasConContacto) {
+        if (!f.resena_enviado_en && f.fecha_pago! <= limiteCierre) {
           lista.push({
-            id: `resena-2d-${f.id}`,
+            id: `cierre-obra-${f.id}`,
             categoria: 'resena',
-            titulo: `Pide opinión a ${f.cliente_nombre ?? 'cliente'}`,
-            resumen: `Factura ${f.numero ?? ''} pagada el ${f.fecha_pago} — envíale un mensaje pidiendo su opinión sobre la obra.`,
+            titulo: `Prepara el mensaje de cierre para ${f.cliente_nombre ?? 'cliente'}`,
+            resumen: `Factura ${f.numero ?? ''} pagada el ${f.fecha_pago} — pídele su opinión y, si aplica, invítale al programa de referidos.`,
             to: '/',
           });
         }
-        if (f.fecha_pago! <= limite6m) {
+        // resena_cortesia_enviada_en (2026-09-13) cierra este aviso de verdad al marcarlo desde el
+        // banner de Inicio — antes dependía solo del historial local del navegador de cada usuario,
+        // así que podía "resucitar" si Gabriel entraba desde otro dispositivo o borraba datos.
+        if (!f.resena_cortesia_enviada_en && f.fecha_pago! <= limite6m) {
           lista.push({
-            id: `resena-6m-${f.id}`,
+            id: `resena-cortesia-${f.id}`,
             categoria: 'resena',
             titulo: `Mensaje de cortesía (6 meses) a ${f.cliente_nombre ?? 'cliente'}`,
             resumen: 'Han pasado 6 meses desde su obra. Envíale un mensaje de cortesía y, si no dejó reseña, anímale a escribirla.',
@@ -393,7 +405,7 @@ export function useNotificaciones() {
       }
 
       const visitaIdsConGaleria = new Set((galeria ?? []).map((g) => g.visita_id).filter((id): id is string => !!id));
-      for (const f of cobradasConEmail) {
+      for (const f of cobradasConContacto) {
         if (f.visita_id && f.fecha_pago! <= limite3d && !visitaIdsConGaleria.has(f.visita_id)) {
           lista.push({
             id: `caso-exito-${f.id}`,
@@ -403,6 +415,25 @@ export function useNotificaciones() {
             to: '/galeria',
           });
         }
+      }
+
+      // Programa de referidos (2026-09-13): visita con referido_por relleno cuyo presupuesto llegó
+      // a Aceptado — hora de aplicar el descuento al cliente que refirió, en su próxima obra. Se
+      // marca resuelto desde ReferidoIncentivoBox (VisitaDetalleContenido.tsx), nunca solo.
+      const visitaIdsConPresupuestoAceptado = new Set(
+        (presupuestos ?? []).filter((p) => p.estado === 'Aceptado' && p.visita_id).map((p) => p.visita_id as string),
+      );
+      const referidosConvertidos = (visitas ?? []).filter(
+        (v) => v.referido_por && !v.referido_incentivo_aplicado_en && visitaIdsConPresupuestoAceptado.has(v.id),
+      );
+      for (const v of referidosConvertidos) {
+        lista.push({
+          id: `referido-convertido-${v.id}`,
+          categoria: 'referido',
+          titulo: `Aplica el incentivo a ${v.referido_por}`,
+          resumen: `${v.nombre} ${v.apellidos} (referido por ${v.referido_por}) aceptó presupuesto — dale su descuento la próxima vez que le hagas uno.`,
+          to: '/visitas',
+        });
       }
     }
 
@@ -473,6 +504,7 @@ export function useNotificaciones() {
     seguimientos,
     gastosKilometricoPendientes,
     visitasSinPresupuesto,
+    diasEsperaResena,
   ]);
 
   // Vuelca los eventos activos en el historial persistido (localStorage): añade los que son

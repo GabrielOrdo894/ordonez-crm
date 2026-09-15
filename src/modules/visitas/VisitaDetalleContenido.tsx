@@ -8,6 +8,7 @@ import { useToast } from '../../hooks/useToast';
 import { mensajeError } from '../../lib/mensajeError';
 import { fechaVisitaLarga } from '../../lib/fechas';
 import { VisitaChecklist } from './VisitaChecklist';
+import { ReferidoIncentivoBox } from './ReferidoIncentivoBox';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import type { Visita } from './types';
 
@@ -135,6 +136,8 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
           ))}
         </div>
       )}
+
+      <ReferidoIncentivoBox visita={visita} />
 
       <div className="border-t border-gray-200 pt-3">
         <VisitaChecklist visitaId={visita.id} checklist={visita.checklist} />

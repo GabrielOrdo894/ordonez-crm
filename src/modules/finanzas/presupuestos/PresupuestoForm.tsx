@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Star, Plus, Copy, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Trash2, Star, Gift, Plus, Copy, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { camposContactoFaltantes } from '../../../lib/datosContacto';
@@ -679,6 +679,45 @@ export function PresupuestoForm({
     setForm((f) => ({ ...f, lineas: [...f.lineas, nuevaLinea] }));
   };
 
+  // Descuento de bienvenida al cliente REFERIDO (2026-09-13) — el otro lado del incentivo doble
+  // del programa de referidos, el del cliente que REFIERE, se aplica a mano en su propio próximo
+  // presupuesto (no hay forma fiable de saber cuál será desde aquí) y se avisa desde la campana de
+  // notificaciones + ReferidoIncentivoBox en la ficha de la visita referida.
+  const referidosConfig = useMemo(() => {
+    const datos = (config?.datos ?? {}) as { referidos?: { activo?: boolean; descuentoReferido?: number } };
+    return { activo: datos.referidos?.activo ?? false, descuentoReferido: datos.referidos?.descuentoReferido ?? 5 };
+  }, [config]);
+
+  const visitaVinculada = useMemo(() => (visitas ?? []).find((v) => v.id === form.visita_id) ?? null, [visitas, form.visita_id]);
+  const descuentoReferidoYaAplicado = form.lineas.some((l) => l.designacion === 'DESC-REF');
+  const mostrarDescuentoReferido = referidosConfig.activo && !!visitaVinculada?.referido_por && !descuentoReferidoYaAplicado;
+
+  const descuentoReferidoPropuesto = useMemo(
+    () => Math.round(totalConIva * (referidosConfig.descuentoReferido / 100) * 100) / 100,
+    [totalConIva, referidosConfig.descuentoReferido],
+  );
+
+  const [descuentoReferidoImporte, setDescuentoReferidoImporte] = useState(0);
+
+  useEffect(() => {
+    setDescuentoReferidoImporte(descuentoReferidoPropuesto);
+  }, [descuentoReferidoPropuesto]);
+
+  const handleAplicarDescuentoReferido = () => {
+    const nuevaLinea = calcularLinea(
+      {
+        ...lineaVacia(),
+        designacion: 'DESC-REF',
+        descripcion: 'Descuento de bienvenida — programa de referidos / Remise de bienvenue — programme de parrainage',
+        unidad: 'forfait',
+        cantidad: 1,
+        precio_unit: -descuentoReferidoImporte,
+      },
+      porcentaje,
+    );
+    setForm((f) => ({ ...f, lineas: [...f.lineas, nuevaLinea] }));
+  };
+
   return (
     <div className="animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
@@ -867,6 +906,29 @@ export function PresupuestoForm({
                     className="w-24 border border-gray-200 rounded-sm px-2 py-1 text-xs focus:border-brand focus:outline-none"
                   />
                   <Button size="sm" variant="secondary" onClick={handleAplicarDescuento}>
+                    Aplicar descuento
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {mostrarDescuentoReferido && (
+              <div className="bg-brand-light border border-gray-200 rounded-sm px-3 py-2.5 flex items-center justify-between gap-3 mt-4">
+                <div className="flex items-center gap-2 text-xs text-brand">
+                  <Gift size={14} className="shrink-0" />
+                  <span>
+                    Referido por {visitaVinculada?.referido_por} — descuento de bienvenida propuesto:{' '}
+                    {descuentoReferidoImporte.toFixed(2)} €
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="number"
+                    value={descuentoReferidoImporte}
+                    onChange={(e) => setDescuentoReferidoImporte(Number(e.target.value))}
+                    className="w-24 border border-gray-200 rounded-sm px-2 py-1 text-xs focus:border-brand focus:outline-none"
+                  />
+                  <Button size="sm" variant="secondary" onClick={handleAplicarDescuentoReferido}>
                     Aplicar descuento
                   </Button>
                 </div>

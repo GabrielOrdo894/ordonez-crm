@@ -900,10 +900,6 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     y = 20;
   }
 
-  // Página donde arranca el resumen de pago con los datos bancarios — el mensaje de agradecimiento
-  // solo debe pintarse a partir de aquí (nunca en las páginas de líneas del presupuesto).
-  const paginaResumenPago = totalPaginasPdf(doc);
-
   // ---- Resumen de pago (izquierda) + Plan de pago / Forma de pago (derecha) ----
   const { totalSinIva, totalConIva } = calcularTotales(p.lineas);
   const rangoTotales = esOrientativo ? calcularTotalesRango(p.lineas, pct) : null;
@@ -964,6 +960,15 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     doc.addPage();
     y = 20;
   }
+
+  // Página donde arranca el resumen de pago con los datos bancarios — el mensaje de agradecimiento
+  // solo debe pintarse a partir de aquí (nunca en las páginas de líneas del presupuesto). Se captura
+  // aquí, DESPUÉS de los dos saltos de página posibles de arriba (el de `y > 210` y el de este mismo
+  // bloque), no antes — capturarla antes de este segundo salto dejaba `paginaResumenPago` apuntando a
+  // la página vieja cuando solo el segundo salto se disparaba, y el campo de firma de Documenso
+  // (que reutiliza esta página) se enviaba a la página equivocada aunque el recuadro se dibujara bien
+  // en la nueva (bug real: P-2026-0064, hallado 2026-09-15 comparando con P-2026-0063 en local).
+  const paginaResumenPago = totalPaginasPdf(doc);
   const yInicioColumnas = y;
 
   // Derecha: resumen de pago

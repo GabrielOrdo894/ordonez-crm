@@ -67,6 +67,7 @@ type FormState = {
   email: string;
   idioma: string;
   contacto: string;
+  referido_por: string;
   direccion: string;
   direccion_extra: string;
   lat: number | null;
@@ -90,6 +91,7 @@ const EMPTY: FormState = {
   email: '',
   idioma: 'Español',
   contacto: 'Llamada',
+  referido_por: '',
   direccion: '',
   direccion_extra: '',
   lat: null,
@@ -156,6 +158,7 @@ function formDesdeVisita(visita: Visita): FormState {
     email: visita.email ?? '',
     idioma: visita.idioma ?? 'Español',
     contacto: visita.contacto ?? 'Llamada',
+    referido_por: visita.referido_por ?? '',
     direccion: visita.direccion ?? '',
     direccion_extra: visita.direccion_extra ?? '',
     lat: visita.lat,
@@ -542,6 +545,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       const nueva: NuevaVisita = {
         ...form,
         email: form.email || null,
+        referido_por: form.referido_por || null,
         direccion_extra: form.direccion_extra || null,
         descripcion: form.descripcion || null,
         notas: form.notas || null,
@@ -589,6 +593,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         .update({
           ...form,
           email: form.email || null,
+          referido_por: form.referido_por || null,
           direccion_extra: form.direccion_extra || null,
           descripcion: form.descripcion || null,
           notas: form.notas || null,
@@ -914,6 +919,16 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               value={form.contacto}
               onChange={(e) => setForm((f) => ({ ...f, contacto: e.target.value }))}
             />
+            {form.contacto === 'Recomendación' && (
+              <div className="sm:col-span-2">
+                <Input
+                  label="¿Quién le recomendó?"
+                  placeholder="Nombre del cliente que le recomendó"
+                  value={form.referido_por}
+                  onChange={(e) => setForm((f) => ({ ...f, referido_por: e.target.value }))}
+                />
+              </div>
+            )}
           </div>
         </Seccion>
 

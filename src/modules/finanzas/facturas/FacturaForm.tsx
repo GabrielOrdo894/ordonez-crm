@@ -413,8 +413,11 @@ export function FacturaForm({
         estructura_anterior: form.estructura_anterior,
         fecha_pago: factura?.fecha_pago ?? null,
         monto_pagado: factura?.monto_pagado ?? null,
-        resena_enviada: factura?.resena_enviada ?? false,
-        resena_fecha_envio: factura?.resena_fecha_envio ?? null,
+        resena_canal: factura?.resena_canal ?? null,
+        resena_token: factura?.resena_token ?? null,
+        resena_enviado_en: factura?.resena_enviado_en ?? null,
+        resena_clic_en: factura?.resena_clic_en ?? null,
+        resena_cortesia_enviada_en: factura?.resena_cortesia_enviada_en ?? null,
       };
 
       if (factura) {

@@ -19,6 +19,7 @@ import {
   Car,
   Download,
   Loader2,
+  Gift,
   type LucideIcon,
 } from 'lucide-react';
 import { useNotificaciones, type CategoriaNotificacion, type Notificacion } from './useNotificaciones';
@@ -37,6 +38,7 @@ const ICONOS: Record<CategoriaNotificacion, LucideIcon> = {
   galeria: ImageIcon,
   solicitud: Inbox,
   gasto: Car,
+  referido: Gift,
 };
 
 const ETIQUETA_CATEGORIA: Record<CategoriaNotificacion, string> = {
@@ -49,6 +51,7 @@ const ETIQUETA_CATEGORIA: Record<CategoriaNotificacion, string> = {
   galeria: 'Galería',
   solicitud: 'Solicitudes',
   gasto: 'Gastos',
+  referido: 'Referidos',
 };
 
 function fechaCompleta(iso: string) {

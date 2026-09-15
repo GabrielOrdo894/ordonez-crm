@@ -28,6 +28,7 @@ import {
   Ban,
   Banknote,
   ListChecks,
+  Gift,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -96,6 +97,7 @@ const GRUPOS_NAV: GrupoNav[] = [
     items: [
       { id: 'bloque-fidelidad', label: 'Descuento por fidelidad', icon: Percent },
       { id: 'bloque-resenas', label: 'Recordatorio de reseña', icon: Star },
+      { id: 'bloque-referidos', label: 'Programa de referidos', icon: Gift },
     ],
   },
   {
@@ -281,6 +283,9 @@ export default function ConfiguracionPage() {
   const [resenaActiva, setResenaActiva] = useState(false);
   const [resenaDiasEspera, setResenaDiasEspera] = useState(3);
   const [resenaEnlace, setResenaEnlace] = useState('');
+  const [referidosActivo, setReferidosActivo] = useState(false);
+  const [referidosDescuentoReferente, setReferidosDescuentoReferente] = useState(5);
+  const [referidosDescuentoReferido, setReferidosDescuentoReferido] = useState(5);
   const [visitasDesde, setVisitasDesde] = useState('');
   const [iaPresupuestoMensual, setIaPresupuestoMensual] = useState(10);
   const [bancoSyncProveedor, setBancoSyncProveedor] = useState('');
@@ -385,6 +390,7 @@ export default function ConfiguracionPage() {
       fr?: Partial<EntidadPais>;
       fidelidad?: { umbral?: number; porcentaje?: number; importeFijo?: number };
       resenas?: { activo?: boolean; diasEspera?: number; enlace?: string };
+      referidos?: { activo?: boolean; descuentoReferente?: number; descuentoReferido?: number };
       condicionesPago?: {
         delaiEs?: string;
         delaiFr?: string;
@@ -420,6 +426,9 @@ export default function ConfiguracionPage() {
     setResenaActiva(datos.resenas?.activo ?? false);
     setResenaDiasEspera(datos.resenas?.diasEspera ?? 3);
     setResenaEnlace(datos.resenas?.enlace ?? '');
+    setReferidosActivo(datos.referidos?.activo ?? false);
+    setReferidosDescuentoReferente(datos.referidos?.descuentoReferente ?? 5);
+    setReferidosDescuentoReferido(datos.referidos?.descuentoReferido ?? 5);
     setEmailsNotificacion(datos.notificaciones_visita_emails_extra ?? []);
     setEmailsExcluidos(datos.solicitudes_emails_excluidos ?? []);
     setVisitasDesde(config.visitas_disponibles_desde ?? '');
@@ -508,6 +517,18 @@ export default function ConfiguracionPage() {
   const guardarResenasMutation = useMutation({
     mutationFn: () => guardarDatos({ resenas: { activo: resenaActiva, diasEspera: resenaDiasEspera, enlace: resenaEnlace } }),
     ...alGuardar('Recordatorio de reseña guardado', 'actualizó el recordatorio de reseña en Configuración.'),
+  });
+
+  const guardarReferidosMutation = useMutation({
+    mutationFn: () =>
+      guardarDatos({
+        referidos: {
+          activo: referidosActivo,
+          descuentoReferente: referidosDescuentoReferente,
+          descuentoReferido: referidosDescuentoReferido,
+        },
+      }),
+    ...alGuardar('Programa de referidos guardado', 'actualizó el programa de referidos en Configuración.'),
   });
 
   const guardarBancoSyncMutation = useMutation({
@@ -1089,6 +1110,44 @@ export default function ConfiguracionPage() {
             value={resenaEnlace}
             onChange={(e) => setResenaEnlace(e.target.value)}
             placeholder="https://g.page/r/..."
+          />
+        </div>
+      </section>
+
+      <section
+        id="bloque-referidos"
+        className="bg-surface border border-gray-200 rounded-sm p-4"
+        style={{ display: bloqueActivo === 'bloque-referidos' ? undefined : 'none' }}
+      >
+        <div className="flex items-center justify-between border-b border-gray-200 pb-2 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Programa de referidos</p>
+          <Button size="sm" onClick={() => guardarReferidosMutation.mutate()} disabled={guardarReferidosMutation.isPending}>
+            {guardarReferidosMutation.isPending ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </div>
+        <p className="text-xs text-gray-400 mb-3">
+          Incentivo doble: el cliente que refiere recibe un descuento en su próxima obra, y la persona referida un
+          descuento de bienvenida en la suya. Estos porcentajes se usan tanto en el mensaje de invitación (banner de
+          cierre de obra en Inicio) como en el descuento sugerido al crear el presupuesto del referido.
+        </p>
+        <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
+          <input type="checkbox" checked={referidosActivo} onChange={(e) => setReferidosActivo(e.target.checked)} />
+          Activar programa de referidos
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input
+            label="Descuento al referente (%)"
+            type="number"
+            value={referidosDescuentoReferente}
+            onChange={(e) => setReferidosDescuentoReferente(Number(e.target.value))}
+            hint="Cliente que trae al referido, en su próxima obra"
+          />
+          <Input
+            label="Descuento al referido (%)"
+            type="number"
+            value={referidosDescuentoReferido}
+            onChange={(e) => setReferidosDescuentoReferido(Number(e.target.value))}
+            hint="Cliente nuevo, descuento de bienvenida en su primera obra"
           />
         </div>
       </section>

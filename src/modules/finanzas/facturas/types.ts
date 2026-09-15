@@ -32,8 +32,17 @@ export type Factura = {
   estado_cobro: string;
   fecha_pago: string | null;
   monto_pagado: number | null;
-  resena_enviada: boolean;
-  resena_fecha_envio: string | null;
+  // Rediseño del sistema de reseñas (2026-09-13): resena_canal registra por dónde se mandó
+  // (whatsapp/email/ambos); resena_token es el identificador del enlace de redirección propio
+  // (Edge Function resena-redirect) que registra resena_clic_en antes de reenviar a Google — Google
+  // no permite saber quién dejó qué reseña, así que el clic es la única señal real de conversión
+  // compatible con sus políticas. resena_cortesia_enviada_en cierra el aviso de cortesía a los 6
+  // meses de verdad (antes dependía solo del historial local del navegador de cada usuario).
+  resena_canal: string | null;
+  resena_token: string | null;
+  resena_enviado_en: string | null;
+  resena_clic_en: string | null;
+  resena_cortesia_enviada_en: string | null;
   // Cobro de una estructura empresarial anterior a la EURL actual (2026-08-22) — se registra en
   // el CRM solo para que lineaDeduccionAcomptes calcule bien la factura definitiva, pero no es
   // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de

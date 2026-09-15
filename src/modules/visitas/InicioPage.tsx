@@ -48,7 +48,7 @@ import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { ETAPAS_PIPELINE } from '../clientes/types';
 import { SELECT_SOLICITUDES, estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { CalendarioMini } from './CalendarioMini';
-import { ResenaGoogleBanner } from './ResenaGoogleBanner';
+import { CierreObraBanner } from './CierreObraBanner';
 import { NotificacionesBell } from '../notificaciones/NotificacionesBell';
 import { VisitaResumenModal, urlGoogleMaps } from './VisitaResumenModal';
 import type { Visita } from './types';
@@ -1104,7 +1104,7 @@ export default function InicioPage() {
     return (
       <div>
         {saludo}
-        <ResenaGoogleBanner />
+        <CierreObraBanner />
         {resumenFinanciero}
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr_320px] gap-4">
           <div className="h-96 bg-surface border border-gray-200 rounded-sm animate-pulse" />
@@ -1119,7 +1119,7 @@ export default function InicioPage() {
     return (
       <div>
         {saludo}
-        <ResenaGoogleBanner />
+        <CierreObraBanner />
         {resumenFinanciero}
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <p className="text-sm text-gray-400">No hay visitas registradas</p>
@@ -1132,7 +1132,7 @@ export default function InicioPage() {
   return (
     <div>
       {saludo}
-      <ResenaGoogleBanner />
+      <CierreObraBanner />
       {resumenFinanciero}
       <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr_320px] gap-4 items-start">
       <div ref={calendarioRef} className="min-w-0">

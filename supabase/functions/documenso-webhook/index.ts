@@ -64,7 +64,8 @@ async function igualesEnTiempoConstante(a: string, b: string): Promise<boolean> 
   return diff === 0;
 }
 
-const DOCUMENSO_API = 'https://app.documenso.com/api/v2';
+// Autoalojado desde 2026-09-14 (antes app.documenso.com de pago) — ver docs/tecnico/documenso.md.
+const DOCUMENSO_API = 'https://firma.ordonezrenov.com/api/v2';
 
 async function llamarDocumensoJson(path: string, apiKey: string): Promise<Record<string, unknown>> {
   const res = await fetch(`${DOCUMENSO_API}${path}`, { headers: { Authorization: apiKey } });
@@ -80,11 +81,14 @@ async function descargarYGuardarPdfFirmado(
   supabase: SupabaseClient,
   presupuesto: { id: string; documenso_envelope_id: string | null },
   apiKey: string,
-): Promise<void> {
-  if (!presupuesto.documenso_envelope_id) return;
+): Promise<string> {
+  if (!presupuesto.documenso_envelope_id) throw new Error('El presupuesto no tiene envelope de Documenso');
 
   const detalle = await llamarDocumensoJson(`/envelope/${presupuesto.documenso_envelope_id}`, apiKey);
-  const items = (detalle.items ?? (detalle.envelope as Record<string, unknown> | undefined)?.items) as
+  // La API del self-hosted devuelve la clave `envelopeItems` (no `items`, que sí usaba
+  // app.documenso.com) — bug real encontrado 2026-09-14: fallaba en silencio (best-effort) y
+  // dejaba `documenso_pdf_firmado_path` en null tras cada firma.
+  const items = (detalle.envelopeItems ?? detalle.items ?? (detalle.envelope as Record<string, unknown> | undefined)?.items) as
     | { id: string }[]
     | undefined;
   const itemId = items?.[0]?.id;
@@ -107,6 +111,8 @@ async function descargarYGuardarPdfFirmado(
     .update({ documenso_pdf_firmado_path: path })
     .eq('id', presupuesto.id);
   if (errorUpdate) throw new Error(`No se pudo guardar la ruta del PDF firmado: ${errorUpdate.message}`);
+
+  return path;
 }
 
 // --- Envío de email de aviso — mismo patrón de Gmail que supabase/functions/alerta-diaria
@@ -155,7 +161,97 @@ function codificarAsunto(asunto: string): string {
   return `=?UTF-8?B?${btoa(binario)}?=`;
 }
 
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Misma plantilla de marca (cabecera verde oscuro + tarjeta blanca + botón de acción) que ya usa
+// notificar-visita para el email de confirmación de visita al cliente — evita que este quede como
+// un texto plano suelto, y pone el enlace en un botón en vez de la URL entera visible (petición de
+// Gabriel 2026-09-14).
+function htmlAvisoFirmaCliente(opts: { fr: boolean; nombre: string; numero: string; signedUrl: string }): string {
+  const t = opts.fr
+    ? {
+        eyebrow: 'Devis signé',
+        saludo: `Bonjour${opts.nombre ? ' ' + opts.nombre : ''},`,
+        intro: `Nous confirmons la réception de votre signature électronique du devis <strong>${esc(opts.numero)}</strong>.`,
+        boton: 'Télécharger ma copie signée',
+        firma: 'Cordialement,<br/>L\'équipe Reformas Ordoñez',
+      }
+    : {
+        eyebrow: 'Presupuesto firmado',
+        saludo: `Hola${opts.nombre ? ' ' + opts.nombre : ''},`,
+        intro: `Confirmamos que hemos recibido tu firma electrónica del presupuesto <strong>${esc(opts.numero)}</strong>.`,
+        boton: 'Descargar mi copia firmada',
+        firma: 'Un saludo,<br/>El equipo de Reformas Ordoñez',
+      };
+  return `<div style="font-family:Helvetica,Arial,sans-serif">
+  <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
+    <tr><td style="background:#0f3d24;padding:20px 24px;border-radius:10px 10px 0 0">
+      <div style="color:#ffffff;font-size:16px;font-weight:600">Reformas Ordoñez</div>
+      <div style="color:#cdddd5;font-size:12px;margin-top:2px">${esc(t.eyebrow)}</div>
+    </td></tr>
+    <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
+      <p style="font-size:13px;color:#111827;margin:0 0 12px">${t.saludo}</p>
+      <p style="font-size:13px;color:#111827;margin:0 0 16px">${t.intro}</p>
+      <a href="${opts.signedUrl}" style="display:inline-block;background:#1a5c38;color:#ffffff;text-decoration:none;font-size:13px;font-weight:600;padding:10px 18px;border-radius:6px">${esc(t.boton)}</a>
+      <p style="font-size:13px;color:#111827;margin:20px 0 0">${t.firma}</p>
+    </td></tr>
+    <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
+      <div style="color:#9ca3af;font-size:11px">Reformas Ordoñez</div>
+    </td></tr>
+  </table>
+</div>`;
+}
+
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
+
+// Desde 2026-09-14 los checkboxes de notificación propios de Documenso están desactivados
+// (Gabriel: "sacar el enlace y luego nosotros lo enviamos, eso es justo lo que nosotros
+// hacemos") — el cliente ya no recibe ningún email de Documenso ni al firmar. Sin esto, la
+// firma quedaba confirmada solo en el CRM y el cliente nunca se enteraba ni podía descargar su
+// copia firmada. Sustituye esa notificación con un email propio, ya en el idioma real del
+// presupuesto (mismo criterio bilingüe que el resto de documentos del CRM).
+async function avisarFirmaAlClientePorEmail(
+  supabase: SupabaseClient,
+  presupuesto: { numero: string | null; cliente_nombre: string | null; cliente_email: string | null; idioma: string | null },
+  pdfPath: string,
+): Promise<void> {
+  if (!presupuesto.cliente_email) throw new Error('El presupuesto no tiene email de cliente');
+
+  const { data: signedUrlData, error: errorSignedUrl } = await supabase.storage
+    .from('presupuestos-firmados')
+    .createSignedUrl(pdfPath, 60 * 60 * 24 * 30); // 30 días — tiempo de sobra para que el cliente lo descargue
+  if (errorSignedUrl || !signedUrlData) throw new Error(`No se pudo generar el enlace de descarga: ${errorSignedUrl?.message}`);
+
+  const esFrances = presupuesto.idioma === 'Français';
+  const numero = presupuesto.numero ?? '';
+  const nombre = presupuesto.cliente_nombre ?? '';
+  const token = await obtenerAccessTokenGmail(supabase);
+
+  const asunto = esFrances ? `Devis ${numero} signé — copie pour vos dossiers` : `Presupuesto ${numero} firmado — copia para tus archivos`;
+  const cuerpo = htmlAvisoFirmaCliente({ fr: esFrances, nombre, numero, signedUrl: signedUrlData.signedUrl });
+
+  const mensajeMime = [
+    `From: ${REMITENTE_BASE}`,
+    `To: ${presupuesto.cliente_email}`,
+    `Subject: ${codificarAsunto(asunto)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset="UTF-8"',
+    '',
+    cuerpo,
+  ].join('\r\n');
+
+  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
+  });
+  if (!res.ok) {
+    const detalle = await res.text().catch(() => '');
+    throw new Error(`Gmail no aceptó el envío al cliente (${res.status}): ${detalle}`);
+  }
+}
 
 async function avisarFirmaPorEmail(
   supabase: SupabaseClient,
@@ -231,7 +327,7 @@ Deno.serve(async (req: Request) => {
   // corregido 2026-08-18).
   const busqueda = supabase
     .from('presupuestos')
-    .select('id, numero, visita_id, cliente_tel, cliente_nombre, firmado, documenso_envelope_id')
+    .select('id, numero, visita_id, cliente_tel, cliente_nombre, cliente_email, idioma, firmado, documenso_envelope_id')
     .is('eliminado_en', null)
     .limit(1);
   const { data: presupuestos, error: buscarError } = externalId
@@ -274,9 +370,10 @@ Deno.serve(async (req: Request) => {
 
   // Best-effort: el presupuesto ya quedó firmado/Aceptado arriba pase lo que pase aquí abajo.
   const apiKey = Deno.env.get('DOCUMENSO_API_KEY');
+  let pdfPath: string | null = null;
   if (apiKey) {
     try {
-      await descargarYGuardarPdfFirmado(supabase, presupuesto, apiKey);
+      pdfPath = await descargarYGuardarPdfFirmado(supabase, presupuesto, apiKey);
     } catch (err) {
       console.error('No se pudo descargar/guardar el PDF firmado:', err instanceof Error ? err.message : err);
     }
@@ -287,6 +384,13 @@ Deno.serve(async (req: Request) => {
     await avisarFirmaPorEmail(supabase, presupuesto, firmaNombre);
   } catch (err) {
     console.error('No se pudo avisar por email de la firma:', err instanceof Error ? err.message : err);
+  }
+  if (pdfPath) {
+    try {
+      await avisarFirmaAlClientePorEmail(supabase, presupuesto, pdfPath);
+    } catch (err) {
+      console.error('No se pudo avisar al cliente por email de la firma:', err instanceof Error ? err.message : err);
+    }
   }
 
   // Sincroniza la etapa de pipeline del cliente, igual que hace la firma manual en el frontend

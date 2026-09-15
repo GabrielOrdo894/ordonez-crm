@@ -40,6 +40,10 @@ export type Visita = {
   empresa_nombre?: string | null;
   empresa_cif?: string | null;
   referido_por?: string | null;
+  // Marca que el incentivo del programa de referidos ya se le aplicó al cliente que refirió a
+  // este (2026-09-13) — se pone desde ReferidoIncentivoBox una vez el presupuesto del referido
+  // llega a Aceptado y Gabriel le da su descuento en la siguiente obra.
+  referido_incentivo_aplicado_en?: string | null;
   // Visita de seguimiento vinculada a una obra ya en curso (agendada desde Planning), distinta de
   // la visita técnica comercial inicial — antes no había forma de agendar una inspección a mitad
   // de obra o de entrega final dentro del mismo sistema de calendario (mejora real, auditoría de
