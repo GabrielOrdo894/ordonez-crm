@@ -17,6 +17,7 @@ import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila } from '../../components/ui/AccionesFila';
 import {
   agruparClientes,
+  formatearTelefonoVisual,
   normalizarTelefono,
   ETAPAS_PIPELINE,
   ETIQUETA_ORIGEN_POTENCIAL,
@@ -29,7 +30,7 @@ import { useEtiquetasClientes } from './useEtiquetasClientes';
 import { ETIQUETAS_DISPONIBLES, COLOR_ETIQUETA, type EtiquetaCliente } from './etiquetas';
 import { usePotencialesCliente } from './usePotencialesCliente';
 import { fechaVisitaCorta } from '../../lib/fechas';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
@@ -310,7 +311,7 @@ export default function ClientesPage() {
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{p.nombre}</p>
-                    <p className="text-xs text-gray-500 truncate">{p.telefono || p.email || '—'}</p>
+                    <p className="text-xs text-gray-500 truncate">{formatearTelefonoVisual(p.telefono) || p.email || '—'}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">
                       {ETIQUETA_ORIGEN_POTENCIAL[p.origen]}
                       {p.detalle ? ` · ${p.detalle}` : ''}
@@ -390,7 +391,7 @@ export default function ClientesPage() {
                 </div>
               ),
             },
-            { key: 'telefono', label: 'Teléfono' },
+            { key: 'telefono', label: 'Teléfono', render: (c) => formatearTelefonoVisual(c.telefono) },
             {
               key: 'etiquetas',
               label: 'Etiquetas',
@@ -438,7 +439,7 @@ export default function ClientesPage() {
               sortValue: (c) => totalFacturadoPorTelefono.get(normalizarTelefono(c.telefono)) ?? 0,
               render: (c) => {
                 const total = totalFacturadoPorTelefono.get(normalizarTelefono(c.telefono)) ?? 0;
-                return total > 0 ? `${total.toFixed(2)} €` : '—';
+                return total > 0 ? formatearPrecio(total) : '—';
               },
             },
             {

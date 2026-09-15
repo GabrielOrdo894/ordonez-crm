@@ -10,6 +10,7 @@ import { fechaVisitaLarga } from '../../lib/fechas';
 import { VisitaChecklist } from './VisitaChecklist';
 import { ReferidoIncentivoBox } from './ReferidoIncentivoBox';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
+import { formatearTelefonoVisual } from '../clientes/types';
 import type { Visita } from './types';
 
 export function urlGoogleMaps(v: Visita) {
@@ -79,7 +80,7 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
       <div className="grid grid-cols-2 gap-3 text-xs">
         <div>
           <p className="text-gray-400 uppercase tracking-wide">Teléfono</p>
-          <p className="text-gray-800">{visita.telefono}</p>
+          <p className="text-gray-800">{formatearTelefonoVisual(visita.telefono)}</p>
         </div>
         <div>
           <p className="text-gray-400 uppercase tracking-wide">Email</p>

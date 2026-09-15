@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Search, User, FileText, Receipt } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { agruparClientes } from '../../modules/clientes/types';
+import { agruparClientes, formatearTelefonoVisual } from '../../modules/clientes/types';
 import { useDebounced } from '../../hooks/useDebounced';
 import { valorIlikeParaOr } from '../../lib/filtroTexto';
 import type { Visita } from '../../modules/visitas/types';
@@ -146,7 +146,7 @@ export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
                     <p className="text-sm text-gray-900 truncate">
                       {c.nombre} {c.apellidos}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">{c.telefono}</p>
+                    <p className="text-xs text-gray-500 truncate">{formatearTelefonoVisual(c.telefono)}</p>
                   </div>
                 </button>
               ))}

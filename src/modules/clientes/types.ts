@@ -39,6 +39,38 @@ export function normalizarTelefono(tel: string) {
   return tel.replace(/\D/g, '').slice(-9);
 }
 
+// Solo detalle visual (2026-09-15, petición de Gabriel) — nunca toca el valor guardado ni
+// normalizarTelefono() de arriba, que sigue igual para deduplicación. Un francés/español solo se
+// distingue con certeza cuando el número trae el indicio: prefijo +33/0033/+34/0034, o el "0"
+// nacional francés (10 dígitos). Un número suelto de 9 dígitos sin nada de eso es AMBIGUO a
+// propósito — un móvil francés sin su 0 ("689456552") es indistinguible de uno español
+// ("618949480"), se ha comprobado con datos reales que ambos casos existen en producción — así que
+// se deja tal cual en vez de arriesgarse a formatear mal la mitad de las veces.
+export function formatearTelefonoVisual(tel: string | null | undefined): string {
+  if (!tel) return '';
+  const bruto = tel.trim();
+  if (!bruto) return '';
+  const digitos = bruto.replace(/\D/g, '');
+  const conMas = bruto.startsWith('+');
+
+  let nucleoFr: string | null = null;
+  if (conMas && digitos.startsWith('33') && digitos.length === 11) nucleoFr = digitos.slice(2);
+  else if (!conMas && digitos.startsWith('0033') && digitos.length === 13) nucleoFr = digitos.slice(4);
+  else if (!conMas && digitos.startsWith('0') && digitos.length === 10) nucleoFr = digitos.slice(1);
+  if (nucleoFr && nucleoFr.length === 9) {
+    return `0${nucleoFr}`.match(/.{1,2}/g)!.join(' ');
+  }
+
+  let nucleoEs: string | null = null;
+  if (conMas && digitos.startsWith('34') && digitos.length === 11) nucleoEs = digitos.slice(2);
+  else if (!conMas && digitos.startsWith('0034') && digitos.length === 13) nucleoEs = digitos.slice(4);
+  if (nucleoEs && nucleoEs.length === 9) {
+    return `${nucleoEs.slice(0, 3)} ${nucleoEs.slice(3, 6)} ${nucleoEs.slice(6, 9)}`;
+  }
+
+  return bruto;
+}
+
 export function agruparClientes(visitas: Visita[]): Cliente[] {
   const grupos = new Map<string, Visita[]>();
   for (const v of visitas) {
@@ -129,7 +161,7 @@ export function agruparPotenciales(
   const resultado = new Map<string, ClientePotencial>();
 
   for (const s of solicitudes) {
-    if (s.estado === 'Descartada') continue;
+    if (s.estado === 'Rechazada' || s.estado === 'Eliminada') continue;
     const nombre = s.nombre?.trim();
     if (!nombre && !s.email && !s.telefono) continue;
     const tel = s.telefono ? normalizarTelefono(s.telefono) : '';

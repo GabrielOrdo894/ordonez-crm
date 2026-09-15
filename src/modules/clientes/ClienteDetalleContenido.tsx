@@ -42,7 +42,7 @@ import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { useCatalogosVisitas } from '../visitas/useCatalogosVisitas';
 import { useEtiquetasClientes } from './useEtiquetasClientes';
-import { ETAPAS_PIPELINE, normalizarTelefono } from './types';
+import { ETAPAS_PIPELINE, formatearTelefonoVisual, normalizarTelefono } from './types';
 import type { Cliente } from './types';
 import type { Proyecto } from '../planning/PlanningObraPage';
 
@@ -764,7 +764,7 @@ export function ClienteDetalleContenido({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Teléfono</p>
-              <p className="text-gray-900">{cliente.telefono}</p>
+              <p className="text-gray-900">{formatearTelefonoVisual(cliente.telefono)}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Email</p>

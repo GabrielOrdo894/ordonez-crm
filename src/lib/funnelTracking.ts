@@ -122,7 +122,7 @@ export async function vincularSolicitudPorContacto(
     .from('solicitudes')
     .select('id, telefono, email, fuente')
     .is('presupuesto_vinculado_id', null)
-    .neq('estado', 'Descartada')
+    .not('estado', 'in', '(Rechazada,Eliminada)')
     .order('created_at', { ascending: false });
   if (error) {
     console.warn('vincularSolicitudPorContacto: no se pudieron leer solicitudes:', error.message);
@@ -136,9 +136,11 @@ export async function vincularSolicitudPorContacto(
   });
   if (!match) return;
 
+  // Vincular un presupuesto sin pasar por una visita (Ricardo lo hace directo, ver petición de
+  // Gabriel 2026-09-15) es también un camino de aceptación válido — se marca Aceptada aquí mismo.
   const { error: errorUpdate } = await supabase
     .from('solicitudes')
-    .update({ presupuesto_vinculado_id: presupuestoId })
+    .update({ presupuesto_vinculado_id: presupuestoId, estado: 'Aceptada' })
     .eq('id', match.id);
   if (errorUpdate) {
     console.warn('vincularSolicitudPorContacto: no se pudo vincular la solicitud:', errorUpdate.message);

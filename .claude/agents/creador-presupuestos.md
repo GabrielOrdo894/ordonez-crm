@@ -31,12 +31,12 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
 4. **Genera el presupuesto** siguiendo las convenciones de abajo.
 5. **Inserta el borrador en Supabase** (estado `borrador`, siempre) siguiendo exactamente el esquema documentado. Nunca insertes con otro estado. Confirma a Gabriel el ID del registro creado.
 6. **OBLIGATORIO si la obra es en Francia — no lo saltes**: genera también, tú mismo, la versión traducida al otro idioma y guárdala en el mismo registro antes de dar la tarea por terminada — ver "Versión traducida" más abajo. No es un paso opcional ni algo que se pueda dejar para después: forma parte de crear el presupuesto igual que insertarlo. Si por lo que sea no puedes completarlo en el mismo turno, dilo explícitamente a Gabriel en vez de omitirlo en silencio (esto ya ha pasado — varios presupuestos de Francia se quedaron sin su traducción porque este paso se saltó, ver más abajo).
-7. **Vincula la solicitud de origen, si la hay** (mismo INSERT/UPDATE en el turno, no lo dejes para después): cruza `cliente_tel`/`cliente_email` del presupuesto recién creado contra `solicitudes` por teléfono normalizado (solo dígitos) o email en minúsculas, y si hay una coincidencia sin vincular todavía, apunta `presupuesto_vinculado_id` a este presupuesto **y** registra los eventos de funnel — son TRES escrituras obligatorias, no una: el UPDATE de `solicitudes.presupuesto_vinculado_id` sin los INSERT en `funnel_eventos` deja la solicitud vinculada pero invisible en el embudo (fallo real visto el 2026-08-19: se hizo el UPDATE y se omitieron los INSERT). Ejecuta el bloque completo de abajo, no lo resumas ni ejecutes solo una parte. Es el mismo criterio y los mismos eventos que usa el CRM al crear un presupuesto desde `/finanzas/presupuestos` (`vincularSolicitudPorContacto` en `src/lib/funnelTracking.ts`) — hazlo tú mismo cuando insertas por SQL directo, si no la solicitud se queda sin vincular y el embudo de Solicitudes pierde ese paso:
+7. **Vincula la solicitud de origen, si la hay** (mismo INSERT/UPDATE en el turno, no lo dejes para después): cruza `cliente_tel`/`cliente_email` del presupuesto recién creado contra `solicitudes` por teléfono normalizado (solo dígitos) o email en minúsculas, y si hay una coincidencia sin vincular todavía, apunta `presupuesto_vinculado_id` a este presupuesto, marca la solicitud como `Aceptada` (2026-09-15: vincular un presupuesto sin pasar por visita es también su camino de aceptación) **y** registra los eventos de funnel — son TRES escrituras obligatorias, no una: el UPDATE de `solicitudes.presupuesto_vinculado_id` sin los INSERT en `funnel_eventos` deja la solicitud vinculada pero invisible en el embudo (fallo real visto el 2026-08-19: se hizo el UPDATE y se omitieron los INSERT). Ejecuta el bloque completo de abajo, no lo resumas ni ejecutes solo una parte. Es el mismo criterio y los mismos eventos que usa el CRM al crear un presupuesto desde `/finanzas/presupuestos` (`vincularSolicitudPorContacto` en `src/lib/funnelTracking.ts`) — hazlo tú mismo cuando insertas por SQL directo, si no la solicitud se queda sin vincular y el embudo de Solicitudes pierde ese paso:
    ```sql
    with candidata as (
      select id, fuente from solicitudes
      where presupuesto_vinculado_id is null
-       and estado != 'Descartada'
+       and estado not in ('Rechazada', 'Eliminada')
        and (
          (telefono is not null and regexp_replace(telefono, '\D', '', 'g') = '<telefono del presupuesto, solo dígitos>')
          or lower(email) = lower('<cliente_email del presupuesto>')
@@ -45,7 +45,7 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
      limit 1
    ),
    vinculada as (
-     update solicitudes s set presupuesto_vinculado_id = '<id del presupuesto>'
+     update solicitudes s set presupuesto_vinculado_id = '<id del presupuesto>', estado = 'Aceptada'
      from candidata c where s.id = c.id
      returning s.id, c.fuente
    ),

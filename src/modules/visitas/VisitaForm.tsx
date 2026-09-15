@@ -24,6 +24,7 @@ import { usePotencialesCliente } from '../clientes/usePotencialesCliente';
 import {
   agruparClientes,
   dividirNombreCompleto,
+  formatearTelefonoVisual,
   normalizarTelefono,
   type Cliente,
   type ClientePotencial,
@@ -526,14 +527,21 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   // que no estuvieran vacíos, sin validar el formato (bug real, corregido 2026-09-10).
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+  // Teléfono y email dejaron de ser los dos obligatorios a la vez (petición de Gabriel
+  // 2026-09-15): algunos clientes solo escriben por SMS sin dar su email, o dan el email sin
+  // teléfono — exigir SIEMPRE los dos bloqueaba registrar la visita a tiempo. Ahora basta con que
+  // haya al menos uno de los dos; si falta alguno, handleGuardar pide confirmación explícita antes
+  // de guardar (ver más abajo) en vez de dejarlo pasar en silencio.
   const validar = (): boolean => {
     const nuevosErrores: Partial<Record<keyof FormState, string>> = {};
     if (!form.nombre) nuevosErrores.nombre = 'Obligatorio';
     if (!form.apellidos) nuevosErrores.apellidos = 'Obligatorio';
-    if (!form.telefono) nuevosErrores.telefono = 'Obligatorio';
-    else if (form.telefono.replace(/\D/g, '').length < 9) nuevosErrores.telefono = 'Parece incompleto (menos de 9 dígitos)';
-    if (!form.email) nuevosErrores.email = 'Obligatorio';
-    else if (!EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
+    if (!form.telefono && !form.email) {
+      nuevosErrores.telefono = 'Falta teléfono o email (al menos uno de los dos)';
+      nuevosErrores.email = 'Falta teléfono o email (al menos uno de los dos)';
+    }
+    if (form.telefono && form.telefono.replace(/\D/g, '').length < 9) nuevosErrores.telefono = 'Parece incompleto (menos de 9 dígitos)';
+    if (form.email && !EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (!form.fecha_visita) nuevosErrores.fecha_visita = 'Obligatorio';
     setErrors(nuevosErrores);
@@ -570,9 +578,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       // solicitud en convertirse en visita agendada (2026-08-26). Best-effort, no bloqueante,
       // igual que sincronizarPipelineCliente: un fallo aquí no debe tumbar la visita ya creada.
       if (prefill?.solicitudId) {
+        // Crear una visita desde una solicitud es su camino de aceptación normal (petición de
+        // Gabriel 2026-09-15) — se marca Aceptada aquí mismo, sin esperar a ningún paso manual.
         const { error: errorEnlace } = await supabase
           .from('solicitudes')
-          .update({ visita_id: data.id })
+          .update({ visita_id: data.id, estado: 'Aceptada' })
           .eq('id', prefill.solicitudId);
         if (errorEnlace) toast.warning(`No se pudo enlazar la solicitud con la visita: ${errorEnlace.message}`);
         await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
@@ -637,8 +647,24 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
   const guardando = crearMutation.isPending || editarMutation.isPending;
 
-  const handleGuardar = () => {
+  const handleGuardar = async () => {
     if (!validar()) return;
+    // Falta uno de los dos (ambos a la vez ya lo bloquea validar()) — se avisa de la consecuencia
+    // real en vez de dejarlo pasar en silencio, para que sea una decisión consciente de quien
+    // guarda la visita, no un descuido.
+    if (!form.telefono || !form.email) {
+      const consecuencia = !form.telefono
+        ? 'el pipeline de este cliente no avanzará solo (habrá que moverlo a mano en Pipeline)'
+        : 'más adelante no se podrá enviar el presupuesto a firmar por Documenso (solo firma en papel)';
+      const continuar = await confirmar({
+        titulo: `Falta el ${!form.telefono ? 'teléfono' : 'email'} del cliente`,
+        mensaje: `Vas a guardar la visita sin ${!form.telefono ? 'teléfono' : 'email'}. Esto significa que ${consecuencia}. ¿Guardar igualmente?`,
+        textoConfirmar: 'Guardar igualmente',
+        textoCancelar: 'Cancelar',
+        peligroso: false,
+      });
+      if (!continuar) return;
+    }
     if (visita) editarMutation.mutate();
     else crearMutation.mutate();
   };
@@ -702,7 +728,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                     <p className="text-sm font-medium text-gray-900">
                       {form.nombre} {form.apellidos}
                     </p>
-                    <p className="text-xs text-gray-500">{form.telefono}</p>
+                    <p className="text-xs text-gray-500">{formatearTelefonoVisual(form.telefono)}</p>
                   </div>
                 )}
                 <div className="flex items-center gap-3 shrink-0">
@@ -737,7 +763,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   <Input
                     label="Teléfono"
                     type="tel"
-                    required
                     value={form.telefono}
                     error={errors.telefono}
                     onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
@@ -745,7 +770,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   <Input
                     label="Email"
                     type="email"
-                    required
                     value={form.email}
                     error={errors.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -765,7 +789,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 ) : (
                   <div>
                     <p className="text-sm font-medium text-gray-900">{`${form.nombre} ${form.apellidos}`.trim()}</p>
-                    <p className="text-xs text-amber-700">{form.telefono} · {form.email}</p>
+                    <p className="text-xs text-amber-700">{formatearTelefonoVisual(form.telefono)} · {form.email}</p>
                   </div>
                 )}
                 <div className="flex items-center gap-3 shrink-0">
@@ -800,7 +824,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   <Input
                     label="Teléfono"
                     type="tel"
-                    required
                     value={form.telefono}
                     error={errors.telefono}
                     onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
@@ -808,7 +831,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                   <Input
                     label="Email"
                     type="email"
-                    required
                     value={form.email}
                     error={errors.email}
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -862,7 +884,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               <Input
                 label="Teléfono"
                 type="tel"
-                required
                 value={form.telefono}
                 error={errors.telefono}
                 onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
@@ -871,7 +892,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               <Input
                 label="Email"
                 type="email"
-                required
                 value={form.email}
                 error={errors.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}

@@ -8,7 +8,7 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { FechaPicker } from '../../components/ui/FechaPicker';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
-import { agruparClientes, normalizarTelefono } from '../clientes/types';
+import { agruparClientes, formatearTelefonoVisual, normalizarTelefono } from '../clientes/types';
 import { calcularTotales } from '../finanzas/lineas';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
@@ -248,7 +248,7 @@ export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCre
                   <p className="text-sm font-medium text-gray-900">
                     {clienteElegido.nombre} {clienteElegido.apellidos}
                   </p>
-                  <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
+                  <p className="text-xs text-gray-500">{formatearTelefonoVisual(clienteElegido.telefono)}</p>
                 </div>
                 <button
                   onClick={() => {
@@ -385,7 +385,7 @@ export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCre
                       <p className="text-gray-900">
                         {c.nombre} {c.apellidos}
                       </p>
-                      <p className="text-xs text-gray-400">{c.telefono}</p>
+                      <p className="text-xs text-gray-400">{formatearTelefonoVisual(c.telefono)}</p>
                     </button>
                   ))}
                   {sinCoincidenciasCliente && (

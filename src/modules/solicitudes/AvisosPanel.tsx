@@ -55,16 +55,16 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     },
   });
 
-  // Solicitudes descartadas (mismo criterio de cruce por contacto que funnelTracking.ts /
-  // pipelineSync.ts) — una visita cuya solicitud de origen se marcó Descartada (Gabriel decidió no
+  // Solicitudes rechazadas/eliminadas (mismo criterio de cruce por contacto que funnelTracking.ts /
+  // pipelineSync.ts) — una visita cuya solicitud de origen se marcó Rechazada (Gabriel decidió no
   // presupuestar esa obra) no debe seguir apareciendo indefinidamente como "sin presupuesto
   // enviado": no es que se haya olvidado, es que ya se decidió no enviar nada (hallazgo real de
   // Gabriel 2026-09-07, caso Raphael Szuba — declinado por riesgo estructural pese a insistir el
-  // cliente, la solicitud se marcó Descartada pero la visita seguía en este panel).
+  // cliente, la solicitud se marcó Descartada —ahora Rechazada— pero la visita seguía en este panel).
   const { data: solicitudesDescartadas } = useQuery({
     queryKey: ['solicitudes', 'descartadas-contacto'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('email, telefono').eq('estado', 'Descartada');
+      const { data, error } = await supabase.from('solicitudes').select('email, telefono').in('estado', ['Rechazada', 'Eliminada']);
       if (error) throw error;
       return data as { email: string | null; telefono: string | null }[];
     },
@@ -90,7 +90,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
         .select('id, nombre, email, created_at, estado')
         .eq('tipo_solicitud', 'presupuesto_orientativo')
         .is('presupuesto_vinculado_id', null)
-        .neq('estado', 'Descartada');
+        .not('estado', 'in', '(Rechazada,Eliminada)');
       if (error) throw error;
       return data as SolicitudOrientativa[];
     },

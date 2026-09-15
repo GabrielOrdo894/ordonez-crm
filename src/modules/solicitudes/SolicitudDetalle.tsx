@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
+import { formatearTelefonoVisual } from '../clientes/types';
 import {
   FUENTE_LABEL,
   MODELOS_IA,
@@ -37,8 +38,9 @@ type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'v
 const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
   Enviada: 'realizada',
-  Descartada: 'cancelada',
   Aceptada: 'confirmada',
+  Rechazada: 'cancelada',
+  Eliminada: 'default',
 };
 
 function fecha(f: string | null) {
@@ -173,15 +175,17 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     onError: (error) => toast.error(error.message),
   });
 
-  const descartarMutation = useMutation({
+  const rechazarMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('solicitudes').update({ estado: 'Descartada' }).eq('id', id);
+      const { error } = await supabase.from('solicitudes').update({ estado: 'Rechazada' }).eq('id', id);
       if (error) throw error;
+      // Etapa de funnel sin renombrar — 'solicitud_descartada' es una constante de análisis ya
+      // usada en datos históricos, "Rechazada" es solo el nuevo nombre visible del mismo estado.
       await registrarEventoFunnel('solicitud_descartada', { solicitudId: id, fuente: solicitud?.fuente });
     },
     onSuccess: () => {
       invalidarListas();
-      toast.success('Solicitud descartada');
+      toast.success('Solicitud rechazada');
       onClose();
     },
     onError: (error) => toast.error(error.message),
@@ -201,7 +205,12 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
 
   const vincularMutation = useMutation({
     mutationFn: async (presupuestoId: string | null) => {
-      const { error } = await supabase.from('solicitudes').update({ presupuesto_vinculado_id: presupuestoId }).eq('id', id);
+      // Vincular a mano un presupuesto es también aceptación (petición de Gabriel 2026-09-15) —
+      // desvincular (presupuestoId null) no revierte el estado, es una corrección de vínculo, no
+      // una marcha atrás de la decisión ya tomada.
+      const patch: Record<string, unknown> = { presupuesto_vinculado_id: presupuestoId };
+      if (presupuestoId) patch.estado = 'Aceptada';
+      const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
       if (error) throw error;
       if (presupuestoId && !solicitud?.presupuesto_vinculado_id) {
         await registrarEventoFunnel('solicitud_vinculada_presupuesto', {
@@ -256,7 +265,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   // llegar una respuesta, decisión de Gabriel 2026-08-26, para no distorsionar el embudo).
   const respuestaSinRevisar = tipo === 'solicitud' && solicitud?.estado === 'Enviada' && solicitud?.ultima_respuesta_revisada === false;
   const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' && !respuestaSinRevisar : !!presupuesto?.mensaje_seguimiento_enviado;
-  const descartada = tipo === 'solicitud' && solicitud?.estado === 'Descartada';
+  const rechazada = tipo === 'solicitud' && solicitud?.estado === 'Rechazada';
 
   return (
     <div>
@@ -292,7 +301,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
             </p>
             <p>
               <span className="text-gray-400">Email:</span> {solicitud.email || '—'} ·{' '}
-              <span className="text-gray-400">Teléfono:</span> {solicitud.telefono || '—'}
+              <span className="text-gray-400">Teléfono:</span> {formatearTelefonoVisual(solicitud.telefono) || '—'}
             </p>
             <p>
               <span className="text-gray-400">Tipo de reforma:</span> {solicitud.tipo_reforma || '—'}
@@ -372,7 +381,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         </div>
       )}
 
-      {tipo === 'solicitud' && solicitud && !descartada && (
+      {tipo === 'solicitud' && solicitud && !rechazada && (
         <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
           <Button
             variant="secondary"
@@ -448,9 +457,9 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         </div>
       )}
 
-      {descartada ? (
+      {rechazada ? (
         <div className="bg-gray-50 border border-gray-200 rounded-sm p-4 text-sm text-gray-500">
-          Esta solicitud está descartada. No se generará ningún mensaje.
+          Esta solicitud está rechazada. No se generará ningún mensaje.
         </div>
       ) : (
         <>
@@ -532,13 +541,13 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    if (await confirmar('¿Descartar esta solicitud? No se le hará seguimiento.')) descartarMutation.mutate();
+                    if (await confirmar('¿Rechazar esta solicitud? No se le hará seguimiento.')) rechazarMutation.mutate();
                   }}
-                  disabled={descartarMutation.isPending}
+                  disabled={rechazarMutation.isPending}
                 >
                   <span className="flex items-center gap-1.5">
                     <X size={14} />
-                    Cancelar / descartar
+                    Cancelar / rechazar
                   </span>
                 </Button>
               )}

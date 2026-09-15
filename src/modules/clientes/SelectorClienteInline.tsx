@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search, UserPlus } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
-import { ETIQUETA_ORIGEN_POTENCIAL } from './types';
+import { ETIQUETA_ORIGEN_POTENCIAL, formatearTelefonoVisual } from './types';
 import type { Cliente, ClientePotencial } from './types';
 
 type SelectorClienteInlineProps = {
@@ -90,7 +90,7 @@ export function SelectorClienteInline({
                   <p className="text-gray-900">
                     {c.nombre} {c.apellidos}
                   </p>
-                  <p className="text-xs text-gray-400">{c.telefono}</p>
+                  <p className="text-xs text-gray-400">{formatearTelefonoVisual(c.telefono)}</p>
                 </button>
               ))}
             </>
@@ -117,7 +117,7 @@ export function SelectorClienteInline({
                     </span>
                   </div>
                   <p className="text-xs text-gray-400">
-                    {[p.telefono, ETIQUETA_ORIGEN_POTENCIAL[p.origen]].filter(Boolean).join(' · ')}
+                    {[formatearTelefonoVisual(p.telefono), ETIQUETA_ORIGEN_POTENCIAL[p.origen]].filter(Boolean).join(' · ')}
                   </p>
                 </button>
               ))}

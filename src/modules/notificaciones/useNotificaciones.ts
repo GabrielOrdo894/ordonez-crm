@@ -193,13 +193,13 @@ export function useNotificaciones() {
     );
     const emailsDescartados = new Set(
       (solicitudes ?? [])
-        .filter((s) => s.estado === 'Descartada')
+        .filter((s) => s.estado === 'Rechazada' || s.estado === 'Eliminada')
         .map((s) => s.email?.trim().toLowerCase())
         .filter((e): e is string => !!e),
     );
     const telefonosDescartados = new Set(
       (solicitudes ?? [])
-        .filter((s) => s.estado === 'Descartada')
+        .filter((s) => s.estado === 'Rechazada' || s.estado === 'Eliminada')
         .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
         .filter((t) => t.length > 0),
     );

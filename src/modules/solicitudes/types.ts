@@ -1,6 +1,15 @@
-export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Descartada';
+// 5 estados (2026-09-15, petición de Gabriel de simplificar): una solicitud "termina su camino"
+// cuando se acepta y se convierte en visita/presupuesto — Aceptada se pone sola (VisitaForm.tsx al
+// enlazar visita_id, vincularSolicitudPorContacto en funnelTracking.ts al vincular un presupuesto
+// sin pasar por visita), nunca a mano. Rechazada sustituye a la antigua "Descartada" (mismo
+// significado, terminología unificada) y también se pone sola tras 14 días sin visita ni
+// presupuesto vinculado (automatizaciones-crm/index.ts, cron cada 30 min). Eliminada sustituye al
+// antiguo botón "Eliminar" que hacía un DELETE real — ahora es solo un estado más, así que una
+// solicitud "eliminada" sigue existiendo y no puede reaparecer como Nueva si vuelve a llegar por
+// Gmail (bug real que tenía el DELETE, ver el aviso que llevaba ese botón).
+export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Aceptada' | 'Rechazada' | 'Eliminada';
 
-export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Descartada'];
+export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Aceptada', 'Rechazada', 'Eliminada'];
 
 // Etiqueta filtrable, no obligatoria (2026-08-26) — null = "sin determinar". Se autodetecta por el
 // asunto del email en conversaciones directas (detectarTipoSolicitud en revisar-gmail) y, desde

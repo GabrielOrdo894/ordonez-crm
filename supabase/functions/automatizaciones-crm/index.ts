@@ -8,6 +8,10 @@
 //      genera su gasto de kilometraje pendiente de revisar (España o Francia, siempre contabilizado
 //      como gasto de Francia — ver comentario junto a OFICINA_FR más abajo).
 //   2. Marca como Rechazado los presupuestos Pendiente cuya fecha_validez ya pasó.
+//   3. Marca como Rechazada cualquier solicitud Nueva/Enviada que lleve 14 días sin convertirse en
+//      visita ni vincularse a un presupuesto (petición de Gabriel 2026-09-15) — el resto de caminos
+//      de aceptación son inmediatos (VisitaForm.tsx, funnelTracking.ts), este es el único que
+//      necesita paso del tiempo, de ahí que viva aquí y no en el frontend.
 //
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts y el cálculo de distancia
 // (Distance Matrix con fallback Haversine) de notificar-visita/index.ts.
@@ -214,6 +218,42 @@ async function rechazarPresupuestosCaducados(supabase: SupabaseClient): Promise<
   return ids.length;
 }
 
+const CATORCE_DIAS_MS = 14 * 24 * 60 * 60 * 1000;
+
+async function rechazarSolicitudesAbandonadas(supabase: SupabaseClient): Promise<number> {
+  const limite = new Date(Date.now() - CATORCE_DIAS_MS).toISOString();
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id')
+    .in('estado', ['Nueva', 'Enviada'])
+    .is('visita_id', null)
+    .is('presupuesto_vinculado_id', null)
+    .lt('created_at', limite);
+  if (error) throw new Error(`solicitudes: ${error.message}`);
+  if (!solicitudes || solicitudes.length === 0) return 0;
+
+  const ids = solicitudes.map((s: { id: string }) => s.id);
+  // Mismos filtros repetidos en el UPDATE que en el SELECT (no solo .in('id', ids)) — misma razón
+  // que rechazarPresupuestosCaducados: evita pisar una solicitud que se vinculó a una visita o un
+  // presupuesto justo en el hueco entre leer y escribir.
+  const { error: errorUpdate } = await supabase
+    .from('solicitudes')
+    .update({ estado: 'Rechazada' })
+    .in('id', ids)
+    .in('estado', ['Nueva', 'Enviada'])
+    .is('visita_id', null)
+    .is('presupuesto_vinculado_id', null);
+  if (errorUpdate) throw new Error(`rechazar solicitudes: ${errorUpdate.message}`);
+
+  // Etapa de funnel sin renombrar — 'solicitud_descartada' es la misma constante de análisis que ya
+  // usa el rechazo manual desde el CRM, "Rechazada" es solo el nuevo nombre visible del estado.
+  for (const id of ids) {
+    await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_descartada', solicitud_id: id });
+  }
+
+  return ids.length;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -229,11 +269,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados] = await Promise.all([
+    const [visitasResultado, presupuestosRechazados, solicitudesRechazadas] = await Promise.all([
       autocompletarVisitas(supabase),
       rechazarPresupuestosCaducados(supabase),
+      rechazarSolicitudesAbandonadas(supabase),
     ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados });
+    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesRechazadas });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

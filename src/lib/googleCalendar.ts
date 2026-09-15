@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { formatearTelefonoVisual } from '../modules/clientes/types';
 import type { ArchivoPrevio } from '../modules/visitas/types';
 
 const CLIENT_ID = import.meta.env.VITE_GCAL_CLIENT_ID;
@@ -218,7 +219,7 @@ function construirEventoPayload(v: EventoVisita, hora: string, fotosUrls: string
     description: [
       'CLIENTE',
       `Nombre: ${v.nombre} ${v.apellidos}`,
-      `Tel: ${v.telefono}`,
+      `Tel: ${formatearTelefonoVisual(v.telefono)}`,
       `Email: ${v.email || 'No indicado'}`,
       `Idioma: ${v.idioma || 'No indicado'}`,
       `Dirección: ${[v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'No indicada'}`,

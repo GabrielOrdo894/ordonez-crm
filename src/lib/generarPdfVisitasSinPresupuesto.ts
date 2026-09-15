@@ -12,7 +12,7 @@ function fechaVisitaFmt(fecha: string | null): string {
 // Plantilla del listado "Visitas mañana: le enviamos este PDF a mi padre para que se acuerde de
 // pasar presupuesto" (petición de Gabriel, 2026-09-11) — mismo criterio que ya usa el aviso
 // "Envía el presupuesto a..." de la campana (useNotificaciones.ts): visita Realizada sin ningún
-// presupuesto vinculado, excluyendo las que vienen de una solicitud ya Descartada.
+// presupuesto vinculado, excluyendo las que vienen de una solicitud ya Rechazada/Eliminada.
 export async function generarPdfVisitasSinPresupuesto(visitas: Visita[]): Promise<void> {
   const config = await cargarConfigCompleta();
   const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);

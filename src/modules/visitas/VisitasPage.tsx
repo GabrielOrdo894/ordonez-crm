@@ -7,6 +7,7 @@ import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { notaSistema } from '../../lib/notaSistema';
+import { formatearTelefonoVisual } from '../clientes/types';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar, useConfirmarConMotivo } from '../../hooks/useConfirm';
@@ -371,7 +372,7 @@ export default function VisitasPage() {
                 </div>
               ),
             },
-            { key: 'telefono', label: 'Teléfono' },
+            { key: 'telefono', label: 'Teléfono', render: (v) => formatearTelefonoVisual(v.telefono) },
             { key: 'tipo', label: 'Tipo reforma' },
             { key: 'empleado', label: 'Empleado' },
             {

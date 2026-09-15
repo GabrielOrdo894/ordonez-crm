@@ -29,7 +29,7 @@ import { AccionesFila, type AccionRapida } from '../../../components/ui/Acciones
 import type { AccionMenu } from '../../../components/ui/DropdownMenu';
 import { DescargarZipModal } from '../../../components/ui/DescargarZipModal';
 import { ESTADOS_PRESUPUESTO, TIPOS_PRESUPUESTO, calcularTotalesRango, porcentajeIva } from './types';
-import { formatearPrecio } from '../lineas';
+import { formatearPrecio, formatearRangoPrecio } from '../lineas';
 import type { Linea } from '../lineas';
 import type { Presupuesto } from './types';
 import { PresupuestoForm } from './PresupuestoForm';
@@ -516,9 +516,9 @@ export default function PresupuestosPage() {
               label: 'Base (sin IVA)',
               sortValue: (p) => totalPresupuestoSinIva(p),
               render: (p) => {
-                if ((p.tipo ?? 'normal') !== 'orientativo') return `${totalPresupuestoSinIva(p).toFixed(2)} €`;
+                if ((p.tipo ?? 'normal') !== 'orientativo') return formatearPrecio(totalPresupuestoSinIva(p));
                 const rango = calcularTotalesRango(p.lineas, porcentajeIva(p.tipo_iva));
-                return `${rango.totalSinIvaMin.toFixed(2)} – ${rango.totalSinIvaMax.toFixed(2)} €`;
+                return formatearRangoPrecio(rango.totalSinIvaMin, rango.totalSinIvaMax);
               },
             },
             {
@@ -526,10 +526,10 @@ export default function PresupuestosPage() {
               label: 'Total (con IVA)',
               sortValue: (p) => totalPresupuesto(p),
               render: (p) => {
-                if ((p.tipo ?? 'normal') !== 'orientativo') return `${totalPresupuesto(p).toFixed(2)} €`;
+                if ((p.tipo ?? 'normal') !== 'orientativo') return formatearPrecio(totalPresupuesto(p));
                 // Orientativo nunca lleva IVA — mismo importe que "Base (sin IVA)", nunca se le suma nada.
                 const rango = calcularTotalesRango(p.lineas, 0);
-                return `${rango.totalSinIvaMin.toFixed(2)} – ${rango.totalSinIvaMax.toFixed(2)} €`;
+                return formatearRangoPrecio(rango.totalSinIvaMin, rango.totalSinIvaMax);
               },
             },
             {

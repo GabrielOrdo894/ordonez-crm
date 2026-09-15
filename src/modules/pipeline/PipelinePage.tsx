@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { actualizarEtapaPipeline } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
-import { agruparClientes, normalizarTelefono, ETAPAS_PIPELINE } from '../clientes/types';
+import { agruparClientes, formatearTelefonoVisual, normalizarTelefono, ETAPAS_PIPELINE } from '../clientes/types';
 import type { Cliente } from '../clientes/types';
 import type { Visita } from '../visitas/types';
 import { ClienteFicha } from '../clientes/ClienteFicha';
@@ -236,7 +236,7 @@ export default function PipelinePage() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500">
-                          {c.telefono} · {c.zona}
+                          {formatearTelefonoVisual(c.telefono)} · {c.zona}
                         </p>
                         {info?.proyecto && (
                           <p className="flex items-center gap-1 text-[10px] text-gray-500 mt-1">

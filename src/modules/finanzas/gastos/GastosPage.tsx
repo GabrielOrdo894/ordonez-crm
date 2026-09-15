@@ -15,6 +15,7 @@ import { BotonExportar } from '../../../components/ui/BotonExportar';
 import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import { fechaCorta } from '../../../lib/fechas';
+import { formatearPrecio } from '../lineas';
 import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
 import { GRUPOS_CATEGORIA } from './categorias';
 import type { Gasto } from './types';
@@ -331,13 +332,13 @@ export default function GastosPage() {
               key: 'base',
               label: 'Base (sin IVA)',
               sortValue: (g) => g.importe_base ?? 0,
-              render: (g) => `${(g.importe_base ?? 0).toFixed(2)} €`,
+              render: (g) => formatearPrecio(g.importe_base ?? 0),
             },
             {
               key: 'total',
               label: 'Total (con IVA)',
               sortValue: (g) => totalConIva(g),
-              render: (g) => `${totalConIva(g).toFixed(2)} €`,
+              render: (g) => formatearPrecio(totalConIva(g)),
             },
             {
               key: 'adjunto',

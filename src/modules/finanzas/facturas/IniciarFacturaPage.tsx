@@ -5,7 +5,7 @@ import { supabase } from '../../../lib/supabase';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { ClienteForm } from '../../clientes/ClienteForm';
-import { agruparClientes } from '../../clientes/types';
+import { agruparClientes, formatearTelefonoVisual } from '../../clientes/types';
 import type { Visita } from '../../visitas/types';
 import type { Presupuesto } from '../presupuestos/types';
 
@@ -155,7 +155,7 @@ export function IniciarFacturaPage({ onCancelar, onContinuar }: IniciarFacturaPa
                   <p className="text-sm font-medium text-gray-900">
                     {clienteElegido.nombre} {clienteElegido.apellidos}
                   </p>
-                  <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
+                  <p className="text-xs text-gray-500">{formatearTelefonoVisual(clienteElegido.telefono)}</p>
                 </div>
                 <button
                   onClick={() => {
@@ -215,7 +215,7 @@ export function IniciarFacturaPage({ onCancelar, onContinuar }: IniciarFacturaPa
                         <p className="text-gray-900">
                           {c.nombre} {c.apellidos}
                         </p>
-                        <p className="text-xs text-gray-400">{c.telefono}</p>
+                        <p className="text-xs text-gray-400">{formatearTelefonoVisual(c.telefono)}</p>
                       </button>
                     ))}
                     {sinCoincidenciasCliente && (

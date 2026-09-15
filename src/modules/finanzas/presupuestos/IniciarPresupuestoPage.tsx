@@ -6,7 +6,7 @@ import { Button } from '../../../components/ui/Button';
 import { ClienteForm } from '../../clientes/ClienteForm';
 import { SelectorClienteInline } from '../../clientes/SelectorClienteInline';
 import { usePotencialesCliente } from '../../clientes/usePotencialesCliente';
-import { agruparClientes, ETIQUETA_ORIGEN_POTENCIAL } from '../../clientes/types';
+import { agruparClientes, formatearTelefonoVisual, ETIQUETA_ORIGEN_POTENCIAL } from '../../clientes/types';
 import type { Cliente, ClientePotencial } from '../../clientes/types';
 import type { Visita } from '../../visitas/types';
 import { FORMATOS_PRESUPUESTO } from './types';
@@ -141,7 +141,7 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
               <p className="text-sm font-medium text-gray-900">
                 {clienteElegido.nombre} {clienteElegido.apellidos}
               </p>
-              <p className="text-xs text-gray-500">{clienteElegido.telefono}</p>
+              <p className="text-xs text-gray-500">{formatearTelefonoVisual(clienteElegido.telefono)}</p>
             </div>
             <button onClick={() => setClienteId('')} className="text-xs text-gray-500 hover:text-red-600">
               Cambiar
@@ -152,7 +152,7 @@ export function IniciarPresupuestoPage({ onCancelar, onContinuar }: IniciarPresu
             <div>
               <p className="text-sm font-medium text-gray-900">{potencialElegido.nombre}</p>
               <p className="text-xs text-amber-700">
-                {[potencialElegido.telefono, ETIQUETA_ORIGEN_POTENCIAL[potencialElegido.origen]].filter(Boolean).join(' · ')}
+                {[formatearTelefonoVisual(potencialElegido.telefono), ETIQUETA_ORIGEN_POTENCIAL[potencialElegido.origen]].filter(Boolean).join(' · ')}
               </p>
             </div>
             <button onClick={() => setPotencialElegido(null)} className="text-xs text-gray-500 hover:text-red-600">

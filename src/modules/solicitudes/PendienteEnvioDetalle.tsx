@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { fechaCorta } from '../../lib/fechas';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
+import { formatearTelefonoVisual } from '../clientes/types';
 import type { Visita } from '../visitas/types';
 
 type PresupuestoPendienteDetalle = {
@@ -267,7 +268,7 @@ export function PendienteEnvioDetalle({ id, onClose }: PendienteEnvioDetalleProp
               <span className="text-gray-400">Cliente:</span> {presupuesto.cliente_nombre || '—'}
             </p>
             <p>
-              <span className="text-gray-400">Teléfono:</span> {presupuesto.cliente_tel || '—'}
+              <span className="text-gray-400">Teléfono:</span> {formatearTelefonoVisual(presupuesto.cliente_tel) || '—'}
             </p>
             <p>
               <span className="text-gray-400">Email:</span> {presupuesto.cliente_email || '—'}

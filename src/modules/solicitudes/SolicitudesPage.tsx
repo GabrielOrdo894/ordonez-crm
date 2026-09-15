@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { sincronizarTipoSolicitud } from '../../lib/sincronizarTipoSolicitud';
+import { formatearTelefonoVisual } from '../clientes/types';
 import {
   registrarEventoFunnel,
   contarUnicosEnFunnel,
@@ -60,8 +61,9 @@ type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'v
 const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
   Enviada: 'realizada',
-  Descartada: 'cancelada',
   Aceptada: 'confirmada',
+  Rechazada: 'cancelada',
+  Eliminada: 'default',
 };
 
 // Estado real del presupuesto, único badge que se muestra en la columna "Estado" para una fila
@@ -283,26 +285,6 @@ export default function SolicitudesPage() {
     onError: (error) => toast.error(error.message),
   });
 
-  const eliminarSolicitudesMutation = useMutation({
-    mutationFn: async (ids: (string | number)[]) => {
-      // Limpiar funnel_eventos ANTES de borrar la solicitud — igual que ya hace TablaPresupuestos
-      // al purgar un presupuesto desde /papelera. Sin esto, sus eventos (p.ej. solicitud_entrada)
-      // se quedaban huérfanos e inflaban para siempre el embudo de 90 días sin que quedara ninguna
-      // fila que lo explicara (bug real, corregido 2026-09-10).
-      const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().in('solicitud_id', ids as string[]);
-      if (errorFunnel) throw errorFunnel;
-      const { error } = await supabase.from('solicitudes').delete().in('id', ids as string[]);
-      if (error) throw error;
-    },
-    onSuccess: (_data, ids) => {
-      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
-      queryClient.invalidateQueries({ queryKey: ['funnel_eventos'] });
-      toast.success(`${ids.length} solicitud(es) eliminada(s)`);
-      limpiarSeleccionUnificada();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
   const cambiarEstadoSolicitudesMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const patch: Record<string, unknown> = { estado };
@@ -318,7 +300,9 @@ export default function SolicitudesPage() {
       }
       const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
       if (error) throw error;
-      if (estado === 'Enviada' || estado === 'Descartada') {
+      if (estado === 'Enviada' || estado === 'Rechazada') {
+        // Etapa de funnel 'solicitud_descartada' sin renombrar — es una constante de análisis ya
+        // usada en datos históricos, "Rechazada" es solo el nuevo nombre visible del mismo estado.
         const etapa = estado === 'Enviada' ? 'solicitud_respondida' : 'solicitud_descartada';
         await Promise.all((ids as string[]).map((solicitudId) => registrarEventoFunnel(etapa, { solicitudId })));
       }
@@ -516,6 +500,9 @@ export default function SolicitudesPage() {
 
   const solicitudesFiltradas = (solicitudes ?? []).filter((s) => {
     if (filtroSolicitudes !== 'Todas' && s.estado !== filtroSolicitudes) return false;
+    // "Eliminada" no cuenta como parte de "Todas" — hay que filtrarla explícitamente para verla,
+    // mismo criterio que el antiguo botón "Eliminar" pero sin perder el dato (ver types.ts).
+    if (filtroSolicitudes === 'Todas' && s.estado === 'Eliminada') return false;
     if (filtroTipoSolicitud === 'Todas') return true;
     if (filtroTipoSolicitud === 'sin_determinar') return !s.tipo_solicitud;
     return s.tipo_solicitud === filtroTipoSolicitud;
@@ -686,9 +673,15 @@ export default function SolicitudesPage() {
                 disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
               },
               {
-                label: 'Marcar como Descartada',
+                label: 'Marcar como Aceptada',
                 onClick: () =>
-                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Descartada' }),
+                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Aceptada' }),
+                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+              },
+              {
+                label: 'Marcar como Rechazada',
+                onClick: () =>
+                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Rechazada' }),
                 disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
               },
               {
@@ -702,20 +695,14 @@ export default function SolicitudesPage() {
                 onClick: async () => {
                   const ids = idsPorOrigen(seleccionUnificada, 'sol');
                   if (ids.length === 0) return;
-                  // Aviso explícito del riesgo de reingestión (bug real corregido 2026-08-18,
-                  // confirmado con duplicados reales en producción): las que vienen de Gmail
-                  // (Landbot, noreply@, autoenvíos) tienen un email de origen con id único, y si
-                  // se borra la fila el próximo "Comprobar Gmail" la vuelve a crear como Nueva.
-                  // "Descartada" es la vía segura para dejar de verla sin ese riesgo.
-                  if (
-                    !(await confirmar(
-                      `¿Eliminar ${ids.length} solicitud(es)? Esta acción no se puede deshacer, y si vinieron de Gmail pueden volver a aparecer como "Nueva" en la próxima revisión automática. Para descartarlas sin ese riesgo, usa "Marcar como Descartada" en su lugar.`,
-                    ))
-                  )
+                  // Ya no es un DELETE real (2026-09-15) — es solo otro estado, así que no hay
+                  // riesgo de que Gmail la vuelva a crear como "Nueva" al reingerirla. Se puede
+                  // recuperar filtrando por "Eliminada" y volviendo a "Nueva"/"Enviada".
+                  if (!(await confirmar(`¿Eliminar ${ids.length} solicitud(es)? Dejarán de verse en la lista por defecto — puedes recuperarlas filtrando por "Eliminada".`)))
                     return;
-                  eliminarSolicitudesMutation.mutate(ids);
+                  cambiarEstadoSolicitudesMutation.mutate({ ids, estado: 'Eliminada' });
                 },
-                disabled: eliminarSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
               },
               {
                 label: 'Marcar respuesta como Aceptado',
@@ -903,7 +890,7 @@ export default function SolicitudesPage() {
               columns={[
                 { key: 'numero', label: 'Presupuesto', render: (p) => <span className="font-medium">{p.numero ?? 'S/N'}</span> },
                 { key: 'cliente_nombre', label: 'Cliente', render: (p) => p.cliente_nombre || '—' },
-                { key: 'cliente_tel', label: 'Teléfono', render: (p) => p.cliente_tel || '—' },
+                { key: 'cliente_tel', label: 'Teléfono', render: (p) => formatearTelefonoVisual(p.cliente_tel) || '—' },
                 {
                   key: 'visita_zona',
                   label: 'Zona',

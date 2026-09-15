@@ -463,13 +463,13 @@ export default function FacturasPage() {
               key: 'base',
               label: 'Base (sin IVA)',
               sortValue: (f) => totalFacturaSinIva(f),
-              render: (f) => `${totalFacturaSinIva(f).toFixed(2)} €`,
+              render: (f) => formatearPrecio(totalFacturaSinIva(f)),
             },
             {
               key: 'total',
               label: 'Total (con IVA)',
               sortValue: (f) => totalFactura(f),
-              render: (f) => `${totalFactura(f).toFixed(2)} €`,
+              render: (f) => formatearPrecio(totalFactura(f)),
             },
             {
               key: 'estado_cobro',
