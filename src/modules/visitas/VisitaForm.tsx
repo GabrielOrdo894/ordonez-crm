@@ -938,7 +938,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             />
             <Select
               label="Cómo nos contactó"
-              options={['Llamada', 'WhatsApp', 'Web', 'Email', 'Recomendación', 'Otro'].map((v) => ({
+              options={['Llamada', 'WhatsApp', 'SMS', 'Web', 'Email', 'Recomendación', 'Otro'].map((v) => ({
                 value: v,
                 label: v,
               }))}
