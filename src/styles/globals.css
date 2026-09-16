@@ -44,6 +44,12 @@
   --badge-confirmada-text: 30 64 175;
   --badge-vencida-bg: 254 242 242;
   --badge-vencida-text: 185 28 28;
+  /* Aceptado de un presupuesto orientativo — verde distinto (verde azulado/teal) del verde de
+     marca de "realizada", fijo independientemente del tema de color activo (igual que
+     pendiente/confirmada/vencida), para que un orientativo aceptado nunca se confunda con un
+     presupuesto normal aceptado (no cuenta como ingreso real hasta que se convierte en normal). */
+  --badge-aceptado-orientativo-bg: 236 253 245;
+  --badge-aceptado-orientativo-text: 4 120 87;
 
   color-scheme: light;
 }
@@ -93,6 +99,8 @@
   --badge-confirmada-text: 96 165 250;
   --badge-vencida-bg: 59 24 24;
   --badge-vencida-text: 248 113 113;
+  --badge-aceptado-orientativo-bg: 6 41 34;
+  --badge-aceptado-orientativo-text: 110 231 183;
 
   color-scheme: dark;
 }

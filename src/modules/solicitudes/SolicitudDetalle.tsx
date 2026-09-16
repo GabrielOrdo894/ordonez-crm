@@ -49,6 +49,7 @@ function fecha(f: string | null) {
 }
 
 type PresupuestoResumen = { id: string; numero: string | null; cliente_nombre: string | null };
+type VisitaResumen = { id: string; nombre: string | null; apellidos: string | null; direccion: string | null; fecha_visita: string | null };
 
 export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const toast = useToast();
@@ -121,6 +122,44 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       return data as PresupuestoResumen[];
     },
     enabled: tipo === 'solicitud',
+  });
+
+  // Vinculación manual a una visita (2026-09-16) — el cruce automático por teléfono/email
+  // (vincularSolicitudPorVisita, se dispara al crear la visita) no puede alcanzar los casos donde
+  // la solicitud ya está Rechazada (p. ej. el rechazo automático a los 14 días llegó antes de que
+  // la visita se creara/enlazara) — ahí hace falta revisar caso por caso si de verdad corresponde
+  // reabrir, así que se deja como acción manual en vez de automatizarlo. Ver AvisosPanel.tsx para
+  // el aviso que señala estos casos.
+  const { data: visitasDisponibles } = useQuery({
+    queryKey: ['visitas', 'resumen-para-vincular'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('visitas')
+        .select('id, nombre, apellidos, direccion, fecha_visita')
+        .is('eliminado_en', null)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data as VisitaResumen[];
+    },
+    enabled: tipo === 'solicitud',
+  });
+
+  const vincularVisitaMutation = useMutation({
+    mutationFn: async (visitaId: string | null) => {
+      // Igual que vincularMutation con presupuestos: vincular a mano es también aceptación,
+      // desvincular no revierte el estado (es una corrección de vínculo, no una marcha atrás).
+      const patch: Record<string, unknown> = { visita_id: visitaId };
+      if (visitaId) patch.estado = 'Aceptada';
+      const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
+      if (error) throw error;
+      if (visitaId) await registrarEventoFunnel('visita_agendada', { solicitudId: id, fuente: solicitud?.fuente });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes', id] });
+      toast.success('Vínculo con la visita actualizado');
+    },
+    onError: (error) => toast.error(error.message),
   });
 
   const invalidarListas = () => {
@@ -454,6 +493,31 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
             </Button>
           )}
           <span className="text-xs text-gray-400">Para poder analizar más adelante qué solicitudes se convierten en negocio real.</span>
+        </div>
+      )}
+
+      {tipo === 'solicitud' && solicitud && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
+          <CalendarPlus size={14} className="text-gray-400 shrink-0" />
+          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Vincular a visita</span>
+          <div className="w-72">
+            <Select
+              options={[
+                { value: '', label: 'Sin vincular' },
+                ...(visitasDisponibles ?? []).map((v) => ({
+                  value: v.id,
+                  label: `${[v.nombre, v.apellidos].filter(Boolean).join(' ') || '(sin nombre)'} — ${fecha(v.fecha_visita)}${v.direccion ? ` · ${v.direccion}` : ''}`,
+                })),
+              ]}
+              value={solicitud.visita_id ?? ''}
+              disabled={vincularVisitaMutation.isPending}
+              onChange={(e) => vincularVisitaMutation.mutate(e.target.value || null)}
+            />
+          </div>
+          <span className="text-xs text-gray-400">
+            Para cuando la visita se creó buscando al cliente directamente y el cruce automático por teléfono/email no la
+            encontró (p. ej. una solicitud ya Rechazada con una visita real hecha después).
+          </span>
         </div>
       )}
 

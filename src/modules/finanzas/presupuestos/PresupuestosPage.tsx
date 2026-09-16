@@ -250,7 +250,12 @@ export default function PresupuestosPage() {
 
   const kpis = useMemo(() => {
     const todos = presupuestos ?? [];
-    const aceptados = todos.filter((p) => p.estado === 'Aceptado');
+    // Solo los normales cuentan como "Aceptados" aquí — un orientativo aceptado no es un ingreso
+    // real todavía (es solo la vía sin visita previa, se convierte en presupuesto normal más
+    // adelante), así que contarlo aquí inflaba el KPI de ingresos (hallazgo real de Gabriel,
+    // 2026-09-16). El desglose "Normales / orientativos" de abajo sigue mostrando el total de
+    // orientativos por separado.
+    const aceptados = todos.filter((p) => p.estado === 'Aceptado' && (p.tipo ?? 'normal') === 'normal');
     const enEspera = todos.filter((p) => p.estado === 'Pendiente');
     const normales = todos.filter((p) => (p.tipo ?? 'normal') === 'normal');
     const orientativos = todos.filter((p) => p.tipo === 'orientativo');
@@ -535,7 +540,15 @@ export default function PresupuestosPage() {
             {
               key: 'estado',
               label: 'Estado',
-              render: (p) => <Badge variant={VARIANTE_ESTADO[p.estado] ?? 'default'}>{p.estado}</Badge>,
+              render: (p) => (
+                <Badge
+                  variant={
+                    p.estado === 'Aceptado' && p.tipo === 'orientativo' ? 'aceptado-orientativo' : (VARIANTE_ESTADO[p.estado] ?? 'default')
+                  }
+                >
+                  {p.estado}
+                </Badge>
+              ),
             },
             {
               key: 'acciones',

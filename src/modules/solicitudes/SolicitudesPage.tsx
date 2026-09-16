@@ -241,14 +241,25 @@ export default function SolicitudesPage() {
     },
   });
 
+  // Ids de presupuestos orientativos — se excluyen del embudo (no son ingreso real todavía, mismo
+  // criterio que el KPI "Aceptados" de PresupuestosPage.tsx), ver contarUnicosEnFunnel.
+  const { data: presupuestosOrientativoIds } = useQuery({
+    queryKey: ['presupuestos', 'ids-orientativos'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('presupuestos').select('id').eq('tipo', 'orientativo').is('eliminado_en', null);
+      if (error) throw error;
+      return new Set((data ?? []).map((p) => p.id as string));
+    },
+  });
+
   const embudo = useMemo(() => {
     const eventos = funnelEventos ?? [];
     const total = contarUnicosEnFunnel(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
     return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
-      const count = contarUnicosEnFunnel(eventos, etapa);
+      const count = contarUnicosEnFunnel(eventos, etapa, presupuestosOrientativoIds);
       return { etapa, count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
-  }, [funnelEventos]);
+  }, [funnelEventos, presupuestosOrientativoIds]);
 
   // Refresco automático al ENTRAR a esta sección (no solo al recargar la pestaña entera) — antes
   // la revisión de Gmail solo corría una vez por carga de página (AppLayout.tsx, con un ref que

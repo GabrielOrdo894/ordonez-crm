@@ -423,8 +423,13 @@ export function FacturaForm({
       if (factura) {
         const { error } = await supabase.from('facturas').update(nueva).eq('id', factura.id);
         if (error) throw error;
+        // Ver mismo criterio y comentario en RegistrarPagoModal.tsx (2026-09-16).
         if (factura.estado_cobro !== 'Cobrada' && form.estado_cobro === 'Cobrada' && form.presupuesto_id) {
-          await registrarEventoFunnel('factura_cobrada', { presupuestoId: form.presupuesto_id });
+          if (form.tipo === 'acompte') {
+            await registrarEventoFunnel('primer_acompte_cobrado', { presupuestoId: form.presupuesto_id });
+          } else if (form.tipo === 'normal') {
+            await registrarEventoFunnel('factura_final_cobrada', { presupuestoId: form.presupuesto_id });
+          }
         }
         return { id: factura.id, numero: factura.numero, esNueva: false };
       }

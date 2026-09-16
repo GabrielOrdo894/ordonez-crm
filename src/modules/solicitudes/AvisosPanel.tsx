@@ -38,6 +38,14 @@ type PresupuestoAviso = {
   fecha_validez: string | null;
 };
 type SolicitudOrientativa = { id: string; nombre: string | null; email: string | null; created_at: string; estado: string };
+type SolicitudDescartada = {
+  id: string;
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
+  created_at: string;
+  visita_id: string | null;
+};
 
 export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: string) => void }) {
   const navigate = useNavigate();
@@ -64,9 +72,12 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
   const { data: solicitudesDescartadas } = useQuery({
     queryKey: ['solicitudes', 'descartadas-contacto'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('email, telefono').in('estado', ['Rechazada', 'Eliminada']);
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .select('id, nombre, email, telefono, created_at, visita_id')
+        .in('estado', ['Rechazada', 'Eliminada']);
       if (error) throw error;
-      return data as { email: string | null; telefono: string | null }[];
+      return data as SolicitudDescartada[];
     },
   });
 
@@ -139,8 +150,34 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     (p) => p.estado === 'Pendiente' && p.fecha_validez && p.fecha_validez <= limite7d,
   );
 
+  // 5. Visita Realizada cuyo contacto coincide con una solicitud Rechazada/Eliminada que todavía
+  // no tiene visita_id — el cruce automático (vincularSolicitudPorVisita, VisitaForm.tsx) solo
+  // enlaza solicitudes activas a propósito, para no reabrir sin más una que Gabriel rechazó de
+  // verdad (p. ej. Raphael Szuba, declinado por riesgo estructural pese a la visita ya hecha — ver
+  // comentario más arriba). Aquí se deja como revisión manual: puede que sea un rechazo legítimo
+  // pese a la visita, o puede que sea el mismo hueco que dejó "Vinculadas a presupuesto" antes del
+  // rediseño del embudo (2026-09-16) — vincular desde la ficha de la solicitud (SolicitudDetalle.tsx,
+  // selector "Vincular a visita") si corresponde.
+  const solicitudesRechazadasConVisita = (visitas ?? [])
+    .map((v): { id: string; visita: VisitaRealizada; solicitud: SolicitudDescartada } | null => {
+      const match = (solicitudesDescartadas ?? []).find((s) => {
+        if (s.visita_id) return false;
+        const sTel = s.telefono ? normalizarTelefono(s.telefono) : '';
+        const vTel = v.telefono ? normalizarTelefono(v.telefono) : '';
+        const coincideTel = sTel.length > 0 && sTel === vTel;
+        const coincideEmail = !!s.email && !!v.email && s.email.trim().toLowerCase() === v.email.trim().toLowerCase();
+        return coincideTel || coincideEmail;
+      });
+      return match ? { id: v.id, visita: v, solicitud: match } : null;
+    })
+    .filter((x): x is { id: string; visita: VisitaRealizada; solicitud: SolicitudDescartada } => !!x);
+
   const totalAvisos =
-    visitasSinPresupuesto.length + borradoresSinEnviar.length + orientativosSinVincular.length + presupuestosPorCerrar.length;
+    visitasSinPresupuesto.length +
+    borradoresSinEnviar.length +
+    orientativosSinVincular.length +
+    presupuestosPorCerrar.length +
+    solicitudesRechazadasConVisita.length;
 
   const irAPresupuesto = (id: string) => navigate('/finanzas/presupuestos', { state: { verDocId: id, verDocTipo: 'presupuesto' } });
 
@@ -152,6 +189,11 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
           { label: 'Borradores sin enviar', valor: borradoresSinEnviar.length, acento: borradoresSinEnviar.length > 0 },
           { label: 'Orientativos sin vincular', valor: orientativosSinVincular.length, acento: orientativosSinVincular.length > 0 },
           { label: 'Por caducar / caducados', valor: presupuestosPorCerrar.length, acento: presupuestosPorCerrar.length > 0 },
+          {
+            label: 'Rechazadas con visita sin vincular',
+            valor: solicitudesRechazadasConVisita.length,
+            acento: solicitudesRechazadasConVisita.length > 0,
+          },
         ]}
       />
 
@@ -236,6 +278,29 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
                     <span className={p.fecha_validez! < hoy ? 'text-red-600 font-medium' : ''}>{fecha(p.fecha_validez)}</span>
                   ),
                 },
+              ]}
+            />
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
+            Solicitudes rechazadas con una visita real hecha, sin vincular ({solicitudesRechazadasConVisita.length})
+          </h2>
+          <p className="text-xs text-gray-400 mb-2">
+            El teléfono/email coincide con una visita ya realizada. Puede que el rechazo sea correcto (revisar caso por
+            caso) o que solo falte enlazarla a mano desde "Vincular a visita" en la ficha de la solicitud.
+          </p>
+          <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
+            <Table
+              loading={cargandoVisitas}
+              data={solicitudesRechazadasConVisita}
+              emptyMessage="Ninguna"
+              onRowClick={(f) => onAbrirSolicitud(f.solicitud.id)}
+              columns={[
+                { key: 'nombre', label: 'Cliente', render: (f) => f.solicitud.nombre || `${f.visita.nombre} ${f.visita.apellidos}` },
+                { key: 'fecha_visita', label: 'Fecha de la visita', render: (f) => fecha(f.visita.fecha_visita) },
+                { key: 'created_at', label: 'Solicitud recibida', render: (f) => fecha(f.solicitud.created_at) },
               ]}
             />
           </div>

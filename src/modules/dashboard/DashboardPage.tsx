@@ -61,7 +61,8 @@ type ProyectoResumen = { presupuesto_id: string | null; estado: string };
 
 const COLORES_DONUT = ['#1a5c38', '#0f3d24', '#5b8f74', '#94b8a6', '#c8ddd0', '#6b7280', '#9ca3af'];
 const COLORES_FUNNEL = ['#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
-// 7 tonos — uno por etapa de ETAPAS_FUNNEL_SOLICITUD (ahora llega hasta "Factura cobrada").
+// Tonos del embudo de ETAPAS_FUNNEL_SOLICITUD (más colores de los que hacen falta, de sobra por si
+// el embudo vuelve a crecer — se reciclan por índice, ver COLORES_FUNNEL_SOLICITUDES[i % length]).
 const COLORES_FUNNEL_SOLICITUDES = ['#0f3d24', '#1a5c38', '#2e6d49', '#3d7a5a', '#5f9878', '#7dab93', '#c8ddd0'];
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const ETAPAS_FUNNEL = ['Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'Finalizado'];
@@ -244,16 +245,24 @@ export default function DashboardPage() {
     return base.map((f) => ({ ...f, pct: total > 0 ? Math.round((f.count / total) * 100) : 0 }));
   }, [visitasFiltradas]);
 
+  // Presupuestos orientativos — se excluyen de las etapas del embudo relacionadas con
+  // presupuestos (no son ingreso real todavía, mismo criterio que el KPI "Aceptados" de
+  // PresupuestosPage.tsx), ver contarUnicosEnFunnel.
+  const presupuestosOrientativoIds = useMemo(
+    () => new Set((presupuestos ?? []).filter((p) => p.tipo === 'orientativo').map((p) => p.id)),
+    [presupuestos],
+  );
+
   // 2b. Embudo de solicitudes entrantes → firma (independiente del funnel de visitas de arriba:
   // este mide desde el primer contacto, antes incluso de agendar una visita)
   const funnelSolicitudes = useMemo(() => {
     const eventos = funnelEventos ?? [];
     const total = contarUnicosEnFunnel(eventos, ETAPAS_FUNNEL_SOLICITUD[0]);
     return ETAPAS_FUNNEL_SOLICITUD.map((etapa) => {
-      const count = contarUnicosEnFunnel(eventos, etapa);
+      const count = contarUnicosEnFunnel(eventos, etapa, presupuestosOrientativoIds);
       return { etapa: ETIQUETA_ETAPA_FUNNEL[etapa], count, pct: total > 0 ? Math.round((count / total) * 100) : 0 };
     });
-  }, [funnelEventos]);
+  }, [funnelEventos, presupuestosOrientativoIds]);
 
   // Conversión a firma desglosada por fuente — cruza la entrada de cada solicitud con si el
   // presupuesto al que quedó vinculada acabó firmado, para ver qué canal convierte mejor.

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, FileText, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
-import { registrarEventoFunnel } from '../../lib/funnelTracking';
+import { registrarEventoFunnel, vincularSolicitudPorVisita } from '../../lib/funnelTracking';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -586,6 +586,12 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           .eq('id', prefill.solicitudId);
         if (errorEnlace) toast.warning(`No se pudo enlazar la solicitud con la visita: ${errorEnlace.message}`);
         await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
+        queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      } else {
+        // Visita creada buscando el cliente directamente (la vía más habitual) — intenta el mismo
+        // enlace por teléfono/email que arriba, para que "Visita agendada" del embudo no se quede
+        // corto solo por no haber pasado por el botón de la solicitud (hallazgo real, 2026-09-16).
+        await vincularSolicitudPorVisita(data.id, { telefono: data.telefono, email: data.email });
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       }
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

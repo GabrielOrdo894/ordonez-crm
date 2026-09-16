@@ -12,21 +12,38 @@ export type EtapaFunnel =
   | 'presupuesto_firmado'
   | 'presupuesto_rechazado'
   | 'obra_finalizada'
-  | 'factura_cobrada';
+  | 'factura_cobrada'
+  | 'primer_acompte_cobrado'
+  | 'factura_final_cobrada';
 
-// Antes el embudo se quedaba corto en "Firmado" — no reflejaba el resto del recorrido real hasta
-// que la obra se entrega y se cobra (auditoría 2026-08-13). "obra_finalizada" se dispara al marcar
-// el proyecto como Finalizado en Planning de obra, "factura_cobrada" al registrar un pago completo
-// (o marcar Cobrada a mano) en Facturas — ver registrarEventoFunnel en PlanningObraDetalle.tsx,
-// RegistrarPagoModal.tsx y FacturaForm.tsx.
+// Recorrido rediseñado el 2026-09-16 (petición de Gabriel) para reflejar mejor el avance real del
+// cliente hacia la obra:
+// - "Visita agendada" sustituye a "Respondida" como 2º escalón.
+// - Se quita "Vinculada a presupuesto" (paso administrativo interno, no un avance real del
+//   cliente).
+// - "Aceptado" sustituye a "Firmado" (el cliente ya decidió que sí en cuanto acepta — la firma es
+//   solo el trámite formal posterior).
+// - Se quita "Obra finalizada" — depende de marcar el proyecto como Finalizado en Planning de
+//   obra, un paso que en la práctica casi nunca se usa, así que no hay forma fiable de trackearlo
+//   (confirmado por Gabriel, no es un hallazgo de auditoría esta vez).
+// - "Primer acompte cobrado" y "Factura final cobrada" sustituyen a "Factura cobrada": Reformas
+//   Ordoñez siempre pide un primer acompte del 50% antes de empezar, así que ese cobro merece su
+//   propio escalón en vez de mezclarse con el de la factura final — ver registrarEventoFunnel en
+//   RegistrarPagoModal.tsx y FacturaForm.tsx, que ahora miran factura.tipo ('acompte' vs 'normal')
+//   para decidir cuál de las dos etapas registrar.
+// Las etapas de presupuesto de aquí para abajo solo cuentan presupuestos `normal` (ver
+// excluirPresupuestoIds en contarUnicosEnFunnel) para que el embudo siga siendo descendente — un
+// orientativo aceptado no es ingreso real todavía. "Visita agendada" depende de que la visita quede
+// enlazada a su solicitud de origen — ver vincularSolicitudPorVisita en VisitaForm.tsx (antes solo
+// se enlazaba desde el botón "Crear visita desde esta solicitud", lo que dejaba fuera la mayoría de
+// visitas reales).
 export const ETAPAS_FUNNEL_SOLICITUD: EtapaFunnel[] = [
   'solicitud_entrada',
-  'solicitud_respondida',
-  'solicitud_vinculada_presupuesto',
+  'visita_agendada',
   'presupuesto_enviado',
-  'presupuesto_firmado',
-  'obra_finalizada',
-  'factura_cobrada',
+  'presupuesto_aceptado',
+  'primer_acompte_cobrado',
+  'factura_final_cobrada',
 ];
 
 // Mapeo estado de presupuesto → etapa de funnel, compartido entre los 3 sitios donde se cambia
@@ -38,11 +55,6 @@ export const ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO: Partial<Record<string, EtapaFu
   Rechazado: 'presupuesto_rechazado',
 };
 
-// visita_agendada (2026-08-26) se registra al crear una visita desde una solicitud (ver
-// PrefillVisita.solicitudId en VisitaForm.tsx) — a propósito NO entra en ETAPAS_FUNNEL_SOLICITUD
-// (el embudo visual de barras de /solicitudes y Dashboard), solo se usa para calcular la duración
-// solicitud→visita en la exportación completa del Dashboard (Ajustes), sin tocar un gráfico que ya
-// funciona y que Gabriel no pidió cambiar.
 export const ETIQUETA_ETAPA_FUNNEL: Record<EtapaFunnel, string> = {
   solicitud_entrada: 'Entradas',
   solicitud_respondida: 'Respondidas',
@@ -55,21 +67,42 @@ export const ETIQUETA_ETAPA_FUNNEL: Record<EtapaFunnel, string> = {
   presupuesto_rechazado: 'Rechazado',
   obra_finalizada: 'Obra finalizada',
   factura_cobrada: 'Factura cobrada',
+  primer_acompte_cobrado: 'Primer acompte cobrado',
+  factura_final_cobrada: 'Factura final cobrada',
 };
 
 export type FunnelEventoBase = { etapa: EtapaFunnel; solicitud_id: string | null; presupuesto_id: string | null };
 
-// "obra_finalizada"/"factura_cobrada" cuelgan del proyecto/factura, no directamente de la
-// solicitud — se vinculan por presupuesto_id igual que el resto de etapas post-presupuesto.
-const ETAPAS_POR_PRESUPUESTO_ID = new Set<EtapaFunnel>(['obra_finalizada', 'factura_cobrada']);
+// "obra_finalizada"/"factura_cobrada"/"primer_acompte_cobrado"/"factura_final_cobrada" cuelgan del
+// proyecto/factura, no directamente de la solicitud — se vinculan por presupuesto_id igual que el
+// resto de etapas post-presupuesto.
+const ETAPAS_POR_PRESUPUESTO_ID = new Set<EtapaFunnel>([
+  'obra_finalizada',
+  'factura_cobrada',
+  'primer_acompte_cobrado',
+  'factura_final_cobrada',
+]);
 
 // Único punto de conteo de eventos únicos por etapa — usado por el Dashboard (Marketing) y por
 // Solicitudes (embudo de 90 días). Antes cada pantalla tenía su propia copia de este cálculo y
 // solo una se actualizó al añadir obra_finalizada/factura_cobrada, dejando la otra con el campo
 // equivocado y contando siempre 0 en esas dos etapas (hallazgo real, revisión 2026-08-13).
-export function contarUnicosEnFunnel<T extends FunnelEventoBase>(eventos: T[], etapa: EtapaFunnel): number {
+//
+// excluirPresupuestoIds (2026-09-16): ids de presupuestos `orientativo` a ignorar — un orientativo
+// no es ingreso real todavía (mismo criterio que el KPI "Aceptados" de PresupuestosPage.tsx), así
+// que no debe contar en ningún escalón del embudo relacionado con presupuestos. Sin este filtro
+// "Vinculadas a presupuesto" podía salir más alto que "Visita agendada" (un orientativo se puede
+// vincular sin pasar por visita), rompiendo el orden descendente del embudo.
+export function contarUnicosEnFunnel<T extends FunnelEventoBase>(
+  eventos: T[],
+  etapa: EtapaFunnel,
+  excluirPresupuestoIds?: Set<string>,
+): number {
   const campo = etapa.startsWith('presupuesto_') || ETAPAS_POR_PRESUPUESTO_ID.has(etapa) ? 'presupuesto_id' : 'solicitud_id';
-  return new Set(eventos.filter((e) => e.etapa === etapa).map((e) => e[campo]).filter(Boolean)).size;
+  const relevantes = eventos.filter(
+    (e) => e.etapa === etapa && !(excluirPresupuestoIds && e.presupuesto_id && excluirPresupuestoIds.has(e.presupuesto_id)),
+  );
+  return new Set(relevantes.map((e) => e[campo]).filter(Boolean)).size;
 }
 
 // No lanza si falla el insert — es un registro secundario para analítica, no debe tumbar la
@@ -158,4 +191,43 @@ export async function vincularSolicitudPorContacto(
     presupuestoId,
     fuente: match.fuente,
   });
+}
+
+// Mismo cruce por contacto que vincularSolicitudPorContacto, pero para visitas — se llama al crear
+// una visita que NO viene del botón "Crear visita desde esta solicitud" (que ya enlaza a mano, ver
+// VisitaForm.tsx). Sin esto, una visita creada buscando el cliente directamente (la vía más
+// habitual en la práctica) nunca quedaba enlazada a su solicitud de origen, así que "Visita
+// agendada" del embudo se quedaba muy por debajo de la realidad — 6 eventos registrados en 90 días
+// frente a 25 visitas reales, la mayoría con una solicitud coincidente sin enlazar (hallazgo real
+// de Gabriel, 2026-09-16, con un backfill único sobre las 9 solicitudes ya afectadas en producción).
+// Best-effort, no bloqueante — igual que vincularSolicitudPorContacto.
+export async function vincularSolicitudPorVisita(visitaId: string, contacto: { telefono?: string | null; email?: string | null }) {
+  const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
+  const email = contacto.email ? contacto.email.toLowerCase() : null;
+  if (!tel && !email) return;
+
+  const { data: solicitudes, error } = await supabase
+    .from('solicitudes')
+    .select('id, telefono, email, fuente')
+    .is('visita_id', null)
+    .not('estado', 'in', '(Rechazada,Eliminada)')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.warn('vincularSolicitudPorVisita: no se pudieron leer solicitudes:', error.message);
+    return;
+  }
+
+  const match = (solicitudes ?? []).find((s) => {
+    const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
+    const sEmail = s.email ? String(s.email).toLowerCase() : null;
+    return (tel && sTel === tel) || (email && sEmail === email);
+  });
+  if (!match) return;
+
+  const { error: errorUpdate } = await supabase.from('solicitudes').update({ visita_id: visitaId, estado: 'Aceptada' }).eq('id', match.id);
+  if (errorUpdate) {
+    console.warn('vincularSolicitudPorVisita: no se pudo enlazar la solicitud:', errorUpdate.message);
+    return;
+  }
+  await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
 }

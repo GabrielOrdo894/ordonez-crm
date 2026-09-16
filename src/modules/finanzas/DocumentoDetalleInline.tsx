@@ -423,7 +423,15 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             {titulo && <span className="font-normal text-gray-500"> · {titulo}</span>}
           </h1>
           <div className="flex items-center gap-2 mt-1.5">
-            <Badge variant={VARIANTE_ESTADO[estado] ?? 'default'}>{estado}</Badge>
+            <Badge
+              variant={
+                tipo === 'presupuesto' && estado === 'Aceptado' && presupuesto?.tipo === 'orientativo'
+                  ? 'aceptado-orientativo'
+                  : (VARIANTE_ESTADO[estado] ?? 'default')
+              }
+            >
+              {estado}
+            </Badge>
             <span className="text-xs text-gray-400">{fechas}</span>
           </div>
         </div>

@@ -1,15 +1,16 @@
 import type { CSSProperties, ReactNode } from 'react';
 
-type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'default';
+type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'aceptado-orientativo' | 'default';
 
 // realizada/cancelada/default usan los tokens de marca/gris (ya reaccionan a data-modo);
-// pendiente/confirmada/vencida usan variables propias definidas en globals.css.
+// pendiente/confirmada/vencida/aceptado-orientativo usan variables propias definidas en globals.css.
 const VARIANT_CLASSES: Record<Variant, string> = {
   pendiente: '',
   confirmada: '',
   realizada: 'bg-brand-light text-brand',
   cancelada: 'bg-gray-50 text-gray-500',
   vencida: '',
+  'aceptado-orientativo': '',
   default: 'bg-gray-100 text-gray-600',
 };
 
@@ -17,6 +18,10 @@ const VARIANT_STYLE: Partial<Record<Variant, CSSProperties>> = {
   pendiente: { backgroundColor: 'rgb(var(--badge-pendiente-bg))', color: 'rgb(var(--badge-pendiente-text))' },
   confirmada: { backgroundColor: 'rgb(var(--badge-confirmada-bg))', color: 'rgb(var(--badge-confirmada-text))' },
   vencida: { backgroundColor: 'rgb(var(--badge-vencida-bg))', color: 'rgb(var(--badge-vencida-text))' },
+  'aceptado-orientativo': {
+    backgroundColor: 'rgb(var(--badge-aceptado-orientativo-bg))',
+    color: 'rgb(var(--badge-aceptado-orientativo-text))',
+  },
 };
 
 type BadgeProps = {

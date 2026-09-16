@@ -86,8 +86,17 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
         );
       }
       await registrarEvento('factura', factura.id, `Pago registrado: ${monto.toFixed(2)} € (${estado_cobro})`);
+      // "Primer acompte cobrado" / "Factura final cobrada" (2026-09-16) sustituyen al genérico
+      // "Factura cobrada" — Reformas Ordoñez siempre pide un primer acompte del 50%, así que
+      // merece su propio escalón en el embudo en vez de mezclarse con el de la factura que cierra
+      // el resto del trabajo. 'rectificativa' no dispara ninguna de las dos (es una corrección, no
+      // un cobro nuevo que cierre nada).
       if (estado_cobro === 'Cobrada' && factura.presupuesto_id) {
-        await registrarEventoFunnel('factura_cobrada', { presupuestoId: factura.presupuesto_id });
+        if (factura.tipo === 'acompte') {
+          await registrarEventoFunnel('primer_acompte_cobrado', { presupuestoId: factura.presupuesto_id });
+        } else if (factura.tipo === 'normal') {
+          await registrarEventoFunnel('factura_final_cobrada', { presupuestoId: factura.presupuesto_id });
+        }
       }
       return nuevoPago as PagoFactura;
     },

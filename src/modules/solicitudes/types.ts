@@ -54,6 +54,7 @@ export type Solicitud = {
   // Embebido vía FK solicitudes_presupuesto_vinculado_id_fkey — solo lo trae la consulta de
   // SolicitudesPage.tsx (lista), no la de SolicitudDetalle.tsx (que ya tiene su propio desplegable).
   presupuesto_vinculado?: { id: string; numero: string } | null;
+  visita_id: string | null;
   notas: string | null;
   ultima_respuesta_cliente_resumen: string | null;
   ultima_respuesta_cliente_fecha: string | null;
