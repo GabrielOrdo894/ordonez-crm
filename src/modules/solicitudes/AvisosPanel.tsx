@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
 import { normalizarTelefono } from '../clientes/types';
+import { ETIQUETA_ESTADO_SOLICITUD, type EstadoSolicitud } from './types';
 
 // Mismo criterio de umbral que useNotificaciones.ts / alerta-diaria (2026-08-30): un borrador
 // (orientativo o normal) que lleva 2+ días sin marcarse como enviado se considera "olvidado".
@@ -252,7 +253,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
               columns={[
                 { key: 'nombre', label: 'Cliente', render: (s) => s.nombre || s.email || 'Sin nombre' },
                 { key: 'created_at', label: 'Recibida', render: (s) => fecha(s.created_at) },
-                { key: 'estado', label: 'Estado', render: (s) => s.estado },
+                { key: 'estado', label: 'Estado', render: (s) => ETIQUETA_ESTADO_SOLICITUD[s.estado as EstadoSolicitud] },
               ]}
             />
           </div>

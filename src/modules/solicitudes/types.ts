@@ -11,6 +11,21 @@ export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Aceptada' | 'Rechazada' | '
 
 export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Aceptada', 'Rechazada', 'Eliminada'];
 
+// Etiqueta visible de cada estado — 'Enviada' se ve como "En espera" en toda la interfaz
+// (2026-09-16, petición de Gabriel: es el estado de las solicitudes a las que ya se respondió pero
+// no hay nada concretado todavía, ni el cliente ha contestado a la oferta). El valor real en base
+// de datos sigue siendo 'Enviada' a propósito — lo comparan `revisar-gmail`, `automatizaciones-crm`
+// y el resto del CRM; renombrarlo de verdad tocaría Edge Functions aparte, sin necesidad si solo
+// hace falta cambiar lo que se lee en pantalla. Usar siempre esta función para mostrar el estado,
+// nunca el valor crudo.
+export const ETIQUETA_ESTADO_SOLICITUD: Record<EstadoSolicitud, string> = {
+  Nueva: 'Nueva',
+  Enviada: 'En espera',
+  Aceptada: 'Aceptada',
+  Rechazada: 'Rechazada',
+  Eliminada: 'Eliminada',
+};
+
 // Etiqueta filtrable, no obligatoria (2026-08-26) — null = "sin determinar". Se autodetecta por el
 // asunto del email en conversaciones directas (detectarTipoSolicitud en revisar-gmail) y, desde
 // 2026-09-06, también por palabras clave en el propio comentario/tipo de reforma para los

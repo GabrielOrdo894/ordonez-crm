@@ -1,9 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 
-type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'aceptado-orientativo' | 'default';
+type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'aceptado-orientativo' | 'en-espera' | 'default';
 
 // realizada/cancelada/default usan los tokens de marca/gris (ya reaccionan a data-modo);
-// pendiente/confirmada/vencida/aceptado-orientativo usan variables propias definidas en globals.css.
+// pendiente/confirmada/vencida/aceptado-orientativo/en-espera usan variables propias definidas en globals.css.
 const VARIANT_CLASSES: Record<Variant, string> = {
   pendiente: '',
   confirmada: '',
@@ -11,6 +11,7 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   cancelada: 'bg-gray-50 text-gray-500',
   vencida: '',
   'aceptado-orientativo': '',
+  'en-espera': '',
   default: 'bg-gray-100 text-gray-600',
 };
 
@@ -22,6 +23,7 @@ const VARIANT_STYLE: Partial<Record<Variant, CSSProperties>> = {
     backgroundColor: 'rgb(var(--badge-aceptado-orientativo-bg))',
     color: 'rgb(var(--badge-aceptado-orientativo-text))',
   },
+  'en-espera': { backgroundColor: 'rgb(var(--badge-en-espera-bg))', color: 'rgb(var(--badge-en-espera-text))' },
 };
 
 type BadgeProps = {

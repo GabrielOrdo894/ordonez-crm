@@ -50,6 +50,10 @@
      presupuesto normal aceptado (no cuenta como ingreso real hasta que se convierte en normal). */
   --badge-aceptado-orientativo-bg: 236 253 245;
   --badge-aceptado-orientativo-text: 4 120 87;
+  /* "En espera" de una solicitud (antes "Enviada") — naranja, a petición de Gabriel (2026-09-16),
+     distinto del ámbar de "pendiente" (Nueva) para que los dos estados se sigan distinguiendo. */
+  --badge-en-espera-bg: 255 247 237;
+  --badge-en-espera-text: 194 65 12;
 
   color-scheme: light;
 }
@@ -101,6 +105,8 @@
   --badge-vencida-text: 248 113 113;
   --badge-aceptado-orientativo-bg: 6 41 34;
   --badge-aceptado-orientativo-text: 110 231 183;
+  --badge-en-espera-bg: 54 29 12;
+  --badge-en-espera-text: 253 164 108;
 
   color-scheme: dark;
 }

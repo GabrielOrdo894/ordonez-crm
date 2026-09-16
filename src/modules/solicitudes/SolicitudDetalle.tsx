@@ -12,11 +12,13 @@ import { Select } from '../../components/ui/Select';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 import { formatearTelefonoVisual } from '../clientes/types';
 import {
+  ETIQUETA_ESTADO_SOLICITUD,
   FUENTE_LABEL,
   MODELOS_IA,
   TIPO_SOLICITUD_LABEL,
   estadoSeguimiento,
   parseMensaje,
+  type EstadoSolicitud,
   type PresupuestoConRespuesta,
   type Solicitud,
   type TipoSolicitud,
@@ -33,11 +35,11 @@ type SolicitudDetalleProps = {
   onClose: () => void;
 };
 
-type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'default';
+type VarianteBadge = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'en-espera' | 'default';
 
 const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
-  Enviada: 'realizada',
+  Enviada: 'en-espera',
   Aceptada: 'confirmada',
   Rechazada: 'cancelada',
   Eliminada: 'default',
@@ -323,7 +325,11 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
           </p>
         </div>
         <span className="flex items-center gap-1.5 shrink-0">
-          {estado && <Badge variant={VARIANTE_ESTADO[estado] ?? 'default'}>{estado}</Badge>}
+          {estado && (
+            <Badge variant={VARIANTE_ESTADO[estado] ?? 'default'}>
+              {tipo === 'solicitud' ? ETIQUETA_ESTADO_SOLICITUD[estado as EstadoSolicitud] : estado}
+            </Badge>
+          )}
           {respuestaSinRevisar && <Badge variant="pendiente">Nueva respuesta</Badge>}
         </span>
       </div>

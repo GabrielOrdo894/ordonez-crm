@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 
-type Option = { value: string; label: string };
+// dot: color CSS opcional (ej. 'rgb(194 65 12)') para un punto de color antes de la etiqueta —
+// pensado para reflejar el mismo color que un Badge de estado, ya que este listbox sí admite
+// estilos (a diferencia de un <select> nativo, ver comentario más abajo).
+type Option = { value: string; label: string; dot?: string };
 
 type SelectProps = {
   label?: string;
@@ -64,7 +67,10 @@ export function Select({ label, error, hint, options, value, onChange, className
               : 'cursor-pointer hover:border-gray-300'
           } ${abierto ? 'border-brand' : error ? 'border-red-400' : 'border-gray-200'} ${className}`}
         >
-          <span className="truncate">{actual?.label ?? '—'}</span>
+          <span className="flex items-center gap-1.5 min-w-0">
+            {actual?.dot && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: actual.dot }} />}
+            <span className="truncate">{actual?.label ?? '—'}</span>
+          </span>
           <ChevronDown size={14} className={`shrink-0 text-gray-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
         </button>
         {abierto && (
@@ -78,7 +84,10 @@ export function Select({ label, error, hint, options, value, onChange, className
                   o.value === value ? 'text-brand font-medium bg-brand-light/60' : 'text-gray-700 hover:bg-brand-light'
                 }`}
               >
-                <span className="truncate">{o.label}</span>
+                <span className="flex items-center gap-1.5 min-w-0">
+                  {o.dot && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: o.dot }} />}
+                  <span className="truncate">{o.label}</span>
+                </span>
                 {o.value === value && <Check size={13} className="shrink-0" />}
               </button>
             ))}

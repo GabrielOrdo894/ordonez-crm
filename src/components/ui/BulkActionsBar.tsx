@@ -8,6 +8,9 @@ type Accion = {
   onClick: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
+  // Color CSS opcional para el punto que precede a la etiqueta en el desplegable — pensado para
+  // acciones de "cambiar estado", así se ve de un vistazo a qué color de badge lleva cada opción.
+  dot?: string;
 };
 
 type BulkActionsBarProps = {
@@ -36,7 +39,7 @@ export function BulkActionsBar({ count, onCancelar, acciones }: BulkActionsBarPr
           className="w-48"
           value={seleccionada}
           onChange={(e) => setSeleccionada(e.target.value)}
-          options={acciones.map((a) => ({ value: a.label, label: a.label }))}
+          options={acciones.map((a) => ({ value: a.label, label: a.label, dot: a.dot }))}
         />
         <Button
           size="sm"
