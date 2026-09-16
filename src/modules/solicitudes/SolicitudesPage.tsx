@@ -111,6 +111,18 @@ function idsPorOrigen(seleccion: Set<string | number>, origen: 'sol' | 'seg'): s
     .map((id) => id.slice(prefijo.length));
 }
 
+// Ids de "seguimiento" (presupuestos) efectivamente afectados por la selección: incluye tanto las
+// filas `seg:` sueltas como los presupuestos colgados de una fila `sol:` fusionada (ver
+// seguimientoVinculado arriba) — sin esto, seleccionar una fila fusionada no permitiría usar
+// ninguna de las acciones de "respuesta a presupuesto" del desplegable.
+function idsSeguimientoEfectivos(seleccion: Set<string | number>, solicitudes: Solicitud[]): string[] {
+  const directos = idsPorOrigen(seleccion, 'seg');
+  const viaSolicitud = idsPorOrigen(seleccion, 'sol')
+    .map((id) => solicitudes.find((s) => s.id === id)?.presupuesto_vinculado_id)
+    .filter((id): id is string => !!id);
+  return Array.from(new Set([...directos, ...viaSolicitud]));
+}
+
 export default function SolicitudesPage() {
   const toast = useToast();
   const confirmar = useConfirmar();
@@ -516,9 +528,21 @@ export default function SolicitudesPage() {
     return false;
   });
 
+  // Presupuestos ya cubiertos por una fila de solicitud visible — no se repiten como fila aparte
+  // (antes el mismo cliente podía verse dos veces: una como solicitud, otra como respuesta a su
+  // propio presupuesto vinculado — confusión real de Gabriel, 2026-09-16). Se mantiene simple a
+  // propósito: la fila de solicitud no intenta mostrar el detalle de esa respuesta, solo deja de
+  // duplicarse — las acciones masivas de "respuesta" abajo siguen funcionando igual sobre ella
+  // (ver idsSeguimientoEfectivos), y las respuestas SIN solicitud vinculada (fuera de este caso)
+  // siguen con su fila y ficha de siempre, sin cambios.
+  const presupuestoIdsVinculados = new Set(
+    solicitudesFiltradas.map((s) => s.presupuesto_vinculado_id).filter((id): id is string => !!id),
+  );
   const filasUnificadas: FilaUnificada[] = [
     ...solicitudesFiltradas.map((s): FilaUnificada => ({ id: `sol:${s.id}`, origen: 'solicitud', solicitud: s })),
-    ...seguimientosFiltrados.map((p): FilaUnificada => ({ id: `seg:${p.id}`, origen: 'seguimiento', seguimiento: p })),
+    ...seguimientosFiltrados
+      .filter((p) => !presupuestoIdsVinculados.has(p.id))
+      .map((p): FilaUnificada => ({ id: `seg:${p.id}`, origen: 'seguimiento', seguimiento: p })),
   ].sort((a, b) => {
     const fechaA = a.origen === 'solicitud' ? a.solicitud.created_at : (a.seguimiento.ultima_respuesta_cliente_fecha ?? '');
     const fechaB = b.origen === 'solicitud' ? b.solicitud.created_at : (b.seguimiento.ultima_respuesta_cliente_fecha ?? '');
@@ -536,6 +560,94 @@ export default function SolicitudesPage() {
   // Contador único de la pestaña fusionada — antes eran dos badges separados (uno por pestaña).
   const pendientesEntrantes = nuevasSolicitudes + respuestasSinRevisarSolicitudes + nuevosSeguimientos;
   const totalPendientesEnvio = (pendientesEnvio ?? []).length;
+
+  // Acciones del desplegable "cambiar estado" separadas por tipo — el desplegable solo muestra el
+  // grupo cuyo tipo esté realmente presente en la selección (ver más abajo), en vez de mostrar
+  // siempre las 12 aunque la mitad no apliquen a nada seleccionado (confusión real de Gabriel,
+  // 2026-09-16).
+  const accionesSolicitud = [
+    {
+      label: 'Marcar como Nueva',
+      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Nueva' }),
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+    {
+      label: 'Marcar como Enviada',
+      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Enviada' }),
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+    {
+      label: 'Marcar como Aceptada',
+      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Aceptada' }),
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+    {
+      label: 'Marcar como Rechazada',
+      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Rechazada' }),
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+    {
+      label: 'Marcar respuesta como revisada',
+      onClick: () => marcarRespuestaRevisadaMutation.mutate(idsPorOrigen(seleccionUnificada, 'sol')),
+      disabled: marcarRespuestaRevisadaMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+    {
+      label: 'Eliminar solicitud(es)',
+      variant: 'danger' as const,
+      onClick: async () => {
+        const ids = idsPorOrigen(seleccionUnificada, 'sol');
+        if (ids.length === 0) return;
+        // Ya no es un DELETE real (2026-09-15) — es solo otro estado, así que no hay riesgo de
+        // que Gmail la vuelva a crear como "Nueva" al reingerirla. Se puede recuperar filtrando
+        // por "Eliminada" y volviendo a "Nueva"/"Enviada".
+        if (!(await confirmar(`¿Eliminar ${ids.length} solicitud(es)? Dejarán de verse en la lista por defecto — puedes recuperarlas filtrando por "Eliminada".`)))
+          return;
+        cambiarEstadoSolicitudesMutation.mutate({ ids, estado: 'Eliminada' });
+      },
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+    },
+  ];
+
+  const accionesSeguimiento = [
+    {
+      label: 'Marcar respuesta como Aceptado',
+      onClick: () =>
+        cambiarEstadoPresupuestoMutation.mutate({ ids: idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []), estado: 'Aceptado' }),
+      disabled: cambiarEstadoPresupuestoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+    {
+      label: 'Marcar respuesta como Rechazado',
+      onClick: () =>
+        cambiarEstadoPresupuestoMutation.mutate({ ids: idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []), estado: 'Rechazado' }),
+      disabled: cambiarEstadoPresupuestoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+    {
+      label: 'Marcar respuesta como enviada',
+      onClick: () => marcarEnviadoSeguimientoMutation.mutate(idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? [])),
+      disabled: marcarEnviadoSeguimientoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+    {
+      label: 'Cerrar seguimiento (Aceptada)',
+      onClick: () => marcarAceptadaSeguimientoMutation.mutate(idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? [])),
+      disabled: marcarAceptadaSeguimientoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+    {
+      label: 'Volver respuesta a Nueva / no leído',
+      onClick: () => volverNuevaSeguimientoMutation.mutate(idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? [])),
+      disabled: volverNuevaSeguimientoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+    {
+      label: 'Quitar respuesta de la bandeja',
+      variant: 'danger' as const,
+      onClick: async () => {
+        const ids = idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []);
+        if (ids.length === 0) return;
+        if (!(await confirmar(`¿Quitar ${ids.length} respuesta(s) de esta bandeja? El presupuesto no se elimina.`))) return;
+        eliminarSeguimientoMutation.mutate(ids);
+      },
+      disabled: eliminarSeguimientoMutation.isPending || idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length === 0,
+    },
+  ];
 
   return (
     <div>
@@ -659,89 +771,12 @@ export default function SolicitudesPage() {
           <BulkActionsBar
             count={seleccionUnificada.size}
             onCancelar={limpiarSeleccionUnificada}
+            // El desplegable solo muestra las acciones del tipo (solicitud/respuesta) realmente
+            // presente en la selección — antes mostraba las 12 siempre, aunque la mitad no
+            // aplicaran a nada seleccionado (confusión real de Gabriel, 2026-09-16).
             acciones={[
-              {
-                label: 'Marcar como Nueva',
-                onClick: () =>
-                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Nueva' }),
-                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Marcar como Enviada',
-                onClick: () =>
-                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Enviada' }),
-                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Marcar como Aceptada',
-                onClick: () =>
-                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Aceptada' }),
-                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Marcar como Rechazada',
-                onClick: () =>
-                  cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Rechazada' }),
-                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Marcar respuesta como revisada',
-                onClick: () => marcarRespuestaRevisadaMutation.mutate(idsPorOrigen(seleccionUnificada, 'sol')),
-                disabled: marcarRespuestaRevisadaMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Eliminar solicitud(es)',
-                variant: 'danger',
-                onClick: async () => {
-                  const ids = idsPorOrigen(seleccionUnificada, 'sol');
-                  if (ids.length === 0) return;
-                  // Ya no es un DELETE real (2026-09-15) — es solo otro estado, así que no hay
-                  // riesgo de que Gmail la vuelva a crear como "Nueva" al reingerirla. Se puede
-                  // recuperar filtrando por "Eliminada" y volviendo a "Nueva"/"Enviada".
-                  if (!(await confirmar(`¿Eliminar ${ids.length} solicitud(es)? Dejarán de verse en la lista por defecto — puedes recuperarlas filtrando por "Eliminada".`)))
-                    return;
-                  cambiarEstadoSolicitudesMutation.mutate({ ids, estado: 'Eliminada' });
-                },
-                disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
-              },
-              {
-                label: 'Marcar respuesta como Aceptado',
-                onClick: () =>
-                  cambiarEstadoPresupuestoMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'seg'), estado: 'Aceptado' }),
-                disabled: cambiarEstadoPresupuestoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
-              {
-                label: 'Marcar respuesta como Rechazado',
-                onClick: () =>
-                  cambiarEstadoPresupuestoMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'seg'), estado: 'Rechazado' }),
-                disabled: cambiarEstadoPresupuestoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
-              {
-                label: 'Marcar respuesta como enviada',
-                onClick: () => marcarEnviadoSeguimientoMutation.mutate(idsPorOrigen(seleccionUnificada, 'seg')),
-                disabled: marcarEnviadoSeguimientoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
-              {
-                label: 'Cerrar seguimiento (Aceptada)',
-                onClick: () => marcarAceptadaSeguimientoMutation.mutate(idsPorOrigen(seleccionUnificada, 'seg')),
-                disabled: marcarAceptadaSeguimientoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
-              {
-                label: 'Volver respuesta a Nueva / no leído',
-                onClick: () => volverNuevaSeguimientoMutation.mutate(idsPorOrigen(seleccionUnificada, 'seg')),
-                disabled: volverNuevaSeguimientoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
-              {
-                label: 'Quitar respuesta de la bandeja',
-                variant: 'danger',
-                onClick: async () => {
-                  const ids = idsPorOrigen(seleccionUnificada, 'seg');
-                  if (ids.length === 0) return;
-                  if (!(await confirmar(`¿Quitar ${ids.length} respuesta(s) de esta bandeja? El presupuesto no se elimina.`))) return;
-                  eliminarSeguimientoMutation.mutate(ids);
-                },
-                disabled: eliminarSeguimientoMutation.isPending || idsPorOrigen(seleccionUnificada, 'seg').length === 0,
-              },
+              ...(idsPorOrigen(seleccionUnificada, 'sol').length > 0 ? accionesSolicitud : []),
+              ...(idsSeguimientoEfectivos(seleccionUnificada, solicitudes ?? []).length > 0 ? accionesSeguimiento : []),
             ]}
           />
           <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
