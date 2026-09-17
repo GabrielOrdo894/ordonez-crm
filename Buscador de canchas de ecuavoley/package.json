@@ -1,0 +1,45 @@
+{
+  "name": "donde-hay-ecuavoley",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "node scripts/generar-sitemap.js",
+    "build": "vite build",
+    "postbuild": "node scripts/generar-snapshots.js",
+    "preview": "vite preview",
+    "generar:og-image": "node scripts/generar-og-image.mjs",
+    "generar:icono-maskable": "node scripts/generar-icono-maskable.mjs",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@sentry/react": "^10.70.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "@tanstack/react-query": "^5.59.0",
+    "@vis.gl/react-google-maps": "^1.4.2",
+    "i18next": "^26.3.6",
+    "i18next-browser-languagedetector": "^8.2.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.11",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.9.0",
+    "jsdom": "^30.0.1",
+    "sharp": "^0.35.3",
+    "vite": "^5.4.8",
+    "vitest": "^4.1.10"
+  }
+}

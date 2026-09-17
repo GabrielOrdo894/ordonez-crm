@@ -1,0 +1,18 @@
+node_modules
+dist
+.env
+.env.local
+
+# Higiene general
+coverage
+*.log
+.DS_Store
+Thumbs.db
+
+# Contenido de trabajo no relacionado con el codigo (datos fuente, capturas, notas de arranque)
+/fuentes de ecuavoley/
+/modificaciones/
+/favicon_ecuavoley/
+/logo de donde hay ecuavoley.jpeg
+/Supabase Snippet Untitled query.csv
+/inicio del proyecto.txt

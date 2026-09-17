@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>¿Dónde Hay Ecuavoley?</title>
+    <meta name="description" content="Encuentra canchas de ecuavoley cerca de ti: horarios, superficie, fotos, valoraciones de la comunidad y torneos. Gratis y abierto a todos." />
+
+    <!-- Conexión anticipada a los orígenes externos que realmente se usan
+         (Supabase, Google Maps/Fonts) — recorta la latencia de DNS+TLS del
+         primer request real a cada uno, en vez de esperar a que el JS los
+         descubra. -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <link rel="preconnect" href="https://maps.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <link rel="canonical" href="https://dondehayecuavoley.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="¿Dónde Hay Ecuavoley?" />
+    <meta property="og:url" content="https://dondehayecuavoley.com/" />
+    <meta property="og:title" content="¿Dónde Hay Ecuavoley?" />
+    <meta property="og:description" content="Encuentra canchas de ecuavoley cerca de ti: horarios, superficie, fotos, valoraciones de la comunidad y torneos. Gratis y abierto a todos." />
+    <meta property="og:image" content="https://dondehayecuavoley.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="¿Dónde Hay Ecuavoley?" />
+    <meta name="twitter:description" content="Encuentra canchas de ecuavoley cerca de ti: horarios, superficie, fotos, valoraciones de la comunidad y torneos." />
+    <meta name="twitter:image" content="https://dondehayecuavoley.com/og-image.png" />
+
+    <script>
+      // Aplica el tema guardado antes del primer paint, para evitar el flash de tema claro.
+      try {
+        var temaGuardado = localStorage.getItem("ecuacanchas-theme");
+        if (temaGuardado) document.documentElement.setAttribute("data-theme", temaGuardado);
+      } catch (e) {}
+    </script>
+
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#F4B400" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0F1622" media="(prefers-color-scheme: dark)" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

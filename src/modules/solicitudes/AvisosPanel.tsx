@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
-import { normalizarTelefono } from '../clientes/types';
+import { normalizarNombre, normalizarTelefono } from '../clientes/types';
 import { ETIQUETA_ESTADO_SOLICITUD, type EstadoSolicitud } from './types';
 
 // Mismo criterio de umbral que useNotificaciones.ts / alerta-diaria (2026-08-30): un borrador
@@ -121,10 +121,14 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
       .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
       .filter((t) => t.length > 0),
   );
+  const nombresDescartados = new Set(
+    (solicitudesDescartadas ?? []).map((s) => (s.nombre ? normalizarNombre(s.nombre) : '')).filter((n) => n.length > 0),
+  );
   const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
     if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
     if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
     if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+    if (nombresDescartados.has(normalizarNombre(`${v.nombre} ${v.apellidos}`))) return false;
     return true;
   });
 
@@ -167,7 +171,10 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
         const vTel = v.telefono ? normalizarTelefono(v.telefono) : '';
         const coincideTel = sTel.length > 0 && sTel === vTel;
         const coincideEmail = !!s.email && !!v.email && s.email.trim().toLowerCase() === v.email.trim().toLowerCase();
-        return coincideTel || coincideEmail;
+        // Nombre completo exacto (normalizado) como tercer criterio, mismo que
+        // vincularSolicitudPorVisita/vincularSolicitudPorContacto (petición de Gabriel, 2026-09-16).
+        const coincideNombre = !!s.nombre && normalizarNombre(s.nombre) === normalizarNombre(`${v.nombre} ${v.apellidos}`);
+        return coincideTel || coincideEmail || coincideNombre;
       });
       return match ? { id: v.id, visita: v, solicitud: match } : null;
     })

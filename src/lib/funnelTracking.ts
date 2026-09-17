@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { normalizarTelefono } from '../modules/clientes/types';
+import { normalizarNombre, normalizarTelefono } from '../modules/clientes/types';
 
 export type EtapaFunnel =
   | 'solicitud_entrada'
@@ -145,15 +145,18 @@ export async function registrarEventoFunnel(
 // la creación del presupuesto, que ya tiene su propio toast de éxito/error.
 export async function vincularSolicitudPorContacto(
   presupuestoId: string,
-  contacto: { telefono?: string | null; email?: string | null },
+  contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
 ) {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
   const email = contacto.email ? contacto.email.toLowerCase() : null;
-  if (!tel && !email) return;
+  // Nombre completo exacto (normalizado) como tercer criterio — encuentra coincidencias cuando el
+  // mismo cliente da un teléfono/email distinto en cada sitio (petición de Gabriel, 2026-09-16).
+  const nombre = contacto.nombre ? normalizarNombre(contacto.nombre) : null;
+  if (!tel && !email && !nombre) return;
 
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, telefono, email, fuente')
+    .select('id, nombre, telefono, email, fuente')
     .is('presupuesto_vinculado_id', null)
     .not('estado', 'in', '(Rechazada,Eliminada)')
     .order('created_at', { ascending: false });
@@ -165,7 +168,8 @@ export async function vincularSolicitudPorContacto(
   const match = (solicitudes ?? []).find((s) => {
     const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
     const sEmail = s.email ? String(s.email).toLowerCase() : null;
-    return (tel && sTel === tel) || (email && sEmail === email);
+    const sNombre = s.nombre ? normalizarNombre(s.nombre) : null;
+    return (tel && sTel === tel) || (email && sEmail === email) || (nombre && sNombre === nombre);
   });
   if (!match) return;
 
@@ -201,14 +205,20 @@ export async function vincularSolicitudPorContacto(
 // frente a 25 visitas reales, la mayoría con una solicitud coincidente sin enlazar (hallazgo real
 // de Gabriel, 2026-09-16, con un backfill único sobre las 9 solicitudes ya afectadas en producción).
 // Best-effort, no bloqueante — igual que vincularSolicitudPorContacto.
-export async function vincularSolicitudPorVisita(visitaId: string, contacto: { telefono?: string | null; email?: string | null }) {
+export async function vincularSolicitudPorVisita(
+  visitaId: string,
+  contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
+) {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
   const email = contacto.email ? contacto.email.toLowerCase() : null;
-  if (!tel && !email) return;
+  // Nombre completo exacto (normalizado) como tercer criterio — mismo motivo que en
+  // vincularSolicitudPorContacto (petición de Gabriel, 2026-09-16).
+  const nombre = contacto.nombre ? normalizarNombre(contacto.nombre) : null;
+  if (!tel && !email && !nombre) return;
 
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, telefono, email, fuente')
+    .select('id, nombre, telefono, email, fuente')
     .is('visita_id', null)
     .not('estado', 'in', '(Rechazada,Eliminada)')
     .order('created_at', { ascending: false });
@@ -220,7 +230,8 @@ export async function vincularSolicitudPorVisita(visitaId: string, contacto: { t
   const match = (solicitudes ?? []).find((s) => {
     const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
     const sEmail = s.email ? String(s.email).toLowerCase() : null;
-    return (tel && sTel === tel) || (email && sEmail === email);
+    const sNombre = s.nombre ? normalizarNombre(s.nombre) : null;
+    return (tel && sTel === tel) || (email && sEmail === email) || (nombre && sNombre === nombre);
   });
   if (!match) return;
 

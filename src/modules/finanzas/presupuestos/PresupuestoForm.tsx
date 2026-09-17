@@ -489,7 +489,11 @@ export function PresupuestoForm({
         await notaSistema(form.visita_id, `Presupuesto ${numero} creado por ${nombreUsuarioActual}`);
       }
       await registrarEvento('presupuesto', data.id, 'Presupuesto creado');
-      await vincularSolicitudPorContacto(data.id, { telefono: nuevo.cliente_tel, email: nuevo.cliente_email });
+      await vincularSolicitudPorContacto(data.id, {
+        telefono: nuevo.cliente_tel,
+        email: nuevo.cliente_email,
+        nombre: nuevo.cliente_nombre,
+      });
       if (desdeOrientativo) {
         await registrarEvento('presupuesto', desdeOrientativo.id, `Presupuesto normal ${numero} creado a partir de este orientativo`);
       }

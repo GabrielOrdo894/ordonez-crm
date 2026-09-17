@@ -39,6 +39,22 @@ export function normalizarTelefono(tel: string) {
   return tel.replace(/\D/g, '').slice(-9);
 }
 
+// Tercer criterio de cruce (2026-09-16, petición de Gabriel), además de teléfono/email, en
+// vincularSolicitudPorVisita/vincularSolicitudPorContacto — encuentra más coincidencias cuando el
+// mismo cliente aparece con teléfono/email distinto en cada sitio (p. ej. un formulario con el
+// email de un familiar) pero el nombre es el mismo. Minúsculas + sin espacios repetidos/extremos +
+// sin acentos, para que "José García " y "jose garcia" crucen igual — pero es una coincidencia
+// EXACTA del nombre completo, no parcial, para no unir a dos personas distintas que comparten solo
+// el nombre de pila (frecuente en Francia/España).
+export function normalizarNombre(nombre: string) {
+  return nombre
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 // Solo detalle visual (2026-09-15, petición de Gabriel) — nunca toca el valor guardado ni
 // normalizarTelefono() de arriba, que sigue igual para deduplicación. Un francés/español solo se
 // distingue con certeza cuando el número trae el indicio: prefijo +33/0033/+34/0034, o el "0"
