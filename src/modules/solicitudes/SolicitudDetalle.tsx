@@ -12,6 +12,7 @@ import { Select } from '../../components/ui/Select';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
 import { formatearTelefonoVisual } from '../clientes/types';
 import {
+  ESTADOS_SOLICITUD,
   ETIQUETA_ESTADO_SOLICITUD,
   FUENTE_LABEL,
   MODELOS_IA,
@@ -41,6 +42,7 @@ const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
   Enviada: 'en-espera',
   Aceptada: 'confirmada',
+  'No concretada': 'vencida',
   Rechazada: 'cancelada',
   Eliminada: 'default',
 };
@@ -216,18 +218,31 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     onError: (error) => toast.error(error.message),
   });
 
-  const rechazarMutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from('solicitudes').update({ estado: 'Rechazada' }).eq('id', id);
+  const cambiarEstadoMutation = useMutation({
+    mutationFn: async (estado: EstadoSolicitud) => {
+      const patch: Record<string, unknown> = { estado };
+      if (estado === 'Enviada') {
+        patch.mensaje_enviado_en = new Date().toISOString();
+        patch.ultima_respuesta_revisada = true;
+      }
+      if (estado === 'Nueva') {
+        patch.mensaje_generado = null;
+        patch.mensaje_generado_en = null;
+        patch.mensaje_enviado_en = null;
+        patch.ultima_respuesta_revisada = true;
+      }
+      const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
       if (error) throw error;
-      // Etapa de funnel sin renombrar — 'solicitud_descartada' es una constante de análisis ya
-      // usada en datos históricos, "Rechazada" es solo el nuevo nombre visible del mismo estado.
-      await registrarEventoFunnel('solicitud_descartada', { solicitudId: id, fuente: solicitud?.fuente });
+      if (estado === 'Enviada') {
+        await registrarEventoFunnel('solicitud_respondida', { solicitudId: id, fuente: solicitud?.fuente });
+      }
+      if (estado === 'No concretada') {
+        await registrarEventoFunnel('solicitud_descartada', { solicitudId: id, fuente: solicitud?.fuente });
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_data, estado) => {
       invalidarListas();
-      toast.success('Solicitud rechazada');
-      onClose();
+      toast.success(`Estado cambiado a ${ETIQUETA_ESTADO_SOLICITUD[estado]}`);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -306,7 +321,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   // llegar una respuesta, decisión de Gabriel 2026-08-26, para no distorsionar el embudo).
   const respuestaSinRevisar = tipo === 'solicitud' && solicitud?.estado === 'Enviada' && solicitud?.ultima_respuesta_revisada === false;
   const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' && !respuestaSinRevisar : !!presupuesto?.mensaje_seguimiento_enviado;
-  const rechazada = tipo === 'solicitud' && solicitud?.estado === 'Rechazada';
+  const cerrada = tipo === 'solicitud' && (solicitud?.estado === 'No concretada' || solicitud?.estado === 'Rechazada');
 
   return (
     <div>
@@ -426,7 +441,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         </div>
       )}
 
-      {tipo === 'solicitud' && solicitud && !rechazada && (
+      {tipo === 'solicitud' && solicitud && !cerrada && (
         <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
           <Button
             variant="secondary"
@@ -449,6 +464,26 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
             </span>
           </Button>
           <span className="text-xs text-gray-400">Abre "Nueva visita" con los datos de contacto ya rellenados.</span>
+        </div>
+      )}
+
+      {tipo === 'solicitud' && solicitud && (
+        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Estado</span>
+          <div className="w-56">
+            <Select
+              options={ESTADOS_SOLICITUD.filter((estado) => estado !== 'Eliminada').map((estado) => ({
+                value: estado,
+                label: estado === 'Rechazada' ? 'Rechazada (tras visita)' : ETIQUETA_ESTADO_SOLICITUD[estado],
+              }))}
+              value={solicitud.estado}
+              disabled={cambiarEstadoMutation.isPending}
+              onChange={(e) => cambiarEstadoMutation.mutate(e.target.value as EstadoSolicitud)}
+            />
+          </div>
+          <span className="text-xs text-gray-400">
+            No concretada: no se llegó a acordar visita. Rechazada: decisión tomada después de la visita.
+          </span>
         </div>
       )}
 
@@ -527,9 +562,9 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         </div>
       )}
 
-      {rechazada ? (
+      {cerrada ? (
         <div className="bg-gray-50 border border-gray-200 rounded-sm p-4 text-sm text-gray-500">
-          Esta solicitud está rechazada. No se generará ningún mensaje.
+          Esta solicitud está cerrada. No se generará ningún mensaje mientras conserve este estado.
         </div>
       ) : (
         <>
@@ -611,13 +646,15 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    if (await confirmar('¿Rechazar esta solicitud? No se le hará seguimiento.')) rechazarMutation.mutate();
+                    if (await confirmar('¿Marcar como no concretada? Indica que no se llegó a acordar una visita.')) {
+                      cambiarEstadoMutation.mutate('No concretada');
+                    }
                   }}
-                  disabled={rechazarMutation.isPending}
+                  disabled={cambiarEstadoMutation.isPending}
                 >
                   <span className="flex items-center gap-1.5">
                     <X size={14} />
-                    Cancelar / rechazar
+                    Marcar como no concretada
                   </span>
                 </Button>
               )}

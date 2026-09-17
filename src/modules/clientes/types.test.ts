@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizarTelefono } from './types';
+import { normalizarNombre, normalizarTelefono } from './types';
 
 describe('normalizarTelefono', () => {
   it('cruza formato nacional francés y formato internacional del mismo número', () => {
@@ -19,5 +19,12 @@ describe('normalizarTelefono', () => {
   it('un teléfono sin dígitos normaliza a cadena vacía', () => {
     expect(normalizarTelefono('N/A')).toBe('');
     expect(normalizarTelefono('sin whatsapp')).toBe('');
+  });
+});
+
+describe('normalizarNombre', () => {
+  it('ignora mayúsculas, acentos y espacios superfluos del nombre completo', () => {
+    expect(normalizarNombre('  José   García López  ')).toBe('jose garcia lopez');
+    expect(normalizarNombre('JOSE GARCIA LOPEZ')).toBe('jose garcia lopez');
   });
 });

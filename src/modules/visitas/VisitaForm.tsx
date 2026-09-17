@@ -589,7 +589,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       } else {
         // Visita creada buscando el cliente directamente (la vía más habitual) — intenta el mismo
-        // enlace por teléfono/email que arriba, para que "Visita agendada" del embudo no se quede
+        // enlace por teléfono/email/nombre completo que arriba, para que "Visita agendada" del embudo no se quede
         // corto solo por no haber pasado por el botón de la solicitud (hallazgo real, 2026-09-16).
         await vincularSolicitudPorVisita(data.id, {
           telefono: data.telefono,

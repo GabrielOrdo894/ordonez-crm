@@ -955,7 +955,7 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
       .from('solicitudes')
       .select('id, nombre, estado, ultima_respuesta_cliente_fecha, tipo_solicitud')
       .ilike('email', deUltimo)
-      .not('estado', 'in', '(Rechazada,Eliminada)')
+      .not('estado', 'in', '(No concretada,Rechazada,Eliminada)')
       .order('created_at', { ascending: false })
       .limit(1);
     if (solicitudExistente && solicitudExistente.length > 0) {

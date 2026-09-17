@@ -3,7 +3,7 @@ import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { cargarEntidad } from '../../../lib/pdfEmpresa';
 import { calcularTotales } from '../lineas';
-import type { Factura } from './types';
+import { paisDesdeTipoIva, type Factura } from './types';
 
 type RecordatorioPagoModalProps = {
   factura: Factura | null;
@@ -25,7 +25,8 @@ export function RecordatorioPagoModal({ factura, onClose }: RecordatorioPagoModa
     if (!factura) return;
     setCargando(true);
     (async () => {
-      const { entidad } = await cargarEntidad(factura.pais ?? 'España');
+      const pais = factura.pais ?? paisDesdeTipoIva(factura.tipo_iva) ?? 'España';
+      const { entidad } = await cargarEntidad(pais);
       const idioma = factura.idioma === 'Français' ? 'fr' : 'es';
       const { totalConIva } = calcularTotales(factura.lineas);
       const pendiente = (totalConIva - (factura.monto_pagado ?? 0)).toFixed(2);

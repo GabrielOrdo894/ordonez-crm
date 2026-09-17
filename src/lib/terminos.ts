@@ -1,5 +1,11 @@
 type PlazoResumen = { concepto: string; porcentaje: number };
 
+type VariablesTerminos = {
+  fechaEmision?: string | null;
+  fechaValidez?: string | null;
+  diasValidez?: number | null;
+};
+
 export type TamanoTC = 'normal' | 'grande' | 'muy_grande';
 
 const FONT_SIZE_TC: Record<TamanoTC, number> = { normal: 9, grande: 11, muy_grande: 13 };
@@ -18,6 +24,33 @@ function describirPlanPago(planPago: PlazoResumen[] | undefined, idioma: 'es' | 
   return partes.join(idioma === 'fr' ? ', puis ' : ', ');
 }
 
-export function renderizarTC(texto: string, planPago: PlazoResumen[] | undefined, idioma: 'es' | 'fr'): string {
-  return texto.replace(/\{PLAN_PAGO\}/g, describirPlanPago(planPago, idioma));
+export function renderizarTC(
+  texto: string,
+  planPago: PlazoResumen[] | undefined,
+  idioma: 'es' | 'fr',
+  variables: VariablesTerminos = {},
+): string {
+  const diasValidez = variables.diasValidez == null ? '' : String(variables.diasValidez);
+  let resultado = texto
+    .replace(/\{PLAN_PAGO\}/g, describirPlanPago(planPago, idioma))
+    .replace(/\{FECHA_EMISION\}/g, variables.fechaEmision ?? '')
+    .replace(/\{FECHA_VALIDEZ\}/g, variables.fechaValidez ?? '')
+    .replace(/\{DIAS_VALIDEZ\}/g, diasValidez);
+
+  // Las plantillas históricas incluían un plazo fijo de 30 días. El plazo del documento es
+  // la fuente de verdad, por lo que se actualiza la redacción estándar al generar cada PDF.
+  if (diasValidez) {
+    resultado =
+      idioma === 'fr'
+        ? resultado.replace(
+            /(devis\s+(?:reste\s+)?valable\s+)\d+(\s+jours(?:\s+calendaires)?\s+à\s+compter\s+de\s+(?:sa\s+)?date\s+d['’]émission)/giu,
+            `$1${diasValidez}$2`,
+          )
+        : resultado.replace(
+            /(presupuesto\s+v[aá]lido\s+)\d+(\s+d[ií]as(?:\s+naturales)?\s+desde\s+la\s+fecha\s+de\s+emisi[oó]n)/giu,
+            `$1${diasValidez}$2`,
+          );
+  }
+
+  return resultado;
 }

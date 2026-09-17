@@ -4,7 +4,7 @@ Le présent document est une estimation de prix indicative, établie à partir d
 
 Article 2 – Validité
 
-Cette estimation est valable 30 jours à compter de sa date d'émission. Passé ce délai, elle doit être réactualisée, les prix des matériaux et de la main-d'œuvre pouvant avoir évolué entre-temps.
+Cette estimation est valable jusqu'au {FECHA_VALIDEZ} ({DIAS_VALIDEZ} jours à compter de sa date d'émission). Passé ce délai, elle doit être réactualisée, les prix des matériaux et de la main-d'œuvre pouvant avoir évolué entre-temps.
 
 Article 3 – Portée et limites
 

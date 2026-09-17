@@ -134,7 +134,8 @@ export async function registrarEventoFunnel(
   if (error) console.warn('No se pudo registrar el evento de funnel:', error.message);
 }
 
-// Auto-vinculación al crear un presupuesto: cruza por teléfono/email normalizado contra
+// Auto-vinculación al crear un presupuesto: cruza por teléfono/email normalizado y, como último
+// recurso, por nombre completo normalizado contra
 // solicitudes sin vincular todavía, mismo criterio que datosContactoCliente() en
 // ClientePrivacidadTab.tsx/pipelineSync.ts. Antes esto solo se hacía a mano desde el desplegable
 // "Vincular a presupuesto" de SolicitudDetalle.tsx, y casi nunca se hacía — la inmensa mayoría de
@@ -148,7 +149,7 @@ export async function vincularSolicitudPorContacto(
   contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
 ) {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
-  const email = contacto.email ? contacto.email.toLowerCase() : null;
+  const email = contacto.email ? contacto.email.trim().toLowerCase() : null;
   // Nombre completo exacto (normalizado) como tercer criterio — encuentra coincidencias cuando el
   // mismo cliente da un teléfono/email distinto en cada sitio (petición de Gabriel, 2026-09-16).
   const nombre = contacto.nombre ? normalizarNombre(contacto.nombre) : null;
@@ -158,19 +159,18 @@ export async function vincularSolicitudPorContacto(
     .from('solicitudes')
     .select('id, nombre, telefono, email, fuente')
     .is('presupuesto_vinculado_id', null)
-    .not('estado', 'in', '(Rechazada,Eliminada)')
+    .not('estado', 'in', '(No concretada,Rechazada,Eliminada)')
     .order('created_at', { ascending: false });
   if (error) {
     console.warn('vincularSolicitudPorContacto: no se pudieron leer solicitudes:', error.message);
     return;
   }
 
-  const match = (solicitudes ?? []).find((s) => {
-    const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
-    const sEmail = s.email ? String(s.email).toLowerCase() : null;
-    const sNombre = s.nombre ? normalizarNombre(s.nombre) : null;
-    return (tel && sTel === tel) || (email && sEmail === email) || (nombre && sNombre === nombre);
-  });
+  const match = seleccionarSolicitudPorContacto(
+    solicitudes ?? [],
+    { tel, email, nombre },
+    'vincularSolicitudPorContacto',
+  );
   if (!match) return;
 
   // Vincular un presupuesto sin pasar por una visita (Ricardo lo hace directo, ver petición de
@@ -210,7 +210,7 @@ export async function vincularSolicitudPorVisita(
   contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
 ) {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
-  const email = contacto.email ? contacto.email.toLowerCase() : null;
+  const email = contacto.email ? contacto.email.trim().toLowerCase() : null;
   // Nombre completo exacto (normalizado) como tercer criterio — mismo motivo que en
   // vincularSolicitudPorContacto (petición de Gabriel, 2026-09-16).
   const nombre = contacto.nombre ? normalizarNombre(contacto.nombre) : null;
@@ -220,19 +220,18 @@ export async function vincularSolicitudPorVisita(
     .from('solicitudes')
     .select('id, nombre, telefono, email, fuente')
     .is('visita_id', null)
-    .not('estado', 'in', '(Rechazada,Eliminada)')
+    .not('estado', 'in', '(No concretada,Rechazada,Eliminada)')
     .order('created_at', { ascending: false });
   if (error) {
     console.warn('vincularSolicitudPorVisita: no se pudieron leer solicitudes:', error.message);
     return;
   }
 
-  const match = (solicitudes ?? []).find((s) => {
-    const sTel = s.telefono ? normalizarTelefono(s.telefono) : null;
-    const sEmail = s.email ? String(s.email).toLowerCase() : null;
-    const sNombre = s.nombre ? normalizarNombre(s.nombre) : null;
-    return (tel && sTel === tel) || (email && sEmail === email) || (nombre && sNombre === nombre);
-  });
+  const match = seleccionarSolicitudPorContacto(
+    solicitudes ?? [],
+    { tel, email, nombre },
+    'vincularSolicitudPorVisita',
+  );
   if (!match) return;
 
   const { error: errorUpdate } = await supabase.from('solicitudes').update({ visita_id: visitaId, estado: 'Aceptada' }).eq('id', match.id);
@@ -241,4 +240,43 @@ export async function vincularSolicitudPorVisita(
     return;
   }
   await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
+}
+
+type SolicitudParaCruce = {
+  id: string;
+  nombre: string | null;
+  telefono: string | null;
+  email: string | null;
+  fuente: string | null;
+};
+
+type ContactoNormalizado = { tel: string | null; email: string | null; nombre: string | null };
+
+// Las solicitudes ya llegan ordenadas de la más reciente a la más antigua. La prioridad es
+// deliberada: teléfono, después email y solo entonces nombre completo. Un nombre por sí solo no
+// identifica de forma segura a una persona si hay más de una solicitud candidata.
+function seleccionarSolicitudPorContacto(
+  solicitudes: SolicitudParaCruce[],
+  contacto: ContactoNormalizado,
+  contexto: string,
+): SolicitudParaCruce | undefined {
+  if (contacto.tel) {
+    const porTelefono = solicitudes.find((s) => normalizarTelefono(s.telefono ?? '') === contacto.tel);
+    if (porTelefono) return porTelefono;
+  }
+
+  if (contacto.email) {
+    const porEmail = solicitudes.find((s) => s.email?.trim().toLowerCase() === contacto.email);
+    if (porEmail) return porEmail;
+  }
+
+  if (!contacto.nombre) return undefined;
+  const porNombre = solicitudes.filter((s) => normalizarNombre(s.nombre ?? '') === contacto.nombre);
+  if (porNombre.length > 1) {
+    console.warn(
+      `${contexto}: se omitió la vinculación automática; hay ${porNombre.length} solicitudes con el nombre completo "${contacto.nombre}".`,
+    );
+    return undefined;
+  }
+  return porNombre[0];
 }

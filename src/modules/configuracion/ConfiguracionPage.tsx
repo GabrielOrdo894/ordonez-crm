@@ -978,7 +978,10 @@ export default function ConfiguracionPage() {
         </div>
         <p className="text-xs text-gray-400 mb-3">
           Escribe <code className="bg-gray-100 px-1 rounded-sm">{'{PLAN_PAGO}'}</code> donde quieras que aparezca el plan de
-          pago del presupuesto (se sustituye automáticamente por "50% al inicio, 50% al finalizar", etc. según cada caso).
+          pago del presupuesto (se sustituye automáticamente por "50% al inicio, 50% al finalizar", etc. según cada caso). Puedes usar{' '}
+          <code className="bg-gray-100 px-1 rounded-sm">{'{FECHA_EMISION}'}</code>,{' '}
+          <code className="bg-gray-100 px-1 rounded-sm">{'{FECHA_VALIDEZ}'}</code> y{' '}
+          <code className="bg-gray-100 px-1 rounded-sm">{'{DIAS_VALIDEZ}'}</code> para que las fechas coincidan con cada presupuesto.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <EditorTexto label="Español" value={tcEs} onChange={setTcEs} rows={8} />

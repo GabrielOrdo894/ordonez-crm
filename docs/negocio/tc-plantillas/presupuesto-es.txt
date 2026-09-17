@@ -6,7 +6,7 @@ Artículo 2 — Información precontractual y validez
 
 El presente documento cumple la función de información precontractual exigida por el artículo 60 del Real Decreto Legislativo 1/2007, de 16 de noviembre, detallando de forma clara y comprensible el precio, las partidas de obra y materiales a emplear, el plazo orientativo de ejecución y la forma de pago, con el fin de que el cliente pueda valorar la oportunidad y conveniencia del contrato antes de aceptarlo.
 
-El presupuesto es válido durante 30 días naturales desde su fecha de emisión, transcurridos los cuales el prestador podrá revisar precios, plazos y disponibilidad sin previo aviso. La aceptación del presupuesto por parte del cliente, mediante firma, confirmación por escrito o el pago de la señal indicada, tendrá valor de contrato vinculante entre las partes en los términos y condiciones aquí recogidos.
+El presupuesto es válido hasta el {FECHA_VALIDEZ} ({DIAS_VALIDEZ} días naturales desde su fecha de emisión), transcurridos los cuales el prestador podrá revisar precios, plazos y disponibilidad sin previo aviso. La aceptación del presupuesto por parte del cliente, mediante firma, confirmación por escrito o el pago de la señal indicada, tendrá valor de contrato vinculante entre las partes en los términos y condiciones aquí recogidos.
 
 Artículo 3 — Precio y revisión
 

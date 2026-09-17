@@ -1,15 +1,10 @@
-// 5 estados (2026-09-15, petición de Gabriel de simplificar): una solicitud "termina su camino"
-// cuando se acepta y se convierte en visita/presupuesto — Aceptada se pone sola (VisitaForm.tsx al
-// enlazar visita_id, vincularSolicitudPorContacto en funnelTracking.ts al vincular un presupuesto
-// sin pasar por visita), nunca a mano. Rechazada sustituye a la antigua "Descartada" (mismo
-// significado, terminología unificada) y también se pone sola tras 14 días sin visita ni
-// presupuesto vinculado (automatizaciones-crm/index.ts, cron cada 30 min). Eliminada sustituye al
-// antiguo botón "Eliminar" que hacía un DELETE real — ahora es solo un estado más, así que una
-// solicitud "eliminada" sigue existiendo y no puede reaparecer como Nueva si vuelve a llegar por
-// Gmail (bug real que tenía el DELETE, ver el aviso que llevaba ese botón).
-export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Aceptada' | 'Rechazada' | 'Eliminada';
+// 6 estados: "No concretada" cierra los casos donde el cliente no responde o no llega a acordar
+// una visita; "Rechazada" se reserva para una decisión posterior a una visita realizada. Aceptada
+// se asigna automáticamente al vincular una visita o presupuesto. Eliminada sustituye al antiguo
+// DELETE real, para que la solicitud no reaparezca como Nueva si vuelve a llegar por Gmail.
+export type EstadoSolicitud = 'Nueva' | 'Enviada' | 'Aceptada' | 'No concretada' | 'Rechazada' | 'Eliminada';
 
-export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Aceptada', 'Rechazada', 'Eliminada'];
+export const ESTADOS_SOLICITUD: EstadoSolicitud[] = ['Nueva', 'Enviada', 'Aceptada', 'No concretada', 'Rechazada', 'Eliminada'];
 
 // Etiqueta visible de cada estado — 'Enviada' se ve como "En espera" en toda la interfaz
 // (2026-09-16, petición de Gabriel: es el estado de las solicitudes a las que ya se respondió pero
@@ -22,6 +17,7 @@ export const ETIQUETA_ESTADO_SOLICITUD: Record<EstadoSolicitud, string> = {
   Nueva: 'Nueva',
   Enviada: 'En espera',
   Aceptada: 'Aceptada',
+  'No concretada': 'No concretada',
   Rechazada: 'Rechazada',
   Eliminada: 'Eliminada',
 };

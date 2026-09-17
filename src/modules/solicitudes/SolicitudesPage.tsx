@@ -57,6 +57,7 @@ const VARIANTE_ESTADO: Record<string, VarianteBadge> = {
   Nueva: 'pendiente',
   Enviada: 'en-espera',
   Aceptada: 'confirmada',
+  'No concretada': 'vencida',
   Rechazada: 'cancelada',
   Eliminada: 'default',
 };
@@ -271,9 +272,9 @@ export default function SolicitudesPage() {
       }
       const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
       if (error) throw error;
-      if (estado === 'Enviada' || estado === 'Rechazada') {
-        // Etapa de funnel 'solicitud_descartada' sin renombrar — es una constante de análisis ya
-        // usada en datos históricos, "Rechazada" es solo el nuevo nombre visible del mismo estado.
+      if (estado === 'Enviada' || estado === 'No concretada') {
+        // 'solicitud_descartada' solo representa que no se concretó una visita. Un rechazo tras
+        // visita no añade esta etapa: la visita ya conserva su conversión en el embudo.
         const etapa = estado === 'Enviada' ? 'solicitud_respondida' : 'solicitud_descartada';
         await Promise.all((ids as string[]).map((solicitudId) => registrarEventoFunnel(etapa, { solicitudId })));
       }
@@ -281,21 +282,6 @@ export default function SolicitudesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       toast.success('Estado actualizado');
-      limpiarSeleccionUnificada();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-
-  // Cierra el aviso de "respuesta sin revisar" sin tocar `estado` (que sigue "Enviada") ni el
-  // embudo — mismo criterio que "Marcar como enviada" en las filas de respuesta a presupuesto.
-  const marcarRespuestaRevisadaMutation = useMutation({
-    mutationFn: async (ids: (string | number)[]) => {
-      const { error } = await supabase.from('solicitudes').update({ ultima_respuesta_revisada: true }).in('id', ids as string[]);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
-      toast.success('Respuesta marcada como revisada');
       limpiarSeleccionUnificada();
     },
     onError: (error) => toast.error(error.message),
@@ -398,15 +384,17 @@ export default function SolicitudesPage() {
       disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
     },
     {
-      label: 'Marcar como Rechazada',
-      dot: 'rgb(var(--color-gray-500))',
-      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Rechazada' }),
+      label: 'Marcar como No concretada',
+      dot: 'rgb(var(--badge-vencida-text))',
+      onClick: () =>
+        cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'No concretada' }),
       disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
     },
     {
-      label: 'Marcar respuesta como revisada',
-      onClick: () => marcarRespuestaRevisadaMutation.mutate(idsPorOrigen(seleccionUnificada, 'sol')),
-      disabled: marcarRespuestaRevisadaMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
+      label: 'Marcar como Rechazada (tras visita)',
+      dot: 'rgb(var(--color-gray-500))',
+      onClick: () => cambiarEstadoSolicitudesMutation.mutate({ ids: idsPorOrigen(seleccionUnificada, 'sol'), estado: 'Rechazada' }),
+      disabled: cambiarEstadoSolicitudesMutation.isPending || idsPorOrigen(seleccionUnificada, 'sol').length === 0,
     },
     {
       label: 'Eliminar solicitud(es)',

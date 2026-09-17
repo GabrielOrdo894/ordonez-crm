@@ -64,8 +64,8 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     },
   });
 
-  // Solicitudes rechazadas/eliminadas (mismo criterio de cruce por contacto que funnelTracking.ts /
-  // pipelineSync.ts) — una visita cuya solicitud de origen se marcó Rechazada (Gabriel decidió no
+  // Solicitudes no concretadas/rechazadas/eliminadas (mismo criterio de cruce por contacto que funnelTracking.ts /
+  // pipelineSync.ts) — una visita cuya solicitud de origen se marcó como cerrada (Gabriel decidió no
   // presupuestar esa obra) no debe seguir apareciendo indefinidamente como "sin presupuesto
   // enviado": no es que se haya olvidado, es que ya se decidió no enviar nada (hallazgo real de
   // Gabriel 2026-09-07, caso Raphael Szuba — declinado por riesgo estructural pese a insistir el
@@ -76,7 +76,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
       const { data, error } = await supabase
         .from('solicitudes')
         .select('id, nombre, email, telefono, created_at, visita_id')
-        .in('estado', ['Rechazada', 'Eliminada']);
+        .in('estado', ['No concretada', 'Rechazada', 'Eliminada']);
       if (error) throw error;
       return data as SolicitudDescartada[];
     },
@@ -102,7 +102,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
         .select('id, nombre, email, created_at, estado')
         .eq('tipo_solicitud', 'presupuesto_orientativo')
         .is('presupuesto_vinculado_id', null)
-        .not('estado', 'in', '(Rechazada,Eliminada)');
+        .not('estado', 'in', '(No concretada,Rechazada,Eliminada)');
       if (error) throw error;
       return data as SolicitudOrientativa[];
     },
@@ -122,7 +122,11 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
       .filter((t) => t.length > 0),
   );
   const nombresDescartados = new Set(
-    (solicitudesDescartadas ?? []).map((s) => (s.nombre ? normalizarNombre(s.nombre) : '')).filter((n) => n.length > 0),
+    (solicitudesDescartadas ?? [])
+      .map((s) => (s.nombre ? normalizarNombre(s.nombre) : ''))
+      .filter(
+        (n, _indice, nombres) => n.length > 0 && nombres.filter((otro) => otro === n).length === 1,
+      ),
   );
   const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
     if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
@@ -155,7 +159,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     (p) => p.estado === 'Pendiente' && p.fecha_validez && p.fecha_validez <= limite7d,
   );
 
-  // 5. Visita Realizada cuyo contacto coincide con una solicitud Rechazada/Eliminada que todavía
+  // 5. Visita Realizada cuyo contacto coincide con una solicitud cerrada que todavía
   // no tiene visita_id — el cruce automático (vincularSolicitudPorVisita, VisitaForm.tsx) solo
   // enlaza solicitudes activas a propósito, para no reabrir sin más una que Gabriel rechazó de
   // verdad (p. ej. Raphael Szuba, declinado por riesgo estructural pese a la visita ya hecha — ver
@@ -165,17 +169,20 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
   // selector "Vincular a visita") si corresponde.
   const solicitudesRechazadasConVisita = (visitas ?? [])
     .map((v): { id: string; visita: VisitaRealizada; solicitud: SolicitudDescartada } | null => {
-      const match = (solicitudesDescartadas ?? []).find((s) => {
-        if (s.visita_id) return false;
-        const sTel = s.telefono ? normalizarTelefono(s.telefono) : '';
-        const vTel = v.telefono ? normalizarTelefono(v.telefono) : '';
-        const coincideTel = sTel.length > 0 && sTel === vTel;
-        const coincideEmail = !!s.email && !!v.email && s.email.trim().toLowerCase() === v.email.trim().toLowerCase();
-        // Nombre completo exacto (normalizado) como tercer criterio, mismo que
-        // vincularSolicitudPorVisita/vincularSolicitudPorContacto (petición de Gabriel, 2026-09-16).
-        const coincideNombre = !!s.nombre && normalizarNombre(s.nombre) === normalizarNombre(`${v.nombre} ${v.apellidos}`);
-        return coincideTel || coincideEmail || coincideNombre;
-      });
+      const candidatas = (solicitudesDescartadas ?? []).filter((s) => !s.visita_id);
+      const telefono = v.telefono ? normalizarTelefono(v.telefono) : '';
+      const email = v.email?.trim().toLowerCase();
+      const nombre = normalizarNombre(`${v.nombre} ${v.apellidos}`);
+      const matchTelefono = telefono
+        ? candidatas.find((s) => normalizarTelefono(s.telefono ?? '') === telefono)
+        : undefined;
+      const matchEmail = email
+        ? candidatas.find((s) => s.email?.trim().toLowerCase() === email)
+        : undefined;
+      const porNombre = nombre ? candidatas.filter((s) => normalizarNombre(s.nombre ?? '') === nombre) : [];
+      // El nombre solo sirve para este aviso manual cuando identifica una única solicitud. Con dos
+      // homónimos no se muestra una relación arbitraria que podría inducir a enlazar el caso errado.
+      const match = matchTelefono ?? matchEmail ?? (porNombre.length === 1 ? porNombre[0] : undefined);
       return match ? { id: v.id, visita: v, solicitud: match } : null;
     })
     .filter((x): x is { id: string; visita: VisitaRealizada; solicitud: SolicitudDescartada } => !!x);
@@ -198,7 +205,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
           { label: 'Orientativos sin vincular', valor: orientativosSinVincular.length, acento: orientativosSinVincular.length > 0 },
           { label: 'Por caducar / caducados', valor: presupuestosPorCerrar.length, acento: presupuestosPorCerrar.length > 0 },
           {
-            label: 'Rechazadas con visita sin vincular',
+            label: 'Cerradas con visita sin vincular',
             valor: solicitudesRechazadasConVisita.length,
             acento: solicitudesRechazadasConVisita.length > 0,
           },
@@ -293,10 +300,10 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
 
         <div>
           <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
-            Solicitudes rechazadas con una visita real hecha, sin vincular ({solicitudesRechazadasConVisita.length})
+            Solicitudes cerradas con una visita real hecha, sin vincular ({solicitudesRechazadasConVisita.length})
           </h2>
           <p className="text-xs text-gray-400 mb-2">
-            El teléfono/email coincide con una visita ya realizada. Puede que el rechazo sea correcto (revisar caso por
+            El teléfono/email coincide con una visita ya realizada. Puede que el cierre sea correcto (revisar caso por
             caso) o que solo falte enlazarla a mano desde "Vincular a visita" en la ficha de la solicitud.
           </p>
           <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">

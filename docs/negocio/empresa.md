@@ -121,7 +121,7 @@ dentro del CRM.
 
 **Español:**
 ```
-Art. 1 — Validez: presupuesto válido 30 días naturales desde la fecha de emisión.
+Art. 1 — Validez: presupuesto válido hasta el {FECHA_VALIDEZ} ({DIAS_VALIDEZ} días naturales desde la fecha de emisión).
 Art. 2 — Pago: según el plan acordado. Los retrasos generan intereses al tipo legal vigente.
 Art. 3 — Modificaciones: cualquier cambio requiere presupuesto complementario aprobado por escrito.
 Art. 4 — Garantías: garantía bienal en equipamiento y decenal en elementos estructurales.
@@ -131,7 +131,7 @@ Art. 6 — Conflictos: mediación previa a la vía judicial. Tribunal del domici
 
 **Français:**
 ```
-Art. 1 — Validité: devis valable 30 jours calendaires à compter de la date d'émission.
+Art. 1 — Validité: devis valable jusqu'au {FECHA_VALIDEZ} ({DIAS_VALIDEZ} jours calendaires à compter de la date d'émission).
 Art. 2 — Paiement: selon le plan convenu. Retard: pénalités légales + 40€ (décret 2012-1115).
 Art. 3 — Modifications: tout changement nécessite un devis complémentaire approuvé par écrit.
 Art. 4 — Garanties: garantie biennale sur l'équipement et décennale sur les éléments structurels.

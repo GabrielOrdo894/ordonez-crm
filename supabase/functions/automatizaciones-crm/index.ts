@@ -8,7 +8,7 @@
 //      genera su gasto de kilometraje pendiente de revisar (España o Francia, siempre contabilizado
 //      como gasto de Francia — ver comentario junto a OFICINA_FR más abajo).
 //   2. Marca como Rechazado los presupuestos Pendiente cuya fecha_validez ya pasó.
-//   3. Marca como Rechazada cualquier solicitud Nueva/Enviada que lleve 14 días sin convertirse en
+//   3. Marca como No concretada cualquier solicitud Nueva/Enviada que lleve 14 días sin convertirse en
 //      visita ni vincularse a un presupuesto (petición de Gabriel 2026-09-15) — el resto de caminos
 //      de aceptación son inmediatos (VisitaForm.tsx, funnelTracking.ts), este es el único que
 //      necesita paso del tiempo, de ahí que viva aquí y no en el frontend.
@@ -220,7 +220,7 @@ async function rechazarPresupuestosCaducados(supabase: SupabaseClient): Promise<
 
 const CATORCE_DIAS_MS = 14 * 24 * 60 * 60 * 1000;
 
-async function rechazarSolicitudesAbandonadas(supabase: SupabaseClient): Promise<number> {
+async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise<number> {
   const limite = new Date(Date.now() - CATORCE_DIAS_MS).toISOString();
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
@@ -238,15 +238,15 @@ async function rechazarSolicitudesAbandonadas(supabase: SupabaseClient): Promise
   // presupuesto justo en el hueco entre leer y escribir.
   const { error: errorUpdate } = await supabase
     .from('solicitudes')
-    .update({ estado: 'Rechazada' })
+    .update({ estado: 'No concretada' })
     .in('id', ids)
     .in('estado', ['Nueva', 'Enviada'])
     .is('visita_id', null)
     .is('presupuesto_vinculado_id', null);
-  if (errorUpdate) throw new Error(`rechazar solicitudes: ${errorUpdate.message}`);
+  if (errorUpdate) throw new Error(`marcar solicitudes no concretadas: ${errorUpdate.message}`);
 
-  // Etapa de funnel sin renombrar — 'solicitud_descartada' es la misma constante de análisis que ya
-  // usa el rechazo manual desde el CRM, "Rechazada" es solo el nuevo nombre visible del estado.
+  // Esta etapa representa solicitudes que no llegaron a concretar una visita, no un rechazo
+  // posterior a una visita ya realizada.
   for (const id of ids) {
     await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_descartada', solicitud_id: id });
   }
@@ -269,12 +269,12 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados, solicitudesRechazadas] = await Promise.all([
+    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas] = await Promise.all([
       autocompletarVisitas(supabase),
       rechazarPresupuestosCaducados(supabase),
-      rechazarSolicitudesAbandonadas(supabase),
+      marcarSolicitudesNoConcretadas(supabase),
     ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesRechazadas });
+    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

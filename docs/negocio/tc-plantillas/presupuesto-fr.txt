@@ -6,7 +6,7 @@ Article 2 – Valeur du devis, acceptation et formation du contrat
 
 Le présent devis vaut également document d'information précontractuelle au sens de l'article L111-1 du Code de la consommation : il indique au client, avant tout engagement, le prix, la nature et l'étendue des travaux, le délai indicatif de réalisation et les modalités de paiement.
 
-Il est établi gratuitement et reste valable 30 jours à compter de sa date d'émission. Passé ce délai, l'entreprise se réserve la possibilité de revoir les prix, les délais et sa disponibilité. Le devis devient un engagement ferme des deux parties dès lors que le client le retourne signé, daté et revêtu de la mention manuscrite « bon pour accord », ou qu'il le confirme par écrit, ou qu'il verse l'acompte prévu à l'article 4. À défaut de l'une de ces marques d'acceptation, aucune commande n'est réputée passée.
+Il est établi gratuitement et reste valable jusqu'au {FECHA_VALIDEZ} ({DIAS_VALIDEZ} jours à compter de sa date d'émission). Passé ce délai, l'entreprise se réserve la possibilité de revoir les prix, les délais et sa disponibilité. Le devis devient un engagement ferme des deux parties dès lors que le client le retourne signé, daté et revêtu de la mention manuscrite « bon pour accord », ou qu'il le confirme par écrit, ou qu'il verse l'acompte prévu à l'article 4. À défaut de l'une de ces marques d'acceptation, aucune commande n'est réputée passée.
 
 Article 3 – Prix
 

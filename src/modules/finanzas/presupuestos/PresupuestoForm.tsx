@@ -46,24 +46,26 @@ const NOTA_ORIENTATIVO: Record<'es' | 'fr', string> = {
 };
 
 function fechaHoy() {
-  return new Date().toISOString().slice(0, 10);
+  const ahora = new Date();
+  return `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
 }
 
 function sumarDias(fechaISO: string, dias: number) {
-  const d = new Date(`${fechaISO}T00:00:00`);
-  d.setDate(d.getDate() + dias);
+  const d = new Date(`${fechaISO}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
   return d.toISOString().slice(0, 10);
 }
 
 function diasEntre(desde: string, hasta: string): number {
-  const d1 = new Date(`${desde}T00:00:00`);
-  const d2 = new Date(`${hasta}T00:00:00`);
+  const d1 = new Date(`${desde}T00:00:00Z`);
+  const d2 = new Date(`${hasta}T00:00:00Z`);
   return Math.round((d2.getTime() - d1.getTime()) / 86_400_000);
 }
 
 const OPCIONES_VALIDEZ = [
   { value: '1', label: '1 día' },
   { value: '7', label: '7 días' },
+  { value: '14', label: '14 días' },
   { value: '15', label: '15 días' },
   { value: '30', label: '30 días' },
 ];
@@ -292,6 +294,12 @@ export function PresupuestoForm({
       ...f,
       visita_id: ultima.id,
       pais: nuevoPais,
+      // Los datos bancarios son una copia para el documento. Si cambia el país,
+      // se deben volver a cargar los de la entidad de ese país.
+      banco_titular: f.pais === nuevoPais ? f.banco_titular : '',
+      banco_nombre: f.pais === nuevoPais ? f.banco_nombre : '',
+      banco_iban: f.pais === nuevoPais ? f.banco_iban : '',
+      banco_bic: f.pais === nuevoPais ? f.banco_bic : '',
       cliente_nombre: `${cliente.nombre} ${cliente.apellidos}`,
       cliente_dir: ultima.direccion ?? '',
       cliente_dir_extra: ultima.direccion_extra ?? '',
@@ -624,8 +632,12 @@ export function PresupuestoForm({
           ? config?.tc_fr
           : config?.tc_es);
     if (!tcCrudo) return undefined;
-    return renderizarTC(tcCrudo, form.plan_pago, idiomaCorto);
-  }, [config, form.terminos_condiciones, form.plan_pago, idiomaCorto, esOrientativo]);
+    return renderizarTC(tcCrudo, form.plan_pago, idiomaCorto, {
+      fechaEmision: form.fecha_emision,
+      fechaValidez: form.fecha_validez,
+      diasValidez: diasEntre(form.fecha_emision, form.fecha_validez),
+    });
+  }, [config, form.terminos_condiciones, form.plan_pago, form.fecha_emision, form.fecha_validez, idiomaCorto, esOrientativo]);
 
   const mensajeGracias = idiomaCorto === 'fr' ? config?.mensaje_gracias_fr : config?.mensaje_gracias_es;
   const condPago = (config?.datos as { condicionesPago?: CondicionesPagoValor })?.condicionesPago;
@@ -878,6 +890,11 @@ export function PresupuestoForm({
                       setForm((f) => ({
                         ...f,
                         pais: nuevoPais,
+                        // Evita reutilizar la cuenta del país anterior en el PDF.
+                        banco_titular: f.pais === nuevoPais ? f.banco_titular : '',
+                        banco_nombre: f.pais === nuevoPais ? f.banco_nombre : '',
+                        banco_iban: f.pais === nuevoPais ? f.banco_iban : '',
+                        banco_bic: f.pais === nuevoPais ? f.banco_bic : '',
                         idioma: nuevoPais === 'España' ? 'Español' : f.idioma,
                         tipo_iva: nuevoTipo,
                         lineas: f.lineas.map((l) => calcularLinea(l, porcentajeIva(nuevoTipo))),

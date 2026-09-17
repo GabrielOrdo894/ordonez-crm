@@ -246,6 +246,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
 
   // ---- Portada (solo formato completo) ----
   const incluirPortada = opciones?.incluirPortada ?? p.formato === 'completo';
+  const diasValidez = p.fecha_emision && p.fecha_validez
+    ? Math.round((Date.parse(`${p.fecha_validez}T00:00:00Z`) - Date.parse(`${p.fecha_emision}T00:00:00Z`)) / 86_400_000)
+    : null;
   if (incluirPortada) {
     const descripcionPortada = esOrientativo
       ? idioma === 'fr'
@@ -272,6 +275,7 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       descripcion: descripcionPortada,
       filas: [
         { icono: 'calendario', etiqueta: t.emision, valor: p.fecha_emision || '—' },
+        { icono: 'calendario', etiqueta: t.validez, valor: p.fecha_validez || '—' },
         { icono: 'documento', etiqueta: t.numero, valor: p.numero || '—' },
       ],
       entidad,
@@ -1276,7 +1280,11 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
         ? config?.tc_fr
         : config?.tc_es);
   if (tcCrudo && (opciones?.incluirTyC ?? true)) {
-    const tc = renderizarTC(tcCrudo, p.plan_pago, idioma);
+    const tc = renderizarTC(tcCrudo, p.plan_pago, idioma, {
+      fechaEmision: p.fecha_emision,
+      fechaValidez: p.fecha_validez,
+      diasValidez,
+    });
     const { fontSize: fontSizeTc, lineHeight: lineHeightTc } = tamanoFuenteTC(config?.tc_tamano);
     const dibujarCabeceraTC = () => {
       doc.addPage();
@@ -1292,11 +1300,16 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     };
     dibujarCabeceraTC();
 
+    doc.setFont(FUENTE_PDF, 'bold');
+    doc.setFontSize(fontSizeTc);
+    doc.text(`${t.validez}: ${p.fecha_validez ?? '—'}`, margen, 23);
+    doc.setFont(FUENTE_PDF, 'normal');
+
     // Deja hueco por debajo (el mensaje de agradecimiento y el pie de página fijos se dibujan a
     // partir de y=280 en cada página) — si un bloque no cabe entero, pasa a una página nueva en
     // vez de seguir escribiendo fuera del área visible.
     const yTcMax = 270;
-    let yTc = 30;
+    let yTc = 36;
     for (const bloque of parsearTextoEnriquecido(tc)) {
       const indent = bloque.tipo === 'lista' ? 2 : 0;
       const lineas = doc.splitTextToSize(bloque.texto, anchoContenido - indent);

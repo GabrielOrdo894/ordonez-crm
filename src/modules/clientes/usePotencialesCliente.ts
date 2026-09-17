@@ -22,7 +22,7 @@ export function usePotencialesCliente(
       const { data, error } = await supabase
         .from('solicitudes')
         .select('id, nombre, telefono, email, idioma, tipo_reforma, estado')
-        .not('estado', 'in', '(Rechazada,Eliminada)');
+        .not('estado', 'in', '(No concretada,Rechazada,Eliminada)');
       if (error) throw error;
       return data as SolicitudPotencialRow[];
     },

@@ -271,7 +271,7 @@ Deno.serve(async (req: Request) => {
         .not('ultima_respuesta_cliente_fecha', 'is', null),
       supabase.from('visitas').select('id, nombre, apellidos, fecha_visita, email, telefono').eq('estado', 'Realizada').is('eliminado_en', null),
       supabase.from('presupuestos').select('visita_id, estado').is('eliminado_en', null).not('visita_id', 'is', null),
-      supabase.from('solicitudes').select('email, telefono').in('estado', ['Rechazada', 'Eliminada']),
+      supabase.from('solicitudes').select('email, telefono').in('estado', ['No concretada', 'Rechazada', 'Eliminada']),
     ]);
 
     for (const [nombre, res] of Object.entries({

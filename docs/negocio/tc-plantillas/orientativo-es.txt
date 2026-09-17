@@ -4,7 +4,7 @@ El presente documento constituye una orientación de precio no vinculante, elabo
 
 Artículo 2 — Validez de la orientación
 
-La presente orientación de precio es válida durante 30 días naturales desde su fecha de emisión, transcurridos los cuales deberá solicitarse una nueva valoración, dado que los precios de materiales y mano de obra pueden variar.
+La presente orientación de precio es válida hasta el {FECHA_VALIDEZ} ({DIAS_VALIDEZ} días naturales desde su fecha de emisión), transcurridos los cuales deberá solicitarse una nueva valoración, dado que los precios de materiales y mano de obra pueden variar.
 
 Artículo 3 — Alcance de la estimación
 
