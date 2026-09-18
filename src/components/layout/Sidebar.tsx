@@ -306,11 +306,25 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   });
   const pendientesEnvioCount = (pendientesEnvioParaBadge ?? []).length;
 
+  // Misma queryKey/select que useNotificaciones.ts (gastos de kilometraje pendientes de revisar) a
+  // propósito, para compartir caché de Tanstack Query sin arriesgar el bug de "queryKey compartida
+  // con select distinto" ya visto antes en este mismo fichero.
+  const { data: gastosPendientesParaBadge, error: errorGastosBadge } = useQuery({
+    queryKey: ['gastos', 'kilometrico-pendiente'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('gastos').select('id, descripcion').eq('estado_gasto', 'pendiente');
+      if (error) throw error;
+      return data as { id: string; descripcion: string | null }[];
+    },
+  });
+  const gastosPendientesCount = (gastosPendientesParaBadge ?? []).length;
+
   // "Solicitud de presupuesto" fusiona lo que antes eran dos pestañas/badges separados
   // (solicitudes entrantes + respuestas a presupuestos) — un único contador, 2026-09-06.
   const badgesPorRuta: Record<string, number> = {
     '/solicitudes/entrantes': solicitudesNuevasCount,
     '/solicitudes/pendientes': pendientesEnvioCount,
+    '/contabilidad/gastos': gastosPendientesCount,
   };
 
   const { data: empresaConfig, error: errorEmpresaConfig } = useQuery({
@@ -332,10 +346,10 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   // tiempo). toast se excluye de deps: ToastContext recrea su `value` en cada render, así que
   // incluirlo reengancharía este efecto en cualquier toast de cualquier pantalla de la app.
   useEffect(() => {
-    const error = errorMensajesNoLeidos ?? errorSolicitudesBadge ?? errorSeguimientosBadge ?? errorPendientesBadge ?? errorEmpresaConfig;
+    const error = errorMensajesNoLeidos ?? errorSolicitudesBadge ?? errorSeguimientosBadge ?? errorPendientesBadge ?? errorGastosBadge ?? errorEmpresaConfig;
     if (error) toast.error(error.message);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [errorMensajesNoLeidos, errorSolicitudesBadge, errorSeguimientosBadge, errorPendientesBadge, errorEmpresaConfig]);
+  }, [errorMensajesNoLeidos, errorSolicitudesBadge, errorSeguimientosBadge, errorPendientesBadge, errorGastosBadge, errorEmpresaConfig]);
 
   const nombre = (user?.user_metadata?.nombre as string) || user?.email || '';
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;

@@ -278,6 +278,14 @@ export default function SolicitudesPage() {
         const etapa = estado === 'Enviada' ? 'solicitud_respondida' : 'solicitud_descartada';
         await Promise.all((ids as string[]).map((solicitudId) => registrarEventoFunnel(etapa, { solicitudId })));
       }
+      // Eliminar borra de verdad el rastro de la solicitud en el embudo (petición de Gabriel
+      // 2026-09-19) — la fila de `solicitudes` sigue viva (soft-delete, ver comentario de arriba en
+      // el confirm) pero deja de aparecer en cualquier etapa de funnel_eventos. La visita/presupuesto
+      // vinculados no se tocan.
+      if (estado === 'Eliminada') {
+        const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().in('solicitud_id', ids as string[]);
+        if (errorFunnel) console.error('No se pudo borrar el rastro en funnel_eventos:', errorFunnel.message);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
@@ -405,8 +413,14 @@ export default function SolicitudesPage() {
         if (ids.length === 0) return;
         // Ya no es un DELETE real (2026-09-15) — es solo otro estado, así que no hay riesgo de
         // que Gmail la vuelva a crear como "Nueva" al reingerirla. Se puede recuperar filtrando
-        // por "Eliminada" y volviendo a "Nueva"/"Enviada".
-        if (!(await confirmar(`¿Eliminar ${ids.length} solicitud(es)? Dejarán de verse en la lista por defecto — puedes recuperarlas filtrando por "Eliminada".`)))
+        // por "Eliminada" y volviendo a "Nueva"/"Enviada". Sí se borran de verdad sus eventos de
+        // funnel_eventos (petición de Gabriel 2026-09-19) — la visita/presupuesto vinculados NO se
+        // tocan, solo desaparece el rastro de esta solicitud en el embudo.
+        if (
+          !(await confirmar(
+            `¿Eliminar ${ids.length} solicitud(es)? Dejarán de verse en la lista por defecto — puedes recuperarlas filtrando por "Eliminada". Esto borra su rastro en el embudo de conversión; las visitas y presupuestos vinculados no se eliminan ni se desvinculan.`,
+          ))
+        )
           return;
         cambiarEstadoSolicitudesMutation.mutate({ ids, estado: 'Eliminada' });
       },
@@ -544,6 +558,7 @@ export default function SolicitudesPage() {
                 {
                   key: 'created_at',
                   label: 'Fecha',
+                  sortValue: (f) => f.solicitud.created_at,
                   render: (f) => fecha(f.solicitud.created_at),
                 },
                 {
@@ -555,16 +570,19 @@ export default function SolicitudesPage() {
                 {
                   key: 'nombre',
                   label: 'Cliente',
+                  sortValue: (f) => f.solicitud.nombre || f.solicitud.email || '',
                   render: (f) => f.solicitud.nombre || f.solicitud.email || '—',
                 },
                 {
                   key: 'tipo_reforma',
                   label: 'Tipo de reforma',
+                  sortValue: (f) => f.solicitud.tipo_reforma || '',
                   render: (f) => f.solicitud.tipo_reforma || '—',
                 },
                 {
                   key: 'tipo_solicitud',
                   label: 'Solicita',
+                  sortValue: (f) => (f.solicitud.tipo_solicitud ? TIPO_SOLICITUD_LABEL[f.solicitud.tipo_solicitud] : ''),
                   render: (f) =>
                     f.solicitud.tipo_solicitud ? (
                       TIPO_SOLICITUD_LABEL[f.solicitud.tipo_solicitud]
@@ -595,6 +613,7 @@ export default function SolicitudesPage() {
                 {
                   key: 'estado',
                   label: 'Estado',
+                  sortValue: (f) => ETIQUETA_ESTADO_SOLICITUD[f.solicitud.estado],
                   render: (f) => (
                     <span className="flex items-center gap-1.5">
                       <Badge variant={VARIANTE_ESTADO[f.solicitud.estado] ?? 'default'}>
