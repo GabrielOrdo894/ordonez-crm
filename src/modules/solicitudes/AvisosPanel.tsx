@@ -221,6 +221,10 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
           <h2 className="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">
             Visitas realizadas sin presupuesto enviado ({visitasSinPresupuesto.length})
           </h2>
+          <p className="text-xs text-gray-400 mb-2">
+            Bandeja de trabajo: solo visitas con estado Realizada que todavía no tienen un presupuesto enviado.
+            No es el total de visitas agendadas del funnel.
+          </p>
           <div className="bg-surface border border-gray-200 rounded-sm overflow-hidden">
             <Table
               loading={cargandoVisitas || cargandoPresupuestos}

@@ -9,6 +9,7 @@
 // firmarse). Ambos pasos son best-effort: si fallan, se loguean pero no revierten el
 // firmado/Aceptado ya guardado, que es lo importante.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,6 +39,20 @@ function etapaAutomatica(s: SenalesPipeline): string {
   if (s.visitaEstado === 'Realizada') return 'Visita realizada';
   if (s.visitaTieneFecha) return 'Visita programada';
   return 'Contacto';
+}
+
+// Mismo orden que ETAPAS_PIPELINE en src/modules/clientes/types.ts — duplicado porque este Edge
+// Function no puede importar código del frontend. `etapaMaximaAlcanzada` replica
+// src/lib/pipelineSync.ts: la etapa "máxima alcanzada" nunca retrocede, ni siquiera si el pipeline
+// actual baja (ver comentario original en pipelineSync.ts). Hallazgo real 2026-09-19: esta función
+// solo actualizaba `estado_pipeline` tras una firma, nunca `pipeline_etapa_maxima` — mismo bug de
+// desincronización ya corregido en creador-presupuestos.md (ver ese fichero para el caso real que lo
+// destapó).
+const ETAPAS_PIPELINE = ['Contacto', 'Visita programada', 'Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'En obra', 'Finalizado'];
+function etapaMaximaAlcanzada(nuevaEtapa: string, maximaPrevia: string | null): string {
+  const idxNueva = ETAPAS_PIPELINE.indexOf(nuevaEtapa);
+  const idxPrevia = ETAPAS_PIPELINE.indexOf(maximaPrevia ?? 'Contacto');
+  return ETAPAS_PIPELINE[Math.max(idxNueva, idxPrevia, 0)];
 }
 
 function normalizarTelefono(tel: string): string {
@@ -115,50 +130,37 @@ async function descargarYGuardarPdfFirmado(
   return path;
 }
 
-// --- Envío de email de aviso — mismo patrón de Gmail que supabase/functions/alerta-diaria
-// (duplicado a propósito, un Edge Function no puede importar código de otro, ver más arriba). ---
+// --- Envío de email de aviso — SMTP directo (cuenta info@ordonezrenov.com), mismo patrón que
+// supabase/functions/notificar-visita (duplicado a propósito, un Edge Function no puede importar
+// código de otro, ver más arriba). ---
 
-async function obtenerAccessTokenGmail(supabase: SupabaseClient): Promise<string> {
-  const { data: config, error } = await supabase
-    .from('google_config')
-    .select('refresh_token, refresh_token_gmail')
-    .eq('id', 1)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer google_config: ${error.message}`);
-  const refreshToken = config?.refresh_token_gmail || config?.refresh_token;
-  if (!refreshToken) throw new Error('Google no está conectado (falta refresh_token en google_config)');
-
-  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
-  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos');
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
+async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
+  const client = new SMTPClient({
+    connection: {
+      hostname: Deno.env.get('SMTP_HOST')!,
+      port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
+      tls: true,
+      auth: { username: Deno.env.get('SMTP_USER')!, password: Deno.env.get('SMTP_PASS')! },
+    },
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description ?? data.error ?? 'No se pudo renovar el token de Google');
-  return data.access_token;
+  try {
+    await client.send({
+      from: `Reformas Ordoñez <${Deno.env.get('SMTP_USER') ?? REMITENTE_BASE}>`,
+      to: destinatarios,
+      subject: asunto,
+      content: 'auto',
+      html: cuerpoHtml,
+    });
+  } finally {
+    await client.close();
+  }
 }
 
-function base64UrlEncodeUtf8(texto: string): string {
-  const utf8 = new TextEncoder().encode(texto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function codificarAsunto(asunto: string): string {
-  const utf8 = new TextEncoder().encode(asunto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return `=?UTF-8?B?${btoa(binario)}?=`;
+function pieCorreoAutomatico(fr: boolean): string {
+  const texto = fr
+    ? `Courriel automatique — merci de ne pas répondre à cette adresse. Pour toute question, contactez-nous à ${REMITENTE_BASE}.`
+    : `Correo automático — no responder a esta dirección. Para cualquier consulta, escríbenos a ${REMITENTE_BASE}.`;
+  return `<div style="color:#9ca3af;font-size:10px;margin-top:6px">${esc(texto)}</div>`;
 }
 
 function esc(s: string): string {
@@ -199,6 +201,7 @@ function htmlAvisoFirmaCliente(opts: { fr: boolean; nombre: string; numero: stri
     </td></tr>
     <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
       <div style="color:#9ca3af;font-size:11px">Reformas Ordoñez</div>
+      ${pieCorreoAutomatico(opts.fr)}
     </td></tr>
   </table>
 </div>`;
@@ -227,64 +230,26 @@ async function avisarFirmaAlClientePorEmail(
   const esFrances = presupuesto.idioma === 'Français';
   const numero = presupuesto.numero ?? '';
   const nombre = presupuesto.cliente_nombre ?? '';
-  const token = await obtenerAccessTokenGmail(supabase);
 
   const asunto = esFrances ? `Devis ${numero} signé — copie pour vos dossiers` : `Presupuesto ${numero} firmado — copia para tus archivos`;
   const cuerpo = htmlAvisoFirmaCliente({ fr: esFrances, nombre, numero, signedUrl: signedUrlData.signedUrl });
 
-  const mensajeMime = [
-    `From: ${REMITENTE_BASE}`,
-    `To: ${presupuesto.cliente_email}`,
-    `Subject: ${codificarAsunto(asunto)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    '',
-    cuerpo,
-  ].join('\r\n');
-
-  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
-  });
-  if (!res.ok) {
-    const detalle = await res.text().catch(() => '');
-    throw new Error(`Gmail no aceptó el envío al cliente (${res.status}): ${detalle}`);
-  }
+  await enviarSmtp([presupuesto.cliente_email], asunto, cuerpo);
 }
 
 async function avisarFirmaPorEmail(
-  supabase: SupabaseClient,
   presupuesto: { numero: string | null; cliente_nombre: string | null },
   firmaNombre: string | null,
 ): Promise<void> {
-  const token = await obtenerAccessTokenGmail(supabase);
   const asunto = `Presupuesto ${presupuesto.numero ?? ''} firmado — ${presupuesto.cliente_nombre ?? 'cliente'}`;
   const cuerpo = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#111827">
     <p><strong>${presupuesto.cliente_nombre ?? 'El cliente'}</strong> ha firmado electrónicamente el presupuesto <strong>${
       presupuesto.numero ?? ''
     }</strong> con Documenso${firmaNombre ? ` (firmado por ${firmaNombre})` : ''}.</p>
     <p>El presupuesto ya se ha marcado como Aceptado en el CRM, y el PDF firmado está disponible para descargar desde su ficha.</p>
+    ${pieCorreoAutomatico(false)}
   </div>`;
-  const mensajeMime = [
-    `From: ${REMITENTE_BASE}`,
-    `To: ${REMITENTE_BASE}`,
-    `Subject: ${codificarAsunto(asunto)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    '',
-    cuerpo,
-  ].join('\r\n');
-
-  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
-  });
-  if (!res.ok) {
-    const detalle = await res.text().catch(() => '');
-    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
-  }
+  await enviarSmtp([REMITENTE_BASE], asunto, cuerpo);
 }
 
 Deno.serve(async (req: Request) => {
@@ -381,7 +346,7 @@ Deno.serve(async (req: Request) => {
     console.error('Falta el secreto DOCUMENSO_API_KEY — no se pudo descargar el PDF firmado');
   }
   try {
-    await avisarFirmaPorEmail(supabase, presupuesto, firmaNombre);
+    await avisarFirmaPorEmail(presupuesto, firmaNombre);
   } catch (err) {
     console.error('No se pudo avisar por email de la firma:', err instanceof Error ? err.message : err);
   }
@@ -437,8 +402,12 @@ Deno.serve(async (req: Request) => {
         facturaCobrada,
       });
 
-      if (nuevaEtapa !== ultimaVisita.estado_pipeline) {
-        const { error: pipelineError } = await supabase.from('visitas').update({ estado_pipeline: nuevaEtapa }).eq('id', ultimaVisita.id);
+      const etapaMaxima = etapaMaximaAlcanzada(nuevaEtapa, ultimaVisita.pipeline_etapa_maxima ?? null);
+      if (nuevaEtapa !== ultimaVisita.estado_pipeline || etapaMaxima !== ultimaVisita.pipeline_etapa_maxima) {
+        const { error: pipelineError } = await supabase
+          .from('visitas')
+          .update({ estado_pipeline: nuevaEtapa, pipeline_etapa_maxima: etapaMaxima })
+          .eq('id', ultimaVisita.id);
         if (pipelineError) {
           console.error('No se pudo sincronizar estado_pipeline tras la firma:', pipelineError.message);
         } else {

@@ -64,7 +64,48 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    select 'solicitud_vinculada_presupuesto', id, '<id del presupuesto>', fuente from vinculada;
    ```
    Si no hay ninguna fila candidata, no pasa nada — simplemente este presupuesto no viene de una solicitud rastreada en el CRM (p. ej. un cliente recurrente que te llega directo por WhatsApp).
-8. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 3 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
+8. **Si el presupuesto tiene `visita_id`, sincroniza el pipeline de esa visita en el mismo turno**
+   (hallazgo real 2026-09-18: 3 visitas —Caterine Contreras, Aitor Mendizabal, Mila Fernandez—
+   quedaron con `estado_pipeline`/`pipeline_etapa_maxima` desincronizados porque este agente inserta
+   por SQL directo y nunca pasaba por `sincronizarPipelineCliente`/`etapaAutomatica` de
+   `src/lib/pipelineSync.ts`, que es lo que hace el CRM normalmente al cambiar el estado de un
+   presupuesto). Ejecuta esto siempre que insertes o actualices un presupuesto con `visita_id` no
+   nulo (tanto si venía dado como si lo resolviste en el paso 7):
+   ```sql
+   with orden(etapa, idx) as (
+     values ('Contacto',0),('Visita programada',1),('Visita realizada',2),
+            ('Presupuesto enviado',3),('Presupuesto aceptado',4),('En obra',5),('Finalizado',6)
+   ),
+   presus_visita as (
+     select estado, tipo from presupuestos where visita_id = '<visita_id>' and eliminado_en is null
+   ),
+   nueva as (
+     select case
+       when exists (select 1 from presus_visita where estado = 'Aceptado' and tipo = 'normal') then 'Presupuesto aceptado'
+       when exists (select 1 from presus_visita where estado = 'Pendiente') then 'Presupuesto enviado'
+       else (select estado_pipeline from visitas where id = '<visita_id>')
+     end as etapa
+   ),
+   actual as (
+     select estado_pipeline, pipeline_etapa_maxima from visitas where id = '<visita_id>'
+   )
+   update visitas v
+   set estado_pipeline = nueva.etapa,
+       pipeline_etapa_maxima = (
+         select o.etapa from orden o
+         where o.idx = greatest(
+           (select idx from orden where etapa = nueva.etapa),
+           (select idx from orden where etapa = coalesce(actual.pipeline_etapa_maxima, 'Contacto'))
+         )
+       )
+   from nueva, actual
+   where v.id = '<visita_id>';
+   ```
+   Esta versión simplificada solo cubre lo que este agente puede provocar (presupuesto Pendiente o
+   Aceptado normal) — no toca proyectos/facturas ni el estado "Perdido", eso lo sigue gestionando el
+   resto del CRM. Si ninguna de las dos condiciones se cumple, deja `estado_pipeline` como estaba (no
+   lo baja de categoría).
+9. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 3 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
 
 ## Convenciones del presupuesto
 

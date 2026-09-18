@@ -51,7 +51,7 @@ import { CalendarioMini } from './CalendarioMini';
 import { CierreObraBanner } from './CierreObraBanner';
 import { NotificacionesBell } from '../notificaciones/NotificacionesBell';
 import { VisitaResumenModal, urlGoogleMaps } from './VisitaResumenModal';
-import type { Visita } from './types';
+import { esVisitaAgendada, type Visita } from './types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Gasto } from '../finanzas/gastos/types';
@@ -525,19 +525,21 @@ export default function InicioPage() {
     const origenOrdenado = Array.from(origenPorCanal.entries()).sort((a, b) => b[1] - a[1]);
 
     const etapas = ETAPAS_PIPELINE as readonly string[];
-    const idxRealizada = etapas.indexOf('Visita realizada');
     const idxEnviado = etapas.indexOf('Presupuesto enviado');
     const idxAceptado = etapas.indexOf('Presupuesto aceptado');
     // pipeline_etapa_maxima (no estado_pipeline) — un lead marcado "Perdido" sigue contando en las
     // etapas que de verdad alcanzó antes de perderse, en vez de desaparecer de estas conversiones.
     const progreso = (v: (typeof visitasEsteMes)[number]) => etapas.indexOf(v.pipeline_etapa_maxima ?? v.estado_pipeline);
-    const realizadas = visitasEsteMes.filter((v) => progreso(v) >= idxRealizada).length;
-    const enviados = visitasEsteMes.filter((v) => progreso(v) >= idxEnviado).length;
-    const aceptados = visitasEsteMes.filter((v) => progreso(v) >= idxAceptado).length;
+    // La base del embudo son las visitas agendadas (con fecha), independientemente de si ya se
+    // realizaron. Las etapas posteriores solo cuentan dentro de ese mismo conjunto.
+    const visitasAgendadas = visitasEsteMes.filter((v) => esVisitaAgendada(v));
+    const agendadas = visitasAgendadas.length;
+    const enviados = visitasAgendadas.filter((v) => progreso(v) >= idxEnviado).length;
+    const aceptados = visitasAgendadas.filter((v) => progreso(v) >= idxAceptado).length;
 
-    const pctEnviados = realizadas > 0 ? Math.round((enviados / realizadas) * 100) : 0;
+    const pctEnviados = agendadas > 0 ? Math.round((enviados / agendadas) * 100) : 0;
     const pctAceptados = enviados > 0 ? Math.round((aceptados / enviados) * 100) : 0;
-    const pctAceptadosTotal = realizadas > 0 ? Math.round((aceptados / realizadas) * 100) : 0;
+    const pctAceptadosTotal = agendadas > 0 ? Math.round((aceptados / agendadas) * 100) : 0;
 
     const espana = visitasEsteMes.filter((v) => v.pais === 'España').length;
     const francia = visitasEsteMes.filter((v) => v.pais === 'Francia').length;
@@ -553,7 +555,7 @@ export default function InicioPage() {
       visitasMesAnterior,
       deltaVisitas,
       origenOrdenado,
-      realizadas,
+      agendadas,
       enviados,
       aceptados,
       pctEnviados,
@@ -962,8 +964,8 @@ export default function InicioPage() {
           <TarjetaHeader icon={TrendingUp} badge="bg-emerald-50 text-emerald-600" titulo="Tasa de conversión" />
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">Visitas realizadas</span>
-              <span className="text-gray-900 font-medium">{marketing.realizadas}</span>
+              <span className="text-gray-500">Visitas agendadas</span>
+              <span className="text-gray-900 font-medium">{marketing.agendadas}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Presupuestos enviados</span>

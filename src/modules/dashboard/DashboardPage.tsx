@@ -26,7 +26,7 @@ import { calcularTotales } from '../finanzas/lineas';
 import { ETAPAS_PIPELINE } from '../clientes/types';
 import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, contarUnicosEnFunnel, type EtapaFunnel } from '../../lib/funnelTracking';
 import { FUENTE_LABEL } from '../solicitudes/types';
-import type { Visita } from '../visitas/types';
+import { esVisitaAgendada, type Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
@@ -65,7 +65,12 @@ const COLORES_FUNNEL = ['#1a5c38', '#3d7a5a', '#5f9878', '#94b8a6'];
 // el embudo vuelve a crecer — se reciclan por índice, ver COLORES_FUNNEL_SOLICITUDES[i % length]).
 const COLORES_FUNNEL_SOLICITUDES = ['#0f3d24', '#1a5c38', '#2e6d49', '#3d7a5a', '#5f9878', '#7dab93', '#c8ddd0'];
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-const ETAPAS_FUNNEL = ['Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'Finalizado'];
+const ETAPAS_FUNNEL = [
+  { pipeline: 'Visita programada', label: 'Visita agendada' },
+  { pipeline: 'Presupuesto enviado', label: 'Presupuesto enviado' },
+  { pipeline: 'Presupuesto aceptado', label: 'Presupuesto aceptado' },
+  { pipeline: 'Finalizado', label: 'Finalizado' },
+];
 
 const PERIODOS = [
   { value: 'mes', label: 'Este mes' },
@@ -234,12 +239,16 @@ export default function DashboardPage() {
   // 2. Tasa de conversión (funnel)
   const funnel = useMemo(() => {
     const etapas = ETAPAS_PIPELINE as readonly string[];
-    const base = ETAPAS_FUNNEL.map((etapa) => {
-      const idxEtapa = etapas.indexOf(etapa);
+    const base = ETAPAS_FUNNEL.map(({ pipeline, label }) => {
+      const idxEtapa = etapas.indexOf(pipeline);
       // pipeline_etapa_maxima (no estado_pipeline) — así un lead marcado "Perdido" sigue contando
       // en las etapas que de verdad alcanzó antes de perderse, en vez de desaparecer del funnel.
-      const count = visitasFiltradas.filter((v) => etapas.indexOf(v.pipeline_etapa_maxima ?? v.estado_pipeline) >= idxEtapa).length;
-      return { etapa, count };
+      const count = visitasFiltradas.filter((v) => {
+        if (!esVisitaAgendada(v)) return false;
+        if (pipeline === 'Visita programada') return true;
+        return etapas.indexOf(v.pipeline_etapa_maxima ?? v.estado_pipeline) >= idxEtapa;
+      }).length;
+      return { etapa: label, count };
     });
     const total = base[0]?.count ?? 0;
     return base.map((f) => ({ ...f, pct: total > 0 ? Math.round((f.count / total) * 100) : 0 }));

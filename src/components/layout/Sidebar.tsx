@@ -49,7 +49,6 @@ import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
 import {
   SELECT_SOLICITUDES,
-  estadoSeguimiento,
   type PresupuestoConRespuesta,
   type PresupuestoPendienteEnvio,
   type Solicitud,
@@ -263,7 +262,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   });
   const solicitudesNuevasCount = (solicitudesParaBadge ?? []).filter((s) => s.estado === 'Nueva').length;
 
-  const { data: seguimientosParaBadge, error: errorSeguimientosBadge } = useQuery({
+  const { error: errorSeguimientosBadge } = useQuery({
     queryKey: ['presupuestos', 'respuestas-pendientes'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -278,7 +277,11 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
       return data as PresupuestoConRespuesta[];
     },
   });
-  const seguimientosNuevosCount = (seguimientosParaBadge ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
+  // Ya no cuenta para el badge de Solicitudes (decisión de Gabriel, 2026-09-18): el seguimiento de
+  // una respuesta a presupuesto (pago, seguro, firma...) no es competencia de esta sección — el
+  // único criterio de Solicitudes es si el contacto llegó o no a una visita agendada, y eso ya se
+  // resuelve solo (estado pasa a 'Aceptada' en cuanto se vincula una visita, ver VisitaForm.tsx/
+  // funnelTracking.ts). La query de arriba se mantiene para que Inicio siga viendo estas respuestas.
 
   // Cuenta de mensajes de WhatsApp/SMS preparados y todavía sin marcar como enviados — mismo
   // criterio que la pestaña "Pendientes de enviar" de SolicitudesPage.tsx (2026-09-06). OJO: usa
@@ -306,7 +309,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
   // "Solicitud de presupuesto" fusiona lo que antes eran dos pestañas/badges separados
   // (solicitudes entrantes + respuestas a presupuestos) — un único contador, 2026-09-06.
   const badgesPorRuta: Record<string, number> = {
-    '/solicitudes/entrantes': solicitudesNuevasCount + seguimientosNuevosCount,
+    '/solicitudes/entrantes': solicitudesNuevasCount,
     '/solicitudes/pendientes': pendientesEnvioCount,
   };
 

@@ -9,6 +9,25 @@ function fechaVisitaFmt(fecha: string | null): string {
   return new Date(fecha).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
+function mensajeSeguimiento(v: Visita): string {
+  const nombre = v.nombre.trim() || 'hola';
+  const fecha = fechaVisitaFmt(v.fecha_visita);
+  const esFrances = v.idioma?.toLowerCase().startsWith('fr') || v.pais === 'Francia';
+  return esFrances
+    ? `Bonjour ${nombre}, suite à notre visite du ${fecha}, votre projet est-il toujours d’actualité ? Je peux vous envoyer le devis ou répondre à vos questions si besoin.`
+    : `Hola ${nombre}, tras la visita del ${fecha}, ¿sigues interesado/a en el proyecto? Puedo enviarte el presupuesto o resolver cualquier duda que tengas.`;
+}
+
+function urlGmail(email: string): string {
+  return `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(email)}`;
+}
+
+function dibujarEnlace(doc: jsPDF, texto: string, url: string, x: number, y: number): void {
+  doc.setTextColor(16, 96, 56);
+  doc.text(texto, x, y);
+  doc.link(x, y - 3.5, doc.getTextWidth(texto), 4.5, { url });
+}
+
 // Plantilla del listado "Visitas mañana: le enviamos este PDF a mi padre para que se acuerde de
 // pasar presupuesto" (petición de Gabriel, 2026-09-11) — mismo criterio que ya usa el aviso
 // "Envía el presupuesto a..." de la campana (useNotificaciones.ts): visita Realizada sin ningún
@@ -52,7 +71,9 @@ export async function generarPdfVisitasSinPresupuesto(visitas: Visita[]): Promis
     const direccion = [v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'Sin dirección';
     const descripcion = v.descripcion?.trim() || 'Sin descripción registrada.';
     const descLineas = doc.splitTextToSize(descripcion, anchoUtil);
-    const bloqueAlto = 5.5 + 5 + 5 + descLineas.length * lineHeight + 9;
+    const contacto = [v.telefono, v.email].filter(Boolean).join(' · ') || 'Sin teléfono ni email registrados';
+    const mensajeLineas = doc.splitTextToSize(mensajeSeguimiento(v), anchoUtil - 4);
+    const bloqueAlto = 5.5 + 5 + 5 + descLineas.length * lineHeight + 5 + 5 + mensajeLineas.length * lineHeight + 12;
 
     if (y + bloqueAlto > 280) {
       doc.addPage();
@@ -91,6 +112,31 @@ export async function generarPdfVisitasSinPresupuesto(visitas: Visita[]): Promis
     y += descLineas.length * lineHeight;
 
     y += 3;
+    doc.setFont(FUENTE_PDF, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(contacto, margen, y);
+    y += 5;
+
+    doc.setFont(FUENTE_PDF, 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...colorRgb);
+    doc.text('MENSAJE SUGERIDO', margen, y);
+    y += 4.5;
+    doc.setFont(FUENTE_PDF, 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(60, 60, 60);
+    doc.text(mensajeLineas, margen + 2, y);
+    y += mensajeLineas.length * lineHeight + 3;
+
+    doc.setFont(FUENTE_PDF, 'normal');
+    doc.setFontSize(8.5);
+    dibujarEnlace(doc, 'Abrir ficha de visita en CRM', `https://ordonezrenov.com/crm/visitas/${v.id}`, margen, y);
+    if (v.email) {
+      dibujarEnlace(doc, 'Buscar conversación en Gmail', urlGmail(v.email), margen + 58, y);
+    }
+    y += 5;
+
     if (i < ordenadas.length - 1) {
       doc.setDrawColor(...GRIS_BORDE);
       doc.setLineWidth(0.2);

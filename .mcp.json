@@ -7,6 +7,10 @@
     "supabase-ro": {
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=mhbicdrquinlwhasrvgo&read_only=true"
+    },
+    "hostinger": {
+      "command": "hostinger-api-mcp",
+      "args": ["--stdio"]
     }
   }
 }

@@ -61,6 +61,11 @@ export type Visita = {
   fotos_previas?: ArchivoPrevio[] | null;
 };
 
+/** Una visita agendada es cualquier registro con fecha de visita, esté pendiente o ya realizada. */
+export function esVisitaAgendada(visita: Pick<Visita, 'fecha_visita'>): boolean {
+  return Boolean(visita.fecha_visita);
+}
+
 export type ArchivoPrevio = { path: string; etiqueta: string | null };
 
 export type NuevaVisita = Omit<Visita, 'id' | 'created_at'>;

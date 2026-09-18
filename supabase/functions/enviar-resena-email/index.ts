@@ -7,7 +7,8 @@
 // pestaña que se abre. El enlace de reseña pasa por resena-redirect para poder medir el clic real.
 //
 // Body esperado: { "facturaId": "<uuid>" }
-import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -34,67 +35,36 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 }
 
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
+const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
 
-async function obtenerAccessToken(supabase: SupabaseClient): Promise<string> {
-  const { data: config, error } = await supabase
-    .from('google_config')
-    .select('refresh_token, refresh_token_gmail')
-    .eq('id', 1)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer google_config: ${error.message}`);
-  const refreshToken = config?.refresh_token_gmail || config?.refresh_token;
-  if (!refreshToken) throw new Error('Google no está conectado (falta refresh_token en google_config)');
-
-  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
-  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos');
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+// Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
+// de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
+async function enviarSmtp(destinatario: string, asunto: string, cuerpoHtml: string): Promise<void> {
+  const client = new SMTPClient({
+    connection: {
+      hostname: Deno.env.get('SMTP_HOST')!,
+      port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
+      tls: true,
+      auth: { username: Deno.env.get('SMTP_USER')!, password: Deno.env.get('SMTP_PASS')! },
+    },
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`No se pudo renovar el token de Google (¿falta el scope gmail.send? conectar Gmail en Configuración): ${data.error_description ?? data.error}`);
+  try {
+    await client.send({
+      from: `Reformas Ordoñez <${REMITENTE_ENVIO}>`,
+      to: [destinatario],
+      subject: asunto,
+      content: 'auto',
+      html: cuerpoHtml,
+    });
+  } finally {
+    await client.close();
   }
-  return data.access_token;
 }
 
-function base64UrlEncodeUtf8(texto: string): string {
-  const utf8 = new TextEncoder().encode(texto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function codificarAsunto(asunto: string): string {
-  const utf8 = new TextEncoder().encode(asunto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return `=?UTF-8?B?${btoa(binario)}?=`;
-}
-
-async function enviarGmail(token: string, destinatario: string, asunto: string, cuerpoHtml: string): Promise<void> {
-  const mensajeMime = [
-    `From: ${REMITENTE_BASE}`,
-    `To: ${destinatario}`,
-    `Subject: ${codificarAsunto(asunto)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    '',
-    cuerpoHtml,
-  ].join('\r\n');
-
-  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
-  });
-  if (!res.ok) {
-    const detalle = await res.text().catch(() => '');
-    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
-  }
+function pieCorreoAutomatico(fr: boolean): string {
+  return fr
+    ? `<p style="color:#9ca3af;font-size:11px">Courriel automatique — merci de ne pas répondre à cette adresse. Pour toute question, contactez-nous à ${REMITENTE_BASE}.</p>`
+    : `<p style="color:#9ca3af;font-size:11px">Correo automático — no responder a esta dirección. Para cualquier consulta, escríbenos a ${REMITENTE_BASE}.</p>`;
 }
 
 function construirCuerpo(opts: {
@@ -116,9 +86,9 @@ function construirCuerpo(opts: {
     : '';
 
   if (fr) {
-    return `<p>Bonjour ${nombre},</p><p>Ce fut un plaisir de travailler sur votre ${tipoObra} à ${zona}.<br>Nous espérons que le résultat a dépassé vos attentes.</p><p>Si vous êtes satisfait(e) de notre travail, nous vous serions très reconnaissants de nous laisser un avis sur Google. Cela ne prendra que 2 minutes :<br><a href="${enlaceResena}">${enlaceResena}</a></p>${parrafoReferidos}<p>Merci beaucoup de votre confiance.<br>Reformas Ordoñez</p>`;
+    return `<p>Bonjour ${nombre},</p><p>Ce fut un plaisir de travailler sur votre ${tipoObra} à ${zona}.<br>Nous espérons que le résultat a dépassé vos attentes.</p><p>Si vous êtes satisfait(e) de notre travail, nous vous serions très reconnaissants de nous laisser un avis sur Google. Cela ne prendra que 2 minutes :<br><a href="${enlaceResena}">${enlaceResena}</a></p>${parrafoReferidos}<p>Merci beaucoup de votre confiance.<br>Reformas Ordoñez</p>${pieCorreoAutomatico(true)}`;
   }
-  return `<p>Estimado/a ${nombre},</p><p>Ha sido un placer trabajar en su ${tipoObra} en ${zona}.<br>Esperamos que el resultado haya superado sus expectativas.</p><p>Si está satisfecho/a con nuestro trabajo, le agradeceríamos mucho que nos dejara su opinión en Google. Solo le llevará 2 minutos:<br><a href="${enlaceResena}">${enlaceResena}</a></p>${parrafoReferidos}<p>Muchas gracias por confiar en nosotros.<br>Reformas Ordoñez</p>`;
+  return `<p>Estimado/a ${nombre},</p><p>Ha sido un placer trabajar en su ${tipoObra} en ${zona}.<br>Esperamos que el resultado haya superado sus expectativas.</p><p>Si está satisfecho/a con nuestro trabajo, le agradeceríamos mucho que nos dejara su opinión en Google. Solo le llevará 2 minutos:<br><a href="${enlaceResena}">${enlaceResena}</a></p>${parrafoReferidos}<p>Muchas gracias por confiar en nosotros.<br>Reformas Ordoñez</p>${pieCorreoAutomatico(false)}`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -169,8 +139,7 @@ Deno.serve(async (req: Request) => {
       descuentoReferido: referidosConfig.descuentoReferido,
     });
 
-    const accessToken = await obtenerAccessToken(supabase);
-    await enviarGmail(accessToken, f.cliente_email, asunto, cuerpo);
+    await enviarSmtp(f.cliente_email, asunto, cuerpo);
 
     const nuevoCanal = !f.resena_canal ? 'email' : f.resena_canal === 'whatsapp' ? 'ambos' : f.resena_canal;
     const { error: errorUpdate } = await supabase

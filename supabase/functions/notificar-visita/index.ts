@@ -10,7 +10,8 @@
 // motivo: "reprogramacion" solo cambia los textos del asunto/cuerpo ("reprogramada" en vez de
 // "agendada"/"confirmada") — los destinatarios son siempre los mismos. Lo usa
 // VisitaReprogramarPage.tsx tras mover fecha/hora/duración/empleado de una visita ya agendada.
-import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -34,7 +35,11 @@ function esLlamadaAutorizada(req: Request): boolean {
   }
 }
 
+// Buzón oficial que SÍ recibe correo — sigue siendo el destinatario por defecto de los avisos
+// internos. El envío ya no sale de aquí: ver REMITENTE_ENVIO (2026-09-19, cuenta info@ordonezrenov.com
+// de solo envío en Hostinger, para no seguir usando la cuenta de Gmail personal como remitente).
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
+const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
 
 // Oficinas de referencia ("la casa") para estimar distancia — coordenadas de
 // docs/negocio/empresa.md § Direcciones, geocodificadas una vez con Nominatim/OSM.
@@ -106,77 +111,41 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function obtenerAccessToken(supabase: SupabaseClient): Promise<string> {
-  const { data: config, error } = await supabase
-    .from('google_config')
-    .select('refresh_token, refresh_token_gmail')
-    .eq('id', 1)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer google_config: ${error.message}`);
-  // refresh_token_gmail es el token dedicado a Gmail desde la separación de scopes del 2026-08-05
-  // (botón "Conectar Gmail" en Configuración) — hasta que se conecte por separado, se usa el
-  // refresh_token combinado antiguo como fallback para no romper esta función mientras tanto.
-  const refreshToken = config?.refresh_token_gmail || config?.refresh_token;
-  if (!refreshToken) throw new Error('Google no está conectado (falta refresh_token en google_config)');
-
-  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
-  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos');
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`No se pudo renovar el token de Google (¿falta el scope gmail.send? conectar Gmail en Configuración): ${data.error_description ?? data.error}`);
-  }
-  return data.access_token;
-}
-
-function base64UrlEncodeUtf8(texto: string): string {
-  const utf8 = new TextEncoder().encode(texto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-async function enviarGmail(token: string, destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
-  const mensajeMime = [
-    `From: ${REMITENTE_BASE}`,
-    `To: ${destinatarios.join(', ')}`,
-    `Subject: ${codificarAsunto(asunto)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    '',
-    cuerpoHtml,
-  ].join('\r\n');
-
-  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
+// Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío — no puede recibir)
+// en vez de la API de Gmail (2026-09-19, petición de Gabriel: los avisos automáticos del CRM no
+// deben salir de la cuenta de Gmail personal). Credenciales en secretos de Supabase
+// (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS) — nunca hardcodeadas.
+async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
+  const client = new SMTPClient({
+    connection: {
+      hostname: Deno.env.get('SMTP_HOST')!,
+      port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
+      tls: true,
+      auth: { username: Deno.env.get('SMTP_USER')!, password: Deno.env.get('SMTP_PASS')! },
+    },
   });
-  if (!res.ok) {
-    const detalle = await res.text().catch(() => '');
-    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
+  try {
+    await client.send({
+      from: `Reformas Ordoñez <${REMITENTE_ENVIO}>`,
+      to: destinatarios,
+      subject: asunto,
+      content: 'auto',
+      html: cuerpoHtml,
+    });
+  } finally {
+    await client.close();
   }
 }
 
-function codificarAsunto(asunto: string): string {
-  // RFC 2047 — necesario porque el asunto lleva acentos/ñ.
-  const utf8 = new TextEncoder().encode(asunto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return `=?UTF-8?B?${btoa(binario)}?=`;
+// Pie fijo en los correos salientes — info@ordonezrenov.com es una cuenta de solo envío, no
+// recibe nada, así que hay que dejar claro dónde escribir de verdad si hace falta responder.
+function pieCorreoAutomatico(fr: boolean): string {
+  const texto = fr
+    ? `Courriel automatique — merci de ne pas répondre à cette adresse. Pour toute question, contactez-nous à ${REMITENTE_BASE}.`
+    : `Correo automático — no responder a esta dirección. Para cualquier consulta, escríbenos a ${REMITENTE_BASE}.`;
+  return `<div style="color:#9ca3af;font-size:10px;margin-top:6px">${esc(texto)}</div>`;
 }
 
 function fechaLegible(fecha: string | null): string {
@@ -351,6 +320,7 @@ function construirHtmlCliente(opts: {
     </td></tr>
     <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
       <div style="color:#9ca3af;font-size:11px">Reformas Ordoñez</div>
+      ${pieCorreoAutomatico(opts.fr)}
     </td></tr>
   </table>
 </div>`;
@@ -442,6 +412,7 @@ function construirHtml(opts: {
     </td></tr>
     <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
       <div style="color:#9ca3af;font-size:11px">Notificación automática del CRM Reformas Ordoñez</div>
+      ${pieCorreoAutomatico(false)}
     </td></tr>
   </table>
 </div>`;
@@ -530,9 +501,7 @@ Deno.serve(async (req: Request) => {
       archivosPrevios,
     });
 
-    const token = await obtenerAccessToken(supabase);
-
-    await enviarGmail(token, destinatarios, asunto, cuerpo);
+    await enviarSmtp(destinatarios, asunto, cuerpo);
 
     // Confirmación al CLIENTE, en su idioma — envío aparte porque la plantilla y el destinatario
     // son distintos del aviso interno de arriba (bug/hueco real corregido 2026-08-18: antes solo
@@ -559,7 +528,7 @@ Deno.serve(async (req: Request) => {
           telefonoEmpresa: contactoEmpresa?.telefono || null,
           emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
         });
-        await enviarGmail(token, [v.email], asuntoCliente, cuerpoCliente);
+        await enviarSmtp([v.email], asuntoCliente, cuerpoCliente);
         clienteNotificado = true;
       } catch (err) {
         console.error('No se pudo enviar la confirmación al cliente:', String(err instanceof Error ? err.message : err));

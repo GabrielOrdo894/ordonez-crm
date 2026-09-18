@@ -10,7 +10,8 @@
 // No requiere body — recorre todas las visitas Pendiente de fecha_visita = hoy. Idempotente por
 // visita (columna `recordatorio_enviado_en`, migración 20260911_visitas_recordatorio_enviado_en):
 // una vez enviado con éxito no se vuelve a mandar aunque el cron se reinvoque el mismo día.
-import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -33,6 +34,7 @@ function esLlamadaAutorizada(req: Request): boolean {
 }
 
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
+const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
@@ -42,71 +44,35 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-async function obtenerAccessToken(supabase: SupabaseClient): Promise<string> {
-  const { data: config, error } = await supabase
-    .from('google_config')
-    .select('refresh_token, refresh_token_gmail')
-    .eq('id', 1)
-    .maybeSingle();
-  if (error) throw new Error(`No se pudo leer google_config: ${error.message}`);
-  const refreshToken = config?.refresh_token_gmail || config?.refresh_token;
-  if (!refreshToken) throw new Error('Google no está conectado (falta refresh_token en google_config)');
-
-  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
-  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos');
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
+// Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
+// de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
+async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
+  const client = new SMTPClient({
+    connection: {
+      hostname: Deno.env.get('SMTP_HOST')!,
+      port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
+      tls: true,
+      auth: { username: Deno.env.get('SMTP_USER')!, password: Deno.env.get('SMTP_PASS')! },
+    },
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(`No se pudo renovar el token de Google (¿falta el scope gmail.send? conectar Gmail en Configuración): ${data.error_description ?? data.error}`);
+  try {
+    await client.send({
+      from: `Reformas Ordoñez <${REMITENTE_ENVIO}>`,
+      to: destinatarios,
+      subject: asunto,
+      content: 'auto',
+      html: cuerpoHtml,
+    });
+  } finally {
+    await client.close();
   }
-  return data.access_token;
 }
 
-function base64UrlEncodeUtf8(texto: string): string {
-  const utf8 = new TextEncoder().encode(texto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function codificarAsunto(asunto: string): string {
-  const utf8 = new TextEncoder().encode(asunto);
-  let binario = '';
-  for (const byte of utf8) binario += String.fromCharCode(byte);
-  return `=?UTF-8?B?${btoa(binario)}?=`;
-}
-
-async function enviarGmail(token: string, destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
-  const mensajeMime = [
-    `From: ${REMITENTE_BASE}`,
-    `To: ${destinatarios.join(', ')}`,
-    `Subject: ${codificarAsunto(asunto)}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset="UTF-8"',
-    '',
-    cuerpoHtml,
-  ].join('\r\n');
-
-  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: base64UrlEncodeUtf8(mensajeMime) }),
-  });
-  if (!res.ok) {
-    const detalle = await res.text().catch(() => '');
-    throw new Error(`Gmail no aceptó el envío (${res.status}): ${detalle}`);
-  }
+function pieCorreoAutomatico(fr: boolean): string {
+  const texto = fr
+    ? `Courriel automatique — merci de ne pas répondre à cette adresse. Pour toute question, contactez-nous à ${REMITENTE_BASE}.`
+    : `Correo automático — no responder a esta dirección. Para cualquier consulta, escríbenos a ${REMITENTE_BASE}.`;
+  return `<div style="color:#9ca3af;font-size:10px;margin-top:6px">${esc(texto)}</div>`;
 }
 
 function esc(s: string): string {
@@ -186,6 +152,7 @@ function construirHtmlRecordatorio(opts: {
     </td></tr>
     <tr><td style="background:#f8fafc;border:1px solid #e5e7eb;border-top:1px solid #eef2f7;border-radius:0 0 10px 10px;padding:14px 24px;text-align:center">
       <div style="color:#9ca3af;font-size:11px">Reformas Ordoñez</div>
+      ${pieCorreoAutomatico(opts.fr)}
     </td></tr>
   </table>
 </div>`;
@@ -231,8 +198,6 @@ Deno.serve(async (req: Request) => {
     const { data: empresaRow } = await supabase.from('empresa_config').select('datos').eq('id', 1).maybeSingle();
     const datos = (empresaRow?.datos ?? {}) as { es?: { telefono?: string; email?: string }; fr?: { telefono?: string; email?: string } };
 
-    const token = await obtenerAccessToken(supabase);
-
     let enviados = 0;
     const fallidos: string[] = [];
     for (const v of visitas) {
@@ -256,7 +221,7 @@ Deno.serve(async (req: Request) => {
           telefonoEmpresa: contactoEmpresa?.telefono || null,
           emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
         });
-        await enviarGmail(token, [v.email], asunto, cuerpo);
+        await enviarSmtp([v.email], asunto, cuerpo);
 
         const { error: errorMarcar } = await supabase.from('visitas').update({ recordatorio_enviado_en: hoy }).eq('id', v.id);
         if (errorMarcar) console.error(`No se pudo marcar recordatorio_enviado_en para la visita ${v.id}:`, errorMarcar.message);
