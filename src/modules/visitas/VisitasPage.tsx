@@ -57,8 +57,11 @@ export default function VisitasPage() {
         .from('visitas')
         .select('*')
         .is('eliminado_en', null)
-        .order('fecha_visita', { ascending: false })
-        .order('hora_visita', { ascending: false });
+        // nullsFirst: false — sin esto, Postgres pone las visitas SIN fecha_visita las primeras en
+        // orden descendente (comportamiento por defecto de NULLS FIRST en DESC), tapando las visitas
+        // reales más recientes arriba de la lista (bug real, corregido 2026-09-19).
+        .order('fecha_visita', { ascending: false, nullsFirst: false })
+        .order('hora_visita', { ascending: false, nullsFirst: false });
       if (error) throw error;
       return data as Visita[];
     },
