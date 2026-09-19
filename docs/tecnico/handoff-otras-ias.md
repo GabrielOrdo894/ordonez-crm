@@ -86,6 +86,28 @@ producción hasta que se despliega explícitamente — editar el fichero local n
 
 ---
 
+## 2bis. Agentes especializados y lógica de negocio — dónde está de verdad
+
+Los "agentes" (`creador-presupuestos`, `revisor-presupuestos`, `envio-presupuestos`,
+`seguimiento-presupuestos`, etc.) que Claude Code usa como subagentes **son solo ficheros de
+instrucciones en Markdown**, en `.claude/agents/*.md` — cualquier IA con acceso al repo puede
+abrirlos y seguirlos como si fueran un prompt largo. No hay nada mágico ahí, es texto plano.
+Antes de crear/revisar/enviar un presupuesto, **leer el fichero del agente correspondiente
+entero** — tiene el proceso paso a paso, incluidas las escrituras a `funnel_eventos` que hay que
+hacer a mano por SQL (una IA sin la función `registrarEventoFunnel()` del frontend tiene que
+replicar ese INSERT ella misma, el propio fichero del agente trae el SQL exacto a copiar).
+
+Para el embudo de conversión y el pipeline de clientes, la lógica real (no solo el resumen del
+punto 3 de abajo) vive en:
+- `src/lib/funnelTracking.ts` — etapas del embudo (`ETAPAS_FUNNEL_SOLICITUD`), función
+  `registrarEventoFunnel()` (idempotente), `contarUnicosEnFunnel()` (cuenta `solicitud_id`/
+  `presupuesto_id` únicos por etapa, sin exigir que se hayan alcanzado las etapas anteriores).
+- `src/lib/pipelineSync.ts` — `etapaAutomatica()` (deriva la etapa del pipeline de un cliente a
+  partir de su visita/presupuestos/proyecto/factura) y `etapaMaximaAlcanzada()` (el pipeline
+  nunca retrocede, ni si el estado actual baja).
+
+---
+
 ## 3. Reglas de comportamiento — resumen crítico
 
 Esto es un resumen de lo más importante. **`CLAUDE.md` en la raíz del repo es la fuente
@@ -133,6 +155,26 @@ completa y siempre gana si hay contradicción** — leerlo entero antes de tocar
   como borrador (`create_draft`), y avisar la fecha/hora exacta de envío programado si la
   herramienta de correo usada la programa en vez de dejarlo inerte (ver limitación conocida de
   Claude con el MCP de Gmail — puede no aplicar igual con otra IA/herramienta de correo).
+
+---
+
+## 3bis. Lo que este documento NO puede darte
+
+Dos cosas que Claude Code hace en este proyecto dependen de herramientas atadas a la cuenta de
+Gabriel en claude.ai, no al repo — ninguna otra IA las tiene por leer este documento. Hace falta
+montar el equivalente aparte, con su propia autorización de Gabriel:
+
+- **Redactar borradores en el Gmail de `reformasordonezeus@gmail.com`**: Claude lo hace vía un
+  conector de Gmail de claude.ai (OAuth ya autorizado por Gabriel a ese conector concreto). Otra
+  IA necesitaría su propia integración de Gmail (por ejemplo un GPT personalizado con acción de
+  Gmail, o acceso a la API de Gmail con sus propias credenciales OAuth) — sin eso, no puede leer
+  ni escribir en esa bandeja.
+- **Navegar el CRM en el navegador** (sacar el enlace real de firma de Documenso, hacer capturas,
+  verificar visualmente un cambio) — Claude lo hace con la extensión "Claude in Chrome". Otra IA
+  necesitaría su propio modo de navegación (agentes tipo "computer use"/"operator") para poder
+  hacer lo mismo; sin eso, esas tareas concretas (typicamente: obtener `documenso_signing_url`
+  para un presupuesto nuevo, que solo se genera al pulsar el botón en el CRM) no se pueden hacer
+  por SQL ni por API, hay que dejárselas a Gabriel o esperar a la próxima sesión con Claude.
 
 ---
 
