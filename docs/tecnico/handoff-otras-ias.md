@@ -178,6 +178,54 @@ montar el equivalente aparte, con su propia autorización de Gabriel:
 
 ---
 
+## 3ter. Cómo montar el acceso equivalente en ChatGPT (para que Gabriel lo haga una vez)
+
+Esto lo tiene que configurar Gabriel manualmente en su cuenta de ChatGPT — no es algo que se
+pueda dejar escrito de una vez para siempre en el repo, porque son permisos ligados a su cuenta
+personal, igual que el acceso de Gmail de Claude. Se hace una vez y queda disponible en
+cualquier chat nuevo.
+
+### A. Gmail (leer/redactar en `reformasordonezeus@gmail.com`)
+
+Necesita un plan de ChatGPT con **Conectores** (Plus, Pro, Team, Enterprise o Edu — no está en
+el plan gratuito).
+
+1. En ChatGPT, ir a **Ajustes → Conectores** (in English: *Settings → Connectors*).
+2. Buscar **Gmail** en la lista y pulsar **Conectar**.
+3. Se abre el flujo de OAuth de Google — iniciar sesión con `reformasordonezeus@gmail.com` (no
+   con una cuenta personal de Gabriel) y aceptar los permisos que pida.
+4. Una vez conectado, en cualquier chat se puede activar el conector de Gmail (icono de
+   herramientas/`+` junto al mensaje, o mencionándolo según la versión de la interfaz) para que
+   esa conversación pueda buscar hilos y crear borradores.
+5. **Igual que con Claude**: pedirle siempre que redacte en **borrador**, nunca que envíe
+   directamente — y comprobar en la propia bandeja de Gmail que el borrador quedó inerte (no
+   programado) antes de darlo por hecho, por si la integración de ChatGPT también tuviera algún
+   comportamiento inesperado con el envío (no se puede dar por descontado que se comporte igual
+   que el conector de Claude solo porque el destino final es el mismo Gmail).
+
+Si el plan de ChatGPT no incluye Conectores, la alternativa es crear un **GPT personalizado**
+con una **Action** que llame a la API de Gmail directamente (requiere crear credenciales OAuth
+propias en Google Cloud Console para ese GPT) — más trabajo de configuración, solo merece la
+pena si el uso va a ser frecuente.
+
+### B. Navegación del CRM (sacar enlaces de Documenso, verificar visualmente)
+
+Necesita el **modo Agente** de ChatGPT (a veces llamado *Agent mode*, antes *Operator* — plan
+Plus, Pro o Team; comprobar disponibilidad en la cuenta de Gabriel, no todos los planes lo
+tienen activo todavía).
+
+1. Al iniciar un chat, buscar el selector de modo/herramientas y elegir **Agente** (o el nombre
+   que tenga en ese momento la opción de navegación con control de pantalla).
+2. Pedirle que navegue a `https://ordonezrenov.com/crm/`, inicie sesión (Gabriel debe dar la
+   contraseña él mismo cuando el agente se lo pida en pantalla, nunca pegarla en el chat de
+   texto) y realice la acción (ej. abrir un presupuesto, pulsar "Obtener enlace de firma", leer
+   el enlace completo).
+3. Mismo cuidado que con Claude in Chrome: no dejar que interactúe con datos sensibles de pago,
+   y verificar el resultado (en este caso, comparando el enlace obtenido con el que quede
+   guardado en `presupuestos.documenso_signing_url` vía Supabase) antes de usarlo.
+
+---
+
 ## 4. Dónde está cada cosa (mapa rápido)
 
 - **Esquema completo de tablas**: `docs/tecnico/supabase-schema.md`.
