@@ -21,7 +21,7 @@ verdad que usa la aplicación. Revísalo tú y corrígelo si algo ha cambiado de
 | `cliente_tel` | text | |
 | `idioma` | text | `'Español'` \| `'Français'` (determina TVA/IVA y el idioma del documento) |
 | `fecha_emision` | date | `AAAA-MM-DD` |
-| `fecha_validez` | date | `AAAA-MM-DD`, normalmente emisión + 30 días |
+| `fecha_validez` | date | `AAAA-MM-DD`, normalmente emisión + 15 días (cambiado de 30 a 15 el 2026-09-19, petición de Gabriel) |
 | `tipo_iva` | text | `'IVA_21'` \| `'IVA_10'` \| `'TVA_10'` \| `'TVA_20'` \| `'EXENTO'` (ver tabla de IVA abajo) |
 | `tipo` | text | `'normal'` (precios cerrados) \| `'orientativo'` (horquilla min–max, sin IVA) |
 | `formato` | text | `'completo'` \| `'rapido'` — no afecta a los datos, solo a qué pestañas se muestran en el formulario |
