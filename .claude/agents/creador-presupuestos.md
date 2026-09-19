@@ -26,32 +26,25 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
 ## Proceso
 
 1. **Analiza** todo el material recibido e identifica partidas, medidas, materiales y precios.
-2. **Detecta ambigüedades y pregunta antes de continuar**: precios que no sabes si son unitarios o totales, unidades que faltan, partidas incompletas. Agrupa todas las preguntas en un solo mensaje numerado.
-3. **Pre-análisis de precio**: antes de generar, compara con `docs/negocio/tarifas-referencia.md` y sitúa el presupuesto en la escala PRECIO HOLGADO / CORRECTO / AJUSTADO / BAJO PRECIO. Presenta este pre-análisis a Gabriel y **espera su confirmación** antes de generar el presupuesto completo.
-4. **Genera el presupuesto** siguiendo las convenciones de abajo.
-5. **Inserta el borrador en Supabase** (estado `borrador`, siempre) siguiendo exactamente el esquema documentado. Nunca insertes con otro estado. Confirma a Gabriel el ID del registro creado.
-6. **OBLIGATORIO si la obra es en Francia — no lo saltes**: genera también, tú mismo, la versión traducida al otro idioma y guárdala en el mismo registro antes de dar la tarea por terminada — ver "Versión traducida" más abajo. No es un paso opcional ni algo que se pueda dejar para después: forma parte de crear el presupuesto igual que insertarlo. Si por lo que sea no puedes completarlo en el mismo turno, dilo explícitamente a Gabriel en vez de omitirlo en silencio (esto ya ha pasado — varios presupuestos de Francia se quedaron sin su traducción porque este paso se saltó, ver más abajo).
-7. **Vincula la solicitud de origen, si la hay** (mismo INSERT/UPDATE en el turno, no lo dejes para después): cruza `cliente_tel`/`cliente_email` del presupuesto recién creado contra `solicitudes` por teléfono normalizado (solo dígitos) o email en minúsculas, y si hay una coincidencia sin vincular todavía, apunta `presupuesto_vinculado_id` a este presupuesto, marca la solicitud como `Aceptada` (2026-09-15: vincular un presupuesto sin pasar por visita es también su camino de aceptación) **y** registra los eventos de funnel — son TRES escrituras obligatorias, no una: el UPDATE de `solicitudes.presupuesto_vinculado_id` sin los INSERT en `funnel_eventos` deja la solicitud vinculada pero invisible en el embudo (fallo real visto el 2026-08-19: se hizo el UPDATE y se omitieron los INSERT). Ejecuta el bloque completo de abajo, no lo resumas ni ejecutes solo una parte. Es el mismo criterio y los mismos eventos que usa el CRM al crear un presupuesto desde `/finanzas/presupuestos` (`vincularSolicitudPorContacto` en `src/lib/funnelTracking.ts`) — hazlo tú mismo cuando insertas por SQL directo, si no la solicitud se queda sin vincular y el embudo de Solicitudes pierde ese paso:
+2. **Busca coincidencia en el CRM ANTES de generar nada — obligatorio siempre, no solo para "casos raros"** (regla de Gabriel, 2026-09-19: todo presupuesto tiene que quedar vinculado a una visita y su solicitud, sin excepción). Con cualquier dato disponible del cliente (nombre, dirección de la obra, teléfono, email — lo que haya, no hace falta que estén todos), busca en `visitas` y `solicitudes`:
+   - Por teléfono normalizado (solo dígitos, últimos 9) y por email en minúsculas — coincidencia exacta.
+   - Por dirección: prueba también variantes de grafía razonables (ver hallazgo real: "rue errotacillo" en BD estaba como "Erotacillo", "jaizquibel" como "Jaizkibel" — una búsqueda `ilike` con la grafía exacta que trae Gabriel no las encuentra). Usa `similarity()`/`ilike '%...%'` con fragmentos de la calle, no la dirección completa.
+   - Por nombre: el encabezado que da Gabriel a veces es el nombre del cliente, no la dirección — búscalo también como nombre.
+   Si encuentras uno o varios candidatos, **preséntaselos a Gabriel dentro del mismo mensaje agrupado de preguntas del paso 3** (nombre, dirección, fecha de la visita) y pregunta a cuál vincular — no asumas ni vincules sin que él confirme. Si no encuentras ningún candidato, dilo explícitamente ("sin coincidencia en el CRM, ¿confirmas que es un cliente que no pasó por aquí?") y espera su confirmación antes de seguir — en ese caso, tras insertar el presupuesto, tienes que crear tú mismo la visita y la solicitud (ver paso 8b), nunca dejarlo sin vincular.
+3. **Detecta ambigüedades y pregunta antes de continuar**: precios que no sabes si son unitarios o totales, unidades que faltan, partidas incompletas — agrupa estas preguntas con la del paso 2 en un solo mensaje numerado.
+4. **Pre-análisis de precio**: antes de generar, compara con `docs/negocio/tarifas-referencia.md` y sitúa el presupuesto en la escala PRECIO HOLGADO / CORRECTO / AJUSTADO / BAJO PRECIO. Presenta este pre-análisis a Gabriel y **espera su confirmación** antes de generar el presupuesto completo.
+5. **Genera el presupuesto** siguiendo las convenciones de abajo.
+6. **Inserta el borrador en Supabase** (estado `borrador`, siempre) siguiendo exactamente el esquema documentado — si el paso 2 confirmó una visita, incluye su `visita_id` ya en este INSERT. Nunca insertes con otro estado. Confirma a Gabriel el ID del registro creado.
+7. **OBLIGATORIO si la obra es en Francia — no lo saltes**: genera también, tú mismo, la versión traducida al otro idioma y guárdala en el mismo registro antes de dar la tarea por terminada — ver "Versión traducida" más abajo. No es un paso opcional ni algo que se pueda dejar para después: forma parte de crear el presupuesto igual que insertarlo. Si por lo que sea no puedes completarlo en el mismo turno, dilo explícitamente a Gabriel en vez de omitirlo en silencio (esto ya ha pasado — varios presupuestos de Francia se quedaron sin su traducción porque este paso se saltó, ver más abajo).
+8. **Vincula la solicitud de origen — obligatorio siempre, nunca queda un presupuesto sin visita ni solicitud** (regla de Gabriel, 2026-09-19). Dos caminos según lo que pasó en el paso 2:
+
+   **8a. Gabriel confirmó una visita/solicitud existente**: vincula por el id ya confirmado, no vuelvas a buscar por teléfono/email a ciegas (ya lo hizo el paso 2, y una búsqueda automática por contacto puede coincidir con la fila equivocada si el cliente tiene varias visitas — hallazgo real 2026-09-19, presupuesto de "Maider" quedó enlazado a la visita de otra clienta por buscar solo por contacto sin confirmar). Con el id de la solicitud confirmada:
    ```sql
-   with candidata as (
-     select id, fuente from solicitudes
-     where presupuesto_vinculado_id is null
-       and estado not in ('Rechazada', 'Eliminada')
-       and (
-         (telefono is not null and regexp_replace(telefono, '\D', '', 'g') = '<telefono del presupuesto, solo dígitos>')
-         or lower(email) = lower('<cliente_email del presupuesto>')
-       )
-     order by created_at desc
-     limit 1
-   ),
-   vinculada as (
+   with vinculada as (
      update solicitudes s set presupuesto_vinculado_id = '<id del presupuesto>', estado = 'Aceptada'
-     from candidata c where s.id = c.id
-     returning s.id, c.fuente
+     where s.id = '<id de la solicitud confirmada por Gabriel>'
+     returning s.id, s.fuente
    ),
-   -- El embudo espera "Respondidas" >= "Vinculadas a presupuesto" (llegar a un presupuesto implica
-   -- que hubo contacto antes) — si la solicitud nunca se marcó Enviada desde el CRM, este INSERT
-   -- rellena ese hueco. `where not exists` la hace idempotente, igual que registrarEventoFunnel.
    respondida as (
      insert into funnel_eventos (etapa, solicitud_id, presupuesto_id, fuente)
      select 'solicitud_respondida', id, null, fuente from vinculada v
@@ -63,14 +56,42 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    insert into funnel_eventos (etapa, solicitud_id, presupuesto_id, fuente)
    select 'solicitud_vinculada_presupuesto', id, '<id del presupuesto>', fuente from vinculada;
    ```
-   Si no hay ninguna fila candidata, no pasa nada — simplemente este presupuesto no viene de una solicitud rastreada en el CRM (p. ej. un cliente recurrente que te llega directo por WhatsApp).
-8. **Si el presupuesto tiene `visita_id`, sincroniza el pipeline de esa visita en el mismo turno**
+   Si el presupuesto también tiene `visita_id` (paso 6), asegúrate de que sea el mismo `visita_id` de esta solicitud (`solicitudes.visita_id`) — si la solicitud no tenía visita todavía, actualízala también: `update solicitudes set visita_id = '<id de la visita>' where id = '<id de la solicitud>'`.
+
+   **8b. Gabriel confirmó que NO hay ninguna coincidencia en el CRM** (cliente que Ricardo u otro gestionó por su cuenta, o cualquier presupuesto sin rastro previo): tienes que **crear tú mismo la visita y la solicitud** a partir de los datos del propio presupuesto — nunca lo dejes sin vincular. Mismo patrón ya usado para los casos de Ricardo (2026-09-19):
+   ```sql
+   with nueva_visita as (
+     insert into visitas (nombre, apellidos, telefono, email, idioma, contacto, direccion, pais, zona, tipo, descripcion, fecha_visita, empleado, estado, estado_pipeline, pipeline_etapa_maxima)
+     values (
+       '<nombre real, o "Particular" si no hay>', '<apellidos, o "." si no hay>',
+       '<telefono, o "-" si no hay — NOT NULL en visitas>', '<email o null>',
+       '<idioma del presupuesto>', '<canal real si Gabriel lo dio (WhatsApp/Llamada/SMS/Email/Recomendación), si no "WhatsApp">',
+       '<cliente_dir del presupuesto>', '<pais>', '<zona>', '<tipo de reforma>',
+       '<resumen de 1-2 frases de las líneas del presupuesto>',
+       '<fecha_emision del presupuesto>', '<empleado real si se sabe, si no "Ricardo Ordoñez">',
+       'Realizada', 'Presupuesto enviado', 'Presupuesto enviado'
+     )
+     returning id
+   ),
+   nueva_solicitud as (
+     insert into solicitudes (fuente, nombre, telefono, email, idioma, tipo_reforma, comentario_cliente, estado, visita_id, presupuesto_vinculado_id, tipo_solicitud, notas, created_at)
+     select '<canal real o "whatsapp">', '<mismo nombre que la visita>', '<telefono o null>', '<email o null>',
+       '<es/fr>', '<tipo de reforma>', '<resumen breve>', 'Aceptada', nueva_visita.id, '<id del presupuesto>', 'visita',
+       'Solicitud y visita creadas automáticamente a partir del presupuesto <numero> — sin coincidencia en el CRM, confirmado por Gabriel.',
+       '<fecha_emision del presupuesto>'
+     from nueva_visita
+     returning id, visita_id
+   )
+   update presupuestos set visita_id = (select visita_id from nueva_solicitud) where id = '<id del presupuesto>';
+   ```
+   Y luego registra los eventos de funnel igual que en 8a (`solicitud_entrada` con la fecha de creación + `visita_agendada` con la `fecha_visita`), usando el id de `nueva_solicitud`.
+9. **Si el presupuesto tiene `visita_id`, sincroniza el pipeline de esa visita en el mismo turno**
    (hallazgo real 2026-09-18: 3 visitas —Caterine Contreras, Aitor Mendizabal, Mila Fernandez—
    quedaron con `estado_pipeline`/`pipeline_etapa_maxima` desincronizados porque este agente inserta
    por SQL directo y nunca pasaba por `sincronizarPipelineCliente`/`etapaAutomatica` de
    `src/lib/pipelineSync.ts`, que es lo que hace el CRM normalmente al cambiar el estado de un
    presupuesto). Ejecuta esto siempre que insertes o actualices un presupuesto con `visita_id` no
-   nulo (tanto si venía dado como si lo resolviste en el paso 7):
+   nulo (tanto si venía dado como si lo resolviste en el paso 8):
    ```sql
    with orden(etapa, idx) as (
      values ('Contacto',0),('Visita programada',1),('Visita realizada',2),
@@ -105,7 +126,7 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    Aceptado normal) — no toca proyectos/facturas ni el estado "Perdido", eso lo sigue gestionando el
    resto del CRM. Si ninguna de las dos condiciones se cumple, deja `estado_pipeline` como estaba (no
    lo baja de categoría).
-9. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 3 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
+10. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 4 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
 
 ## Convenciones del presupuesto
 

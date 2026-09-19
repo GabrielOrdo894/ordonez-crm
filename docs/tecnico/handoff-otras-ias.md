@@ -97,6 +97,14 @@ entero** — tiene el proceso paso a paso, incluidas las escrituras a `funnel_ev
 hacer a mano por SQL (una IA sin la función `registrarEventoFunnel()` del frontend tiene que
 replicar ese INSERT ella misma, el propio fichero del agente trae el SQL exacto a copiar).
 
+**Regla fija desde 2026-09-19 (Gabriel): ningún presupuesto se crea sin quedar vinculado a una
+visita y su solicitud.** Antes de generar el presupuesto, buscar en `visitas`/`solicitudes` por
+cualquier dato disponible del cliente (nombre, dirección — con variantes de grafía, no solo la
+grafía exacta que da Gabriel—, teléfono, email) y **confirmar con Gabriel a cuál vincularlo**
+antes de seguir. Si confirma que no hay ninguna coincidencia, crear la visita y la solicitud
+automáticamente a partir de los datos del propio presupuesto (ver el fichero
+`creador-presupuestos.md`, paso 8, para el proceso completo y el SQL exacto de ambos caminos).
+
 Para el embudo de conversión y el pipeline de clientes, la lógica real (no solo el resumen del
 punto 3 de abajo) vive en:
 - `src/lib/funnelTracking.ts` — etapas del embudo (`ETAPAS_FUNNEL_SOLICITUD`), función
