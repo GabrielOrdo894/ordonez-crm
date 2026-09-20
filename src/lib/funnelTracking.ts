@@ -208,6 +208,7 @@ export async function vincularSolicitudPorContacto(
 export async function vincularSolicitudPorVisita(
   visitaId: string,
   contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
+  fechaVisita?: string | null,
 ) {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
   const email = contacto.email ? contacto.email.trim().toLowerCase() : null;
@@ -239,7 +240,9 @@ export async function vincularSolicitudPorVisita(
     console.warn('vincularSolicitudPorVisita: no se pudo enlazar la solicitud:', errorUpdate.message);
     return;
   }
-  await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
+  // "Visita agendada" solo cuenta visitas con fecha_visita rellena — misma regla que el KPI "Total
+  // visitas" de VisitasPage.tsx, para que los dos conteos no diverjan (hallazgo real, 2026-09-20).
+  if (fechaVisita) await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
 }
 
 type SolicitudParaCruce = {

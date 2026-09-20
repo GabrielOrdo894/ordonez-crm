@@ -58,7 +58,9 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    ```
    Si el presupuesto también tiene `visita_id` (paso 6), asegúrate de que sea el mismo `visita_id` de esta solicitud (`solicitudes.visita_id`) — si la solicitud no tenía visita todavía, actualízala también: `update solicitudes set visita_id = '<id de la visita>' where id = '<id de la solicitud>'`.
 
-   **8b. Gabriel confirmó que NO hay ninguna coincidencia en el CRM** (cliente que Ricardo u otro gestionó por su cuenta, o cualquier presupuesto sin rastro previo): tienes que **crear tú mismo la visita y la solicitud** a partir de los datos del propio presupuesto — nunca lo dejes sin vincular. Mismo patrón ya usado para los casos de Ricardo (2026-09-19):
+   **8b. Gabriel confirmó que NO hay ninguna coincidencia en el CRM** (cliente que Ricardo u otro gestionó por su cuenta, o cualquier presupuesto sin rastro previo): tienes que **crear tú mismo la visita y la solicitud** a partir de los datos del propio presupuesto — nunca lo dejes sin vincular. Mismo patrón ya usado para los casos de Ricardo (2026-09-19).
+
+   **`fecha_visita` de esta visita siempre `current_date - 1` (corregido 2026-09-20, petición de Gabriel)** — nunca la dejes sin fecha ni uses la `fecha_emision` del presupuesto. La visita ya ocurrió antes de que se registre el presupuesto (Ricardo la hace y avisa después), así que un día antes de la creación del registro es más realista que "hoy" o "sin fecha". Además, el KPI "Total visitas" de `/visitas` solo cuenta visitas con `fecha_visita` rellena — una visita sin fecha desincroniza ese número frente al embudo de Solicitudes (hallazgo real, 27 vs 28, 2026-09-20).
    ```sql
    with nueva_visita as (
      insert into visitas (nombre, apellidos, telefono, email, idioma, contacto, direccion, pais, zona, tipo, descripcion, fecha_visita, empleado, estado, estado_pipeline, pipeline_etapa_maxima)
@@ -68,7 +70,7 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
        '<idioma del presupuesto>', '<canal real si Gabriel lo dio (WhatsApp/Llamada/SMS/Email/Recomendación), si no "WhatsApp">',
        '<cliente_dir del presupuesto>', '<pais>', '<zona>', '<tipo de reforma>',
        '<resumen de 1-2 frases de las líneas del presupuesto>',
-       '<fecha_emision del presupuesto>', '<empleado real si se sabe, si no "Ricardo Ordoñez">',
+       current_date - 1, '<empleado real si se sabe, si no "Ricardo Ordoñez">',
        'Realizada', 'Presupuesto enviado', 'Presupuesto enviado'
      )
      returning id

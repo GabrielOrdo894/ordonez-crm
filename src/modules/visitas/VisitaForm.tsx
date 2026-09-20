@@ -585,17 +585,25 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           .update({ visita_id: data.id, estado: 'Aceptada' })
           .eq('id', prefill.solicitudId);
         if (errorEnlace) toast.warning(`No se pudo enlazar la solicitud con la visita: ${errorEnlace.message}`);
-        await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
+        // "Visita agendada" solo cuenta visitas con fecha_visita rellena — misma regla que el KPI
+        // "Total visitas" de VisitasPage.tsx (hallazgo real, 2026-09-20). El formulario exige fecha
+        // siempre, así que esto es defensivo, pero mantiene la regla explícita e idéntica en todos
+        // los sitios donde se registra este evento.
+        if (data.fecha_visita) await registrarEventoFunnel('visita_agendada', { solicitudId: prefill.solicitudId });
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       } else {
         // Visita creada buscando el cliente directamente (la vía más habitual) — intenta el mismo
         // enlace por teléfono/email/nombre completo que arriba, para que "Visita agendada" del embudo no se quede
         // corto solo por no haber pasado por el botón de la solicitud (hallazgo real, 2026-09-16).
-        await vincularSolicitudPorVisita(data.id, {
-          telefono: data.telefono,
-          email: data.email,
-          nombre: `${data.nombre} ${data.apellidos}`.trim(),
-        });
+        await vincularSolicitudPorVisita(
+          data.id,
+          {
+            telefono: data.telefono,
+            email: data.email,
+            nombre: `${data.nombre} ${data.apellidos}`.trim(),
+          },
+          data.fecha_visita,
+        );
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       }
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

@@ -157,7 +157,12 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       if (visitaId) patch.estado = 'Aceptada';
       const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
       if (error) throw error;
-      if (visitaId) await registrarEventoFunnel('visita_agendada', { solicitudId: id, fuente: solicitud?.fuente });
+      // "Visita agendada" solo cuenta visitas con fecha_visita rellena — misma regla que el KPI
+      // "Total visitas" de VisitasPage.tsx (hallazgo real, 2026-09-20).
+      const visitaVinculada = visitaId ? visitasDisponibles?.find((v) => v.id === visitaId) : null;
+      if (visitaId && visitaVinculada?.fecha_visita) {
+        await registrarEventoFunnel('visita_agendada', { solicitudId: id, fuente: solicitud?.fuente });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['solicitudes', id] });
