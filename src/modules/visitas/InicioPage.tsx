@@ -46,7 +46,7 @@ import { useEcheances } from '../fiscalidad/useEcheances';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { ETAPAS_PIPELINE } from '../clientes/types';
-import { SELECT_SOLICITUDES, estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { SELECT_SOLICITUDES, type Solicitud } from '../solicitudes/types';
 import { CalendarioMini } from './CalendarioMini';
 import { CierreObraBanner } from './CierreObraBanner';
 import { NotificacionesBell } from '../notificaciones/NotificacionesBell';
@@ -278,22 +278,6 @@ export default function InicioPage() {
       const { data, error } = await supabase.from('solicitudes').select(SELECT_SOLICITUDES).order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
-    },
-  });
-
-  const { data: seguimientosResumen } = useQuery({
-    queryKey: ['presupuestos', 'respuestas-pendientes'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('presupuestos')
-        .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
-        )
-        .is('eliminado_en', null)
-        .not('ultima_respuesta_cliente_fecha', 'is', null)
-        .order('ultima_respuesta_cliente_fecha', { ascending: false });
-      if (error) throw error;
-      return data as PresupuestoConRespuesta[];
     },
   });
 
@@ -619,7 +603,6 @@ export default function InicioPage() {
 
   const solicitudesNuevasLista = (solicitudesResumen ?? []).filter((s) => s.estado === 'Nueva');
   const nuevasSolicitudes = solicitudesNuevasLista.length;
-  const nuevosSeguimientos = (seguimientosResumen ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva').length;
   const previaSolicitudesNuevas = solicitudesNuevasLista.slice(0, 3);
 
   const eventosCalendario = useMemo(
@@ -1191,12 +1174,12 @@ export default function InicioPage() {
             </span>
           </div>
           <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-            <span className="text-sm text-gray-600">Respuestas nuevas a revisar</span>
-            <span className={`text-lg font-semibold ${nuevosSeguimientos > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-              {nuevosSeguimientos}
+            <span className="text-sm text-gray-600">Presupuestos pendientes</span>
+            <span className={`text-lg font-semibold ${presupuestosPendientes.pendientes.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+              {presupuestosPendientes.pendientes.length}
             </span>
           </div>
-          {nuevasSolicitudes === 0 && nuevosSeguimientos === 0 && (
+          {nuevasSolicitudes === 0 && presupuestosPendientes.pendientes.length === 0 && (
             <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Todo al día — sin pendientes.</p>
           )}
         </div>

@@ -369,7 +369,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       telefono: potencial.telefono,
       email: potencial.email ?? f.email,
       idioma: potencial.idioma === 'Français' ? 'Français' : f.idioma,
-      contacto: potencial.origen === 'solicitud' ? 'Web' : f.contacto,
+      contacto: potencial.origen === 'solicitud' ? 'Formulario' : f.contacto,
     }));
     setClienteElegido(null);
     setClienteRepetidor(null);
@@ -950,7 +950,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             />
             <Select
               label="Cómo nos contactó"
-              options={['Llamada', 'WhatsApp', 'SMS', 'Web', 'Email', 'Recomendación', 'Otro'].map((v) => ({
+              options={['Llamada', 'WhatsApp', 'SMS', 'Formulario', 'Email', 'Recomendación', 'Otro'].map((v) => ({
                 value: v,
                 label: v,
               }))}

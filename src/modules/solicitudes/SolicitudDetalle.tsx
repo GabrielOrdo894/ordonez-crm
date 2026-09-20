@@ -456,7 +456,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                 telefono: solicitud.telefono ?? undefined,
                 email: solicitud.email ?? undefined,
                 idioma: solicitud.idioma,
-                contacto: 'Web',
+                contacto: 'Formulario',
                 tipo: solicitud.tipo_reforma ?? undefined,
                 descripcion: solicitud.comentario_cliente ?? undefined,
                 solicitudId: solicitud.id,

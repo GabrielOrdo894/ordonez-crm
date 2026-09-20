@@ -46,9 +46,10 @@ export const ETAPAS_FUNNEL_SOLICITUD: EtapaFunnel[] = [
   'factura_final_cobrada',
 ];
 
-// Mapeo estado de presupuesto → etapa de funnel, compartido entre los 3 sitios donde se cambia
-// el estado de un presupuesto: PresupuestosPage.tsx, DocumentoDetalleInline.tsx y
-// SolicitudesPage.tsx (pestaña "Respuestas a presupuestos").
+// Mapeo estado de presupuesto → etapa de funnel, usado por registrarEtapaPresupuestoConBackfill
+// (PresupuestosPage.tsx y DocumentoDetalleInline.tsx cuando se cambia el estado a mano) —
+// documenso-webhook/index.ts replica la misma lógica de backfill por su cuenta, ya que Deno no
+// puede importar este fichero.
 export const ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO: Partial<Record<string, EtapaFunnel>> = {
   Pendiente: 'presupuesto_enviado',
   Aceptado: 'presupuesto_aceptado',
@@ -132,6 +133,20 @@ export async function registrarEventoFunnel(
     fuente: opts.fuente ?? null,
   });
   if (error) console.warn('No se pudo registrar el evento de funnel:', error.message);
+}
+
+// Marcar un presupuesto directamente como Aceptado/Rechazado desde Borrador (sin pasar por
+// "Pendiente" primero, algo que ocurre en la práctica real) solo registraba la etapa de destino,
+// dejando "Presupuesto enviado" del embudo por debajo de la realidad aunque aceptado/rechazado
+// impliquen que antes se envió (hallazgo real, auditoría 2026-09-20). registrarEventoFunnel ya es
+// idempotente por (etapa, presupuesto_id), así que este backfill es seguro de llamar siempre.
+export async function registrarEtapaPresupuestoConBackfill(estado: string, presupuestoId: string) {
+  const etapaFunnel = ETAPA_FUNNEL_POR_ESTADO_PRESUPUESTO[estado];
+  if (!etapaFunnel) return;
+  if (etapaFunnel !== 'presupuesto_enviado') {
+    await registrarEventoFunnel('presupuesto_enviado', { presupuestoId });
+  }
+  await registrarEventoFunnel(etapaFunnel, { presupuestoId });
 }
 
 // Auto-vinculación al crear un presupuesto: cruza por teléfono/email normalizado y, como último

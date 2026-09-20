@@ -330,8 +330,25 @@ Deno.serve(async (req: Request) => {
     documento_id: presupuesto.id,
     evento: 'Firmado electrónicamente (Documenso) — marcado como Aceptado',
   });
-  const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_firmado', presupuesto_id: presupuesto.id });
-  if (errorFunnel) console.error('No se pudo registrar el evento de funnel presupuesto_firmado:', errorFunnel.message);
+  // "Aceptado" implica que antes se envió — se registra también esa etapa si no existía todavía
+  // (mismo criterio que registrarEtapaPresupuestoConBackfill del frontend, duplicado aquí porque
+  // Deno no puede importar funnelTracking.ts). presupuesto_firmado ya no es una etapa del embudo
+  // desde el rediseño 2026-09-16 (sustituida por presupuesto_aceptado) — este webhook se había
+  // quedado desactualizado y un presupuesto firmado por Documenso no contaba en ningún escalón
+  // visible del embudo (hallazgo real, 2026-09-20).
+  const registrarFunnelPresupuesto = async (etapa: string) => {
+    const { data: existente } = await supabase
+      .from('funnel_eventos')
+      .select('id')
+      .eq('etapa', etapa)
+      .eq('presupuesto_id', presupuesto.id)
+      .limit(1);
+    if (existente && existente.length > 0) return;
+    const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa, presupuesto_id: presupuesto.id });
+    if (errorFunnel) console.error(`No se pudo registrar el evento de funnel ${etapa}:`, errorFunnel.message);
+  };
+  await registrarFunnelPresupuesto('presupuesto_enviado');
+  await registrarFunnelPresupuesto('presupuesto_aceptado');
 
   // Best-effort: el presupuesto ya quedó firmado/Aceptado arriba pase lo que pase aquí abajo.
   const apiKey = Deno.env.get('DOCUMENSO_API_KEY');
