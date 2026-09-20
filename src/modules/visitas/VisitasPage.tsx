@@ -7,6 +7,7 @@ import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { notaSistema } from '../../lib/notaSistema';
+import { limpiarVisitaAgendadaPorVisitas } from '../../lib/funnelTracking';
 import { formatearTelefonoVisual } from '../clientes/types';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -74,6 +75,7 @@ export default function VisitasPage() {
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
         .eq('id', id);
       if (error) throw error;
+      await limpiarVisitaAgendadaPorVisitas([id]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
@@ -89,6 +91,7 @@ export default function VisitasPage() {
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
         .in('id', ids as string[]);
       if (error) throw error;
+      await limpiarVisitaAgendadaPorVisitas(ids as string[]);
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

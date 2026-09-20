@@ -245,6 +245,29 @@ export async function vincularSolicitudPorVisita(
   if (fechaVisita) await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
 }
 
+// Al mover una visita a la papelera, su etapa "visita_agendada" ya no debe seguir contando en el
+// embudo de Solicitudes — el KPI "Total visitas" de VisitasPage.tsx ya la excluye por
+// `eliminado_en`, pero el embudo cuenta `funnel_eventos` sin mirar si la visita sigue activa, así
+// que sin esto los dos números volverían a desincronizarse en cuanto se papelerice una visita que
+// ya tuviera el evento registrado (hallazgo real, 2026-09-20). Best-effort, no bloqueante — un
+// fallo aquí no debe impedir mover la visita a la papelera.
+export async function limpiarVisitaAgendadaPorVisitas(visitaIds: string[]) {
+  if (visitaIds.length === 0) return;
+  const { data: solicitudes, error } = await supabase.from('solicitudes').select('id').in('visita_id', visitaIds);
+  if (error) {
+    console.warn('limpiarVisitaAgendadaPorVisitas: no se pudieron leer solicitudes:', error.message);
+    return;
+  }
+  const solicitudIds = (solicitudes ?? []).map((s) => s.id);
+  if (solicitudIds.length === 0) return;
+  const { error: errorDelete } = await supabase
+    .from('funnel_eventos')
+    .delete()
+    .eq('etapa', 'visita_agendada')
+    .in('solicitud_id', solicitudIds);
+  if (errorDelete) console.warn('limpiarVisitaAgendadaPorVisitas: no se pudo limpiar funnel_eventos:', errorDelete.message);
+}
+
 type SolicitudParaCruce = {
   id: string;
   nombre: string | null;
