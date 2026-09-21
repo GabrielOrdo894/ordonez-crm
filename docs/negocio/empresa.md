@@ -8,7 +8,7 @@ Razón social:   Reformas Ordoñez
 Forma jurídica: EURL (constituida 2026-06-24, inmatriculada RCS 2026-07-07)
 SIREN / RCS:    106 842 925 · R.C.S. Bayonne
 SIRET (siège):  106 842 925 00013
-TVA Francia:    FR 47106842925
+TVA Francia:    FR47106842925   (n° TVA intracommunautaire, confirmado por Gabriel 2026-09-21)
 CIF España:     44670089E
 Code APE:       4399C
 ```

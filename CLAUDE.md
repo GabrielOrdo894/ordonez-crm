@@ -758,6 +758,22 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     `['presupuestos', 'pendientes-envio']` que sigue usando el badge/KPI — mismo motivo que el bug
     de caché compartida de más arriba: no basta con las mismas columnas si el filtro de filas
     también es distinto).
+- **Codificación MIME de los asuntos de email (`codificarCabeceraMime`) — avisos del CRM que caían en
+  spam** (2026-09-21): desde que los envíos automáticos salen por SMTP de Hostinger con `denomailer`
+  (2026-09-19), cualquier asunto con caracteres no ASCII (tildes, ñ, el guion largo "—", el punto medio
+  "·") lo codificaba la propia librería en Q-encoding con espacios sin codificar y, si la palabra
+  codificada pasaba de 74 caracteres, con un salto de línea en medio de la cabecera — el servidor daba
+  por terminadas las cabeceras ahí, From/To/Content-Type acababan dentro del cuerpo y Gmail mandaba el
+  mensaje a Spam con el cuerpo en crudo (hallazgo real de Gabriel: aviso interno "Visita agendada — Kepa
+  Etxeburua García · 2026-09-22 18:00", único aviso interno enviado desde el cambio a SMTP; los
+  "pendientes urgentes" diarios llegaban bien porque su asunto es ASCII puro). SPF/DKIM/DMARC del
+  dominio estaban correctos — no era reputación, era un mensaje malformado. Corregido en las 6 funciones
+  que envían por SMTP (`notificar-visita`, `alerta-diaria`, `documenso-webhook`, `enviar-resena-email`,
+  `agenda-diaria-ricardo`, `recordatorio-visita`, misma copia en cada una porque no pueden importarse
+  entre sí): `codificarCabeceraMime()` codifica asunto y nombre del remitente en RFC 2047 Base64 por
+  trozos de ≤ 45 bytes separados por espacio, y `denomailer` deja pasar tal cual lo que ya es ASCII.
+  **Regla**: cualquier función nueva que use `SMTPClient` debe pasar `subject` y el nombre del `from`
+  por esa misma función — nunca el texto con acentos directo.
 - **Auditoría profunda de la cadena contable + rediseño a `pagos_factura` (régimen de cobro real)**
   (2026-09-08): auditoría con 5 subagentes en paralelo sobre Gastos↔asientos, Facturas↔asientos,
   Asistente de IVA, declaración anual y verificación SQL directa contra producción — encontró

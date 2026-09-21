@@ -138,6 +138,32 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 
 // Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
 // de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
+// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
+// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
+// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
+// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
+// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
+// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
+// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
+// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
+// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
+function codificarCabeceraMime(texto: string): string {
+  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
+  const enc = new TextEncoder();
+  const trozos: string[] = [];
+  let actual = '';
+  for (const ch of texto) {
+    if (enc.encode(actual + ch).length > 45) {
+      trozos.push(actual);
+      actual = ch;
+    } else {
+      actual += ch;
+    }
+  }
+  if (actual) trozos.push(actual);
+  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
+}
+
 async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -145,6 +171,19 @@ async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: s
       port: Number(Deno.env.get('SMTP_PORT') ?? '465'),
       tls: true,
       auth: { username: Deno.env.get('SMTP_USER')!, password: Deno.env.get('SMTP_PASS')! },
+    },
+    // El asunto y el nombre del remitente se sobrescriben YA codificados en un preprocesador, que
+    // denomailer aplica DESPUÉS de resolver la configuración: si se le pasan codificados directamente
+    // en send(), la librería los vuelve a codificar (comprueba `startsWith('=?')`) y rompe la cabecera
+    // igual que antes (comprobado con un envío real, 2026-09-21).
+    client: {
+      preprocessors: [
+        (mail) => ({
+          ...mail,
+          subject: codificarCabeceraMime(asunto),
+          from: { ...mail.from, name: codificarCabeceraMime('Reformas Ordoñez') },
+        }),
+      ],
     },
   });
   try {
