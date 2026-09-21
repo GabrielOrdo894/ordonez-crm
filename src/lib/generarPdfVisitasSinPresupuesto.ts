@@ -31,7 +31,8 @@ function dibujarEnlace(doc: jsPDF, texto: string, url: string, x: number, y: num
 // Plantilla del listado "Visitas mañana: le enviamos este PDF a mi padre para que se acuerde de
 // pasar presupuesto" (petición de Gabriel, 2026-09-11) — mismo criterio que ya usa el aviso
 // "Envía el presupuesto a..." de la campana (useNotificaciones.ts): visita Realizada sin ningún
-// presupuesto vinculado, excluyendo las que vienen de una solicitud ya Rechazada/Eliminada.
+// presupuesto vinculado, excluyendo las que vienen de una solicitud ya No concretada/Rechazada
+// (no 'Eliminada' — un borrado definitivo no es una decisión de negocio, corregido 2026-09-21).
 export async function generarPdfVisitasSinPresupuesto(visitas: Visita[]): Promise<void> {
   const config = await cargarConfigCompleta();
   const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);

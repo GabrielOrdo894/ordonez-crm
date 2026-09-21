@@ -657,6 +657,14 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                   <p className="text-xs text-gray-500">
                     {presupuesto.traduccion.idioma} · generada {fechaCorta(presupuesto.traduccion.generado_en?.slice(0, 10))}
                   </p>
+                  {presupuesto.traduccion.lineas.length !== presupuesto.lineas.length && (
+                    <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 flex items-center gap-2">
+                      <AlertTriangle size={13} className="shrink-0" />
+                      Desactualizada: el presupuesto tiene {presupuesto.lineas.length} línea(s) ahora, la traducción
+                      se generó con {presupuesto.traduccion.lineas.length}. El PDF traducido no reflejará el cambio
+                      hasta que se vuelva a generar.
+                    </p>
+                  )}
                   <div className="flex gap-2 flex-wrap">
                     <Button size="sm" variant="secondary" onClick={handleVerPdfTraducido}>
                       <span className="flex items-center gap-1.5">

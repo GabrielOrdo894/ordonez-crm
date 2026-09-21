@@ -16,6 +16,7 @@
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts y el cálculo de distancia
 // (Distance Matrix con fallback Haversine) de notificar-visita/index.ts.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { CV_VEHICULO_DEFECTO, CUENTA_KILOMETRICO, tarifaPorCv } from '../_shared/baremoKilometrico.ts';
 
 function esLlamadaAutorizada(req: Request): boolean {
   const auth = req.headers.get('Authorization') ?? '';
@@ -70,18 +71,6 @@ type Oficina = { lat: number; lng: number };
 // misma regla que ya usa el cálculo manual (src/lib/calcularKmIdaYVuelta.ts, un único origen fijo)
 // y consistente con que el gasto resultante siempre se contabiliza en Francia (ver más abajo).
 const OFICINA_FR: Oficina = { lat: 43.3546525, lng: -1.7747975 };
-
-// Barème kilométrique 2026 (voitures), tramo hasta 5.000 km/año — misma tabla que
-// src/modules/finanzas/gastos/baremoKilometrico.ts, duplicada aquí porque el despliegue de Edge
-// Functions vía MCP no resuelve imports relativos entre funciones ni con el frontend (mismo
-// motivo documentado en alerta-diaria/index.ts).
-const TARIFA_KM_HASTA_5000: Record<number, number> = { 3: 0.529, 4: 0.606, 5: 0.636, 6: 0.665, 7: 0.697 };
-const CV_VEHICULO_DEFECTO = 7;
-const CUENTA_KILOMETRICO = '6251';
-
-function tarifaPorCv(cv: number): number {
-  return TARIFA_KM_HASTA_5000[cv] ?? TARIFA_KM_HASTA_5000[7];
-}
 
 // Ver el mismo comentario en notificar-visita/index.ts: si GOOGLE_MAPS_API_KEY tiene restricción
 // de referrer HTTP, Google la rechaza para llamadas servidor-a-servidor — por eso esta función
@@ -154,9 +143,10 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
 
   let gastosCreados = 0;
   for (const v of pasadas) {
-    await supabase
+    const { error: errorNota } = await supabase
       .from('notas_cliente')
       .insert({ visita_id: v.id, tipo: 'sistema', texto: 'Visita marcada automáticamente como realizada (pasó 1 hora desde la hora prevista)', autor: 'Sistema' });
+    if (errorNota) console.error(`autocompletarVisitas: no se pudo insertar la nota de sistema de ${v.id}:`, errorNota.message);
 
     // Se aplica a España y Francia por igual (confirmado 2026-08-17) — el barème kilométrique es
     // la deducción de la EURL francesa, existe sea cual sea el país de la visita, por eso el
@@ -180,7 +170,8 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
       vehiculo_cv: CV_VEHICULO_DEFECTO,
       estado_gasto: 'pendiente',
     });
-    if (!errorGasto) gastosCreados++;
+    if (errorGasto) console.error(`autocompletarVisitas: no se pudo crear el gasto kilométrico de ${v.id}:`, errorGasto.message);
+    else gastosCreados++;
   }
 
   return { completadas: pasadas.length, gastosCreados };
@@ -211,8 +202,12 @@ async function rechazarPresupuestosCaducados(supabase: SupabaseClient): Promise<
   if (errorUpdate) throw new Error(`rechazar presupuestos: ${errorUpdate.message}`);
 
   for (const id of ids) {
-    await supabase.from('documento_eventos').insert({ documento_tipo: 'presupuesto', documento_id: id, evento: 'Marcado como Rechazado (caducado sin respuesta)' });
-    await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_rechazado', presupuesto_id: id });
+    const { error: errorEvento } = await supabase
+      .from('documento_eventos')
+      .insert({ documento_tipo: 'presupuesto', documento_id: id, evento: 'Marcado como Rechazado (caducado sin respuesta)' });
+    if (errorEvento) console.error(`rechazarPresupuestosCaducados: no se pudo insertar documento_eventos de ${id}:`, errorEvento.message);
+    const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_rechazado', presupuesto_id: id });
+    if (errorFunnel) console.error(`rechazarPresupuestosCaducados: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
   }
 
   return ids.length;
@@ -248,7 +243,8 @@ async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise
   // Esta etapa representa solicitudes que no llegaron a concretar una visita, no un rechazo
   // posterior a una visita ya realizada.
   for (const id of ids) {
-    await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_descartada', solicitud_id: id });
+    const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_descartada', solicitud_id: id });
+    if (errorFunnel) console.error(`marcarSolicitudesNoConcretadas: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
   }
 
   return ids.length;

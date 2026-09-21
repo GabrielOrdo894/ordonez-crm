@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { GRIS_BORDE, cabeceraDocumento, piePagina } from './pdfEmpresa';
+import { GRIS_BORDE, cabeceraDocumento, piePagina, totalPaginasPdf } from './pdfEmpresa';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 import { amortizacionAcumulada, valorNetoContable, type ActivoInmovilizado } from './inmovilizado';
 import { cuentaLabel } from '../modules/finanzas/gastos/categorias';
@@ -11,6 +11,26 @@ function fmt(n: number) {
 
 function finalY(doc: jsPDF): number {
   return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+}
+
+// Extraído para poder dibujarse en TODAS las páginas del PDF, no solo en la primera — corregido
+// 2026-09-21: con activos en Inmovilizado (caso normal en cuanto se da de alta el primero), el
+// documento salta a una página 2 (ver `if (y > 240) doc.addPage()` más abajo) que se quedaba sin
+// ningún aviso de "no es el Cerfa oficial", y el disclaimer del pie (piePagina) solo se dibujaba
+// una vez al final, así que solo llegaba a la ÚLTIMA página — entre las dos, ninguna página estaba
+// garantizada al 100% de llevar ambos avisos si alguien reenviaba solo una de las dos.
+function dibujarAvisoInterno(doc: jsPDF, margen: number): void {
+  doc.setFillColor(254, 243, 199);
+  doc.rect(margen, 33, 210 - margen * 2, 9, 'F');
+  doc.setFont(FUENTE_PDF, 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(146, 64, 14);
+  const avisoLineas = doc.splitTextToSize(
+    "DOCUMENT DE PRÉPARATION INTERNE — CE N'EST PAS LE FORMULAIRE CERFA OFFICIEL. À transmettre via un partenaire EDI " +
+      'ou à remettre à votre expert-comptable, jamais à envoyer tel quel à la DGFiP.',
+    210 - margen * 2 - 4,
+  );
+  doc.text(avisoLineas, margen + 2, 38);
 }
 
 type CompteResultat = {
@@ -52,17 +72,7 @@ export async function generarPdfLiasseFiscale(
   await registrarFuentePoppins(doc);
   const { colorRgb, margen } = await cabeceraDocumento(doc, 'RÉSUMÉ DE LIASSE FISCALE');
 
-  doc.setFillColor(254, 243, 199);
-  doc.rect(margen, 33, 210 - margen * 2, 9, 'F');
-  doc.setFont(FUENTE_PDF, 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(146, 64, 14);
-  const avisoLineas = doc.splitTextToSize(
-    "DOCUMENT DE PRÉPARATION INTERNE — CE N'EST PAS LE FORMULAIRE CERFA OFFICIEL. À transmettre via un partenaire EDI " +
-      'ou à remettre à votre expert-comptable, jamais à envoyer tel quel à la DGFiP.',
-    210 - margen * 2 - 4,
-  );
-  doc.text(avisoLineas, margen + 2, 38);
+  dibujarAvisoInterno(doc, margen);
 
   const columnasImporte = { 1: { halign: 'right' as const, cellWidth: 35 } };
 
@@ -163,12 +173,19 @@ export async function generarPdfLiasseFiscale(
     doc.text('2054/2055 — Sin activos registrados en el inmovilizado.', margen, y);
   }
 
-  piePagina(
-    doc,
-    margen,
-    'Generado a partir de los cálculos de Fiscalidad y Contabilidad del CRM (libro diario, registro de inmovilizado). ' +
-      'Cifras estimadas — confírmalas con tu experto-comptable antes de transmitir la declaración real.',
-  );
+  // Aviso interno + pie en TODAS las páginas (no solo la última) — ver comentario de
+  // dibujarAvisoInterno más arriba.
+  const totalPaginas = totalPaginasPdf(doc);
+  for (let pagina = 1; pagina <= totalPaginas; pagina++) {
+    doc.setPage(pagina);
+    if (pagina > 1) dibujarAvisoInterno(doc, margen);
+    piePagina(
+      doc,
+      margen,
+      'Generado a partir de los cálculos de Fiscalidad y Contabilidad del CRM (libro diario, registro de inmovilizado). ' +
+        'Cifras estimadas — confírmalas con tu experto-comptable antes de transmitir la declaración real.',
+    );
+  }
 
   doc.save(`liasse-fiscale-resumen-${anio}.pdf`);
 }

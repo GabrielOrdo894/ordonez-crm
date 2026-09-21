@@ -689,7 +689,7 @@ export function TabSimulador() {
           </table>
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          Usa el barème 2026 (revenus 2025, el de 2026 aún no está fijado por ley). No incluye tus dividendos
+          Usa el barème 2026 (revenus 2025, publicado y confirmado). No incluye tus dividendos
           (tributan aparte al PFU, ya reflejado como "carga sobre dividendos" en la tabla de arriba) ni otros
           ingresos del foyer — ver FAQ para más detalle.
         </p>
@@ -941,7 +941,7 @@ export function TabSimulador() {
           },
           {
             q: '¿Qué NO tiene en cuenta este simulador?',
-            a: 'No modela: pérdidas de ejercicios anteriores compensables (report en avant), la régularisation de cotisations TNS del primer año (que se calcula sobre una base forfaitaria provisional, no sobre la rémunération real), la Cotisation Foncière des Entreprises (depende de datos del ayuntamiento que no tenemos), ni matices de TVA por tipo de trabajo línea a línea. En el IR personal tampoco modela: otros ingresos del hogar aparte del sueldo del cónyuge (alquileres, inversiones...), la opción de tributar los dividendos por barème en vez de PFU (rara vez conviene con estos importes, pero es legalmente posible), ni otras deducciones/créditos de impôt del foyer (donativos, empleo en casa, etc.). El barème usado es el de 2026 sobre revenus 2025 — el barème real de 2026 aún no está fijado por ley y se actualizará en fiscal_config en cuanto se publique. Es una estimación orientativa para comparar escenarios, no una liquidación fiscal — para una cifra definitiva antes de tomar una decisión importante, consulta siempre a tu expert-comptable.',
+            a: 'No modela: pérdidas de ejercicios anteriores compensables (report en avant), la régularisation de cotisations TNS del primer año (que se calcula sobre una base forfaitaria provisional, no sobre la rémunération real), la Cotisation Foncière des Entreprises (depende de datos del ayuntamiento que no tenemos), ni matices de TVA por tipo de trabajo línea a línea. En el IR personal tampoco modela: otros ingresos del hogar aparte del sueldo del cónyuge (alquileres, inversiones...), la opción de tributar los dividendos por barème en vez de PFU (rara vez conviene con estos importes, pero es legalmente posible), ni otras deducciones/créditos de impôt del foyer (donativos, empleo en casa, etc.). El barème usado es el de 2026 sobre revenus 2025, ya publicado y confirmado en fiscal_config. Es una estimación orientativa para comparar escenarios, no una liquidación fiscal — para una cifra definitiva antes de tomar una decisión importante, consulta siempre a tu expert-comptable.',
           },
         ]}
       />

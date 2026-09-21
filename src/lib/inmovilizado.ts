@@ -55,10 +55,17 @@ export function valorNetoContable(activo: ActivoInmovilizado, hastaAnio: number)
 // diario (registrarAsientoGasto) — para no duplicar esa lógica. Idempotente: si ya hay un gasto
 // con este inmovilizado_id para ese año, no hace nada.
 export async function generarDotacionEjercicio(activo: ActivoInmovilizado, anio: number): Promise<'generada' | 'ya_existia' | 'sin_importe'> {
+  // Filtro por cuenta_contable='681' añadido (bug real, auditoría 2026-09-21): sin él, esta
+  // comprobación de idempotencia encontraba también la propia FACTURA DE COMPRA del activo (que
+  // también lleva inmovilizado_id, con fecha dentro del año de compra — el mismo año en que
+  // normalmente se pulsa "Generar dotación" por primera vez) y la confundía con una dotación ya
+  // generada, sin haber creado nunca el gasto/asiento real de la dotación del año de compra. El
+  // toast decía "ya había una dotación generada" cuando en realidad no se había generado ninguna.
   const { data: existente, error: errorConsulta } = await supabase
     .from('gastos')
     .select('id')
     .eq('inmovilizado_id', activo.id)
+    .eq('cuenta_contable', '681')
     .gte('fecha', `${anio}-01-01`)
     .lte('fecha', `${anio}-12-31`)
     .maybeSingle();

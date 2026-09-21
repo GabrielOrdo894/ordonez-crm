@@ -135,6 +135,23 @@ export default function DashboardPage() {
     },
   });
 
+  // Ingresos por período = pagos reales (pagos_factura), no facturas.fecha_pago/monto_pagado —
+  // mismo bug ya corregido en ResultadoPage/DashboardContablePage/LibroIngresosPage/
+  // DashboardGeneralPage/InicioPage (2026-09-08) — "Comparativa anual" se había quedado fuera de
+  // esa migración, corregido 2026-09-21.
+  const { data: pagosComparativa } = useQuery({
+    queryKey: ['pagos_factura', 'dashboard-marketing'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('fecha, monto, facturas!inner(pais, visita_id, eliminado_en, estructura_anterior)')
+        .is('facturas.eliminado_en', null)
+        .eq('facturas.estructura_anterior', false);
+      if (error) throw error;
+      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null; visita_id: string | null } }[];
+    },
+  });
+
   const { data: gastos } = useQuery({
     queryKey: ['gastos'],
     queryFn: async () => {
@@ -214,6 +231,9 @@ export default function DashboardPage() {
 
   const facturasFiltradas = useMemo(() => {
     return (facturas ?? []).filter((f) => {
+      // estructura_anterior = cobro de la estructura autónoma anterior a la EURL, no ingreso
+      // real — corregido 2026-09-21 (inflaba "Facturación por zona" y "Comparativa anual").
+      if (f.estructura_anterior) return false;
       if (f.fecha_factura && (f.fecha_factura < desde || f.fecha_factura > hasta)) return false;
       return coincideZonaRegistro(f.pais, f.visita_id);
     });
@@ -283,8 +303,14 @@ export default function DashboardPage() {
         presupuestoDeSolicitud.set(e.solicitud_id, e.presupuesto_id);
       }
     }
+    // 'presupuesto_aceptado' (no 'presupuesto_firmado') — desde el rediseño del embudo 2026-09-16,
+    // ETAPAS_FUNNEL_SOLICITUD ya no registra 'presupuesto_firmado' en ningún sitio (sustituido por
+    // 'presupuesto_aceptado', ver comentario grande en funnelTracking.ts: "el cliente ya decidió
+    // que sí en cuanto acepta"). Esta tabla se quedó leyendo la etapa muerta y marcaba 0% de
+    // conversión aunque sí se estuvieran aceptando/firmando presupuestos de verdad (bug real,
+    // corregido 2026-09-21).
     const presupuestosFirmados = new Set(
-      eventos.filter((e) => e.etapa === 'presupuesto_firmado' && e.presupuesto_id).map((e) => e.presupuesto_id),
+      eventos.filter((e) => e.etapa === 'presupuesto_aceptado' && e.presupuesto_id).map((e) => e.presupuesto_id),
     );
 
     const porFuente = new Map<string, { entradas: number; firmadas: number }>();
@@ -391,7 +417,8 @@ export default function DashboardPage() {
 
   // 6. Previsión de tesorería
   const tesoreria = useMemo(() => {
-    const facturasZona = (facturas ?? []).filter((f) => coincideZonaRegistro(f.pais, f.visita_id));
+    // estructura_anterior excluido — corregido 2026-09-21, mismo motivo que facturasFiltradas.
+    const facturasZona = (facturas ?? []).filter((f) => !f.estructura_anterior && coincideZonaRegistro(f.pais, f.visita_id));
     const presupuestosZona = (presupuestos ?? []).filter((p) => coincideZonaRegistro(p.pais, p.visita_id));
 
     const pendienteCobro = facturasZona
@@ -408,15 +435,15 @@ export default function DashboardPage() {
     return { pendienteCobro, obrasEnCurso, total: pendienteCobro + obrasEnCurso, hayVencidas };
   }, [facturas, presupuestos, proyectos, coincideZonaRegistro]);
 
-  // 7. Comparativa anual
+  // 7. Comparativa anual — por fecha real de PAGO (pagos_factura), no de emisión/último pago
+  // tecleado, ver comentario de pagosComparativa arriba.
   const comparativaAnual = useMemo(() => {
     const porMes = (anio: number) => {
       const meses = Array(12).fill(0);
-      for (const f of facturas ?? []) {
-        if (!f.fecha_pago || f.monto_pagado == null) continue;
-        if (!coincideZonaRegistro(f.pais, f.visita_id)) continue;
-        const d = new Date(`${f.fecha_pago}T00:00:00`);
-        if (d.getFullYear() === anio) meses[d.getMonth()] += f.monto_pagado;
+      for (const p of pagosComparativa ?? []) {
+        if (!coincideZonaRegistro(p.facturas.pais, p.facturas.visita_id)) continue;
+        const d = new Date(`${p.fecha}T00:00:00`);
+        if (d.getFullYear() === anio) meses[d.getMonth()] += p.monto;
       }
       return meses;
     };
@@ -427,7 +454,7 @@ export default function DashboardPage() {
       [String(anioActual)]: Math.round(esteAnio[i] * 100) / 100,
       [String(anioActual - 1)]: Math.round(anioAnterior[i] * 100) / 100,
     }));
-  }, [facturas, coincideZonaRegistro]);
+  }, [pagosComparativa, coincideZonaRegistro]);
 
   // 8. Visitas conseguidas por semana
   const visitasPorSemana = useMemo(() => {

@@ -56,10 +56,11 @@ function descargarJson(nombreArchivo: string, datos: unknown) {
 }
 
 // Reúne todo lo que hay en la base de datos vinculado a este cliente — 7 tablas relacionadas por
-// visita_id, más documento_eventos/movimientos_banco que cuelgan de presupuesto_id/factura_id/gasto_id,
-// más solicitudes (localizadas por teléfono/email, no por visita_id) y sus funnel_eventos.
+// visita_id, más documento_eventos/movimientos_banco/pagos_factura que cuelgan de
+// presupuesto_id/factura_id/gasto_id, más solicitudes (localizadas por teléfono/email, no por
+// visita_id) y sus funnel_eventos.
 async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
-  const [visitas, notas, proyectos, presupuestos, facturas, gastos, galeria, solicitudes] =
+  const [visitas, notas, proyectos, presupuestos, facturas, gastos, solicitudes] =
     await Promise.all([
       supabase.from('visitas').select('*').in('id', visitaIds),
       supabase.from('notas_cliente').select('*').in('visita_id', visitaIds),
@@ -67,23 +68,13 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
       supabase.from('presupuestos').select('*').in('visita_id', visitaIds),
       supabase.from('facturas').select('*').in('visita_id', visitaIds),
       supabase.from('gastos').select('*').in('visita_id', visitaIds),
-      supabase.from('galeria').select('*').in('visita_id', visitaIds),
       buscarSolicitudesCliente(cliente).then((data) => ({
         data,
         error: null as { message: string } | null,
       })),
     ]);
 
-  const resultados = {
-    visitas,
-    notas,
-    proyectos,
-    presupuestos,
-    facturas,
-    gastos,
-    galeria,
-    solicitudes,
-  };
+  const resultados = { visitas, notas, proyectos, presupuestos, facturas, gastos, solicitudes };
   for (const [nombre, res] of Object.entries(resultados)) {
     if (res.error) throw new Error(`${nombre}: ${res.error.message}`);
   }
@@ -92,6 +83,23 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   const facturaIds = (facturas.data ?? []).map((f) => f.id as string);
   const gastoIds = (gastos.data ?? []).map((g) => g.id as string);
   const solicitudIds = (solicitudes.data ?? []).map((s) => s.id as string);
+
+  // galeria puede colgar de visita_id, presupuesto_id O factura_id (desde la migración
+  // galeria_vincular_obra_real, 2026-09-09 — presupuestos orientativos Aceptados sin visita, o
+  // facturas sueltas "sin coincidencia en el CRM"). Buscar solo por visita_id dejaba fuera de la
+  // exportación cualquier ficha de galería de esos dos casos (bug real, auditoría 2026-09-21).
+  const galeria = await (async () => {
+    const [porVisita, porPresupuesto, porFactura] = await Promise.all([
+      supabase.from('galeria').select('*').in('visita_id', visitaIds),
+      presupuestoIds.length ? supabase.from('galeria').select('*').in('presupuesto_id', presupuestoIds) : { data: [], error: null },
+      facturaIds.length ? supabase.from('galeria').select('*').in('factura_id', facturaIds) : { data: [], error: null },
+    ]);
+    for (const [nombre, res] of Object.entries({ porVisita, porPresupuesto, porFactura })) {
+      if (res.error) throw new Error(`galeria (${nombre}): ${res.error.message}`);
+    }
+    const todas = [...(porVisita.data ?? []), ...(porPresupuesto.data ?? []), ...(porFactura.data ?? [])];
+    return { data: Array.from(new Map(todas.map((g) => [g.id, g])).values()), error: null };
+  })();
 
   const eventosPresupuesto = presupuestoIds.length
     ? await supabase
@@ -124,6 +132,15 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
     : { data: [], error: null };
   if (movimientosGasto.error)
     throw new Error(`movimientos_banco (gastos): ${movimientosGasto.error.message}`);
+
+  // pagos_factura (2026-09-08): fuente de verdad de CUÁNDO y CUÁNTO pagó el cliente cada factura —
+  // se había quedado fuera de la exportación desde que existe la tabla (olvido, no una exclusión
+  // documentada como sí lo son documento_eventos/movimientos_banco de una factura anonimizada;
+  // bug real, auditoría 2026-09-21).
+  const pagosFactura = facturaIds.length
+    ? await supabase.from('pagos_factura').select('*').in('factura_id', facturaIds)
+    : { data: [], error: null };
+  if (pagosFactura.error) throw new Error(`pagos_factura: ${pagosFactura.error.message}`);
 
   const eventosFunnelSolicitud = solicitudIds.length
     ? await supabase.from('funnel_eventos').select('*').in('solicitud_id', solicitudIds)
@@ -158,6 +175,7 @@ async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
     ),
     documento_eventos: [...(eventosPresupuesto.data ?? []), ...(eventosFactura.data ?? [])],
     movimientos_banco: [...(movimientosFactura.data ?? []), ...(movimientosGasto.data ?? [])],
+    pagos_factura: pagosFactura.data ?? [],
   };
 }
 
@@ -188,17 +206,41 @@ function pathGaleriaDesdeUrl(url: string): string | null {
 }
 
 async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
-  const [presus, facs, gas, gal, solicitudesCliente] = await Promise.all([
+  const [presus, facs, gas, solicitudesCliente] = await Promise.all([
     supabase.from('presupuestos').select('id').in('visita_id', visitaIds),
     supabase.from('facturas').select('id').in('visita_id', visitaIds),
     supabase.from('gastos').select('id, adjunto_url').in('visita_id', visitaIds),
-    supabase.from('galeria').select('fotos').in('visita_id', visitaIds),
     buscarSolicitudesCliente(cliente),
   ]);
   if (presus.error) throw new Error(`presupuestos: ${presus.error.message}`);
   if (facs.error) throw new Error(`facturas: ${facs.error.message}`);
   if (gas.error) throw new Error(`gastos: ${gas.error.message}`);
-  if (gal.error) throw new Error(`galeria: ${gal.error.message}`);
+
+  const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
+  const facturaIds = (facs.data ?? []).map((f) => f.id as string);
+
+  // galeria puede colgar de visita_id, presupuesto_id O factura_id (ver mismo comentario en
+  // recopilarDatosCliente) — buscar solo por visita_id dejaba fotos reales sin purgar ni borrar de
+  // Storage (bug real, auditoría 2026-09-21).
+  const [galPorVisita, galPorPresupuesto, galPorFactura] = await Promise.all([
+    supabase.from('galeria').select('id, fotos').in('visita_id', visitaIds),
+    presupuestoIds.length
+      ? supabase.from('galeria').select('id, fotos').in('presupuesto_id', presupuestoIds)
+      : { data: [], error: null },
+    facturaIds.length
+      ? supabase.from('galeria').select('id, fotos').in('factura_id', facturaIds)
+      : { data: [], error: null },
+  ]);
+  if (galPorVisita.error) throw new Error(`galeria: ${galPorVisita.error.message}`);
+  if (galPorPresupuesto.error) throw new Error(`galeria: ${galPorPresupuesto.error.message}`);
+  if (galPorFactura.error) throw new Error(`galeria: ${galPorFactura.error.message}`);
+  const gal = {
+    data: Array.from(
+      new Map(
+        [...(galPorVisita.data ?? []), ...(galPorPresupuesto.data ?? []), ...(galPorFactura.data ?? [])].map((g) => [g.id, g]),
+      ).values(),
+    ),
+  };
 
   // Las filas de `galeria`/`gastos` se borran más abajo, pero los ficheros de Storage no se
   // borraban solos (a diferencia de GaleriaDetallePage.tsx, que sí limpia Storage al borrar un
@@ -234,8 +276,7 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
       );
   }
 
-  const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
-  const facturaIds = (facs.data ?? []).map((f) => f.id as string);
+  const galeriaIds = gal.data.map((g) => g.id as string);
   const gastoIds = (gas.data ?? []).map((g) => g.id as string);
   const solicitudIds = solicitudesCliente.map((s) => s.id as string);
 
@@ -298,7 +339,11 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   // asientos al purgar, esta purga RGPD se había quedado sin ese mismo paso).
   await Promise.all(gastoIds.map((id) => rectificarAsientos('gasto', id, 'creacion')));
   await pasoBorrado('gastos', () => supabase.from('gastos').delete().in('visita_id', visitaIds));
-  await pasoBorrado('galeria', () => supabase.from('galeria').delete().in('visita_id', visitaIds));
+  // Por id recopilado (visita_id + presupuesto_id + factura_id), no solo visita_id — ver comentario
+  // grande más arriba.
+  if (galeriaIds.length) {
+    await pasoBorrado('galeria', () => supabase.from('galeria').delete().in('id', galeriaIds));
+  }
   await pasoBorrado('visitas', () => supabase.from('visitas').delete().in('id', visitaIds));
 }
 

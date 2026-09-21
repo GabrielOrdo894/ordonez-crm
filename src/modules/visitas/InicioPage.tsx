@@ -320,10 +320,14 @@ export default function InicioPage() {
     () => (vistaPais === 'todos' ? visitas : (visitas ?? []).filter((v) => v.pais === vistaPais)),
     [visitas, vistaPais],
   );
-  const facturasKpi = useMemo(
-    () => (vistaPais === 'todos' ? facturas : (facturas ?? []).filter((f) => f.pais === vistaPais)),
-    [facturas, vistaPais],
-  );
+  // Filtra estructura_anterior aquí (no en la query compartida ['facturas'], que otras pantallas
+  // como FacturasPage.tsx reutilizan sin ese filtro — misma queryKey, mismo select, distinto uso).
+  // Bug real corregido 2026-09-21: "Resultado total" sumaba también AC-2026-0020 (dinero de la
+  // estructura autónoma anterior a la EURL, no ingreso real), duplicando el resultado mostrado.
+  const facturasKpi = useMemo(() => {
+    const activas = (facturas ?? []).filter((f) => !f.estructura_anterior);
+    return vistaPais === 'todos' ? activas : activas.filter((f) => f.pais === vistaPais);
+  }, [facturas, vistaPais]);
   const presupuestosKpi = useMemo(
     () => (vistaPais === 'todos' ? presupuestos : (presupuestos ?? []).filter((p) => p.pais === vistaPais)),
     [presupuestos, vistaPais],

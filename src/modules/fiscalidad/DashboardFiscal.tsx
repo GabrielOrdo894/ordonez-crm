@@ -18,6 +18,7 @@ import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { calcularTotales } from '../finanzas/lineas';
+import { porcentajeIva } from '../finanzas/iva';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
 import { useComptaFrancia } from './useComptaFrancia';
@@ -89,20 +90,63 @@ export function DashboardFiscal() {
     },
   });
 
+  // TVA collectée al COBRO real (pagos_factura), no a la emisión — mismo régimen ya aplicado en
+  // AsistenteIvaPage.tsx (confirmado por Gabriel 2026-09-08: Reformas Ordoñez declara al cobrar,
+  // no antes). Esta tarjeta se había quedado fuera de esa migración (corregido 2026-09-21) y
+  // seguía calculando por fecha de emisión, pudiendo divergir de la pestaña TVA real por una
+  // causa distinta a la que explicaba su propio FAQ ("ajustes manuales o crédito arrastrado").
+  // Rectificativas excluidas de pagos_factura (una nota de crédito no se "cobra") y sumadas aparte
+  // por fecha de EMISIÓN, igual que en AsistenteIvaPage.
+  const { data: pagosMes } = useQuery({
+    queryKey: ['pagos_factura', 'dashboard-fiscal', inicioMes, finMes],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('pagos_factura')
+        .select('monto, facturas!inner(pais, tipo_iva, estructura_anterior, eliminado_en, tipo)')
+        .eq('facturas.pais', 'Francia')
+        .eq('facturas.estructura_anterior', false)
+        .is('facturas.eliminado_en', null)
+        .neq('facturas.tipo', 'rectificativa')
+        .gte('fecha', inicioMes)
+        .lte('fecha', finMes);
+      if (error) throw error;
+      return data as unknown as { monto: number; facturas: { tipo_iva: string | null } }[];
+    },
+  });
+  const { data: rectificativasMes } = useQuery({
+    queryKey: ['facturas', 'rectificativas-fr', inicioMes, finMes],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('lineas')
+        .eq('pais', 'Francia')
+        .eq('estructura_anterior', false)
+        .eq('tipo', 'rectificativa')
+        .is('eliminado_en', null)
+        .gte('fecha_factura', inicioMes)
+        .lte('fecha_factura', finMes);
+      if (error) throw error;
+      return data as Pick<Factura, 'lineas'>[];
+    },
+  });
+
   const tvaMes = useMemo(() => {
-    const facturasMes = (facturas ?? []).filter(
-      (f) => f.pais === 'Francia' && f.fecha_factura && f.fecha_factura >= inicioMes && f.fecha_factura <= finMes,
-    );
     const gastosMes = (gastos ?? []).filter(
       (g) => g.pais === 'Francia' && g.fecha && g.fecha >= inicioMes && g.fecha <= finMes,
     );
-    const collectee = facturasMes.reduce((s, f) => {
+    const collecteePagos = (pagosMes ?? []).reduce((s, p) => {
+      const pct = porcentajeIva(p.facturas.tipo_iva);
+      const base = pct > 0 ? p.monto / (1 + pct / 100) : p.monto;
+      return s + (p.monto - base);
+    }, 0);
+    const collecteeRectificativas = (rectificativasMes ?? []).reduce((s, f) => {
       const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
       return s + (totalConIva - totalSinIva);
     }, 0);
+    const collectee = collecteePagos + collecteeRectificativas;
     const deductible = gastosMes.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
     return { collectee, deductible, saldo: collectee - deductible };
-  }, [facturas, gastos, inicioMes, finMes]);
+  }, [pagosMes, rectificativasMes, gastos, inicioMes, finMes]);
 
   const proximaCA3 = (echeances ?? []).find((e) => e.tipo === 'CA3' && !e.completada);
 
@@ -213,7 +257,8 @@ export function DashboardFiscal() {
       {gerantConfig && remuneracionAnual === 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-amber-800">
           <AlertTriangle size={14} className="shrink-0" />
-          El gérant no tiene rémunération configurada — ve a la pestaña "Salario vs Dividendos" para simular escenarios.
+          El gérant no tiene rémunération configurada — ve a la pestaña "Cotisations URSSAF" y pulsa "Guardar" con el
+          importe decidido (el simulador de "Salario vs Dividendos" no persiste este valor).
         </div>
       )}
 

@@ -7,6 +7,7 @@ import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
 import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { registrarEventoFunnel } from '../../../lib/funnelTracking';
+import { congelarTerminosCondicionesPorId } from '../../../lib/terminos';
 import { registrarAsientoFacturaEmision, rectificarAsientos } from '../../../lib/asientosContables';
 import { generarPdfFactura, notasLegales } from '../../../lib/generarPdfFactura';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
@@ -470,6 +471,7 @@ export function FacturaForm({
           toast.warning(`Factura creada, pero no se pudo marcar el presupuesto como Aceptado: ${errorAceptar.message}`);
         } else if (aceptado) {
           await registrarEventoFunnel('presupuesto_aceptado', { presupuestoId: form.presupuesto_id });
+          await congelarTerminosCondicionesPorId(form.presupuesto_id);
         }
       }
       return { id: data.id as string, numero: numero as string, esNueva: true };

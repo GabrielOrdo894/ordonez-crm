@@ -33,6 +33,10 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
         .from('facturas')
         .select('*')
         .is('eliminado_en', null)
+        // estructura_anterior: cobro de la estructura autónoma anterior a la EURL, no ingreso
+        // real — nunca debe aparecer como destino de conciliación bancaria (corregido 2026-09-21,
+        // contradecía lo ya documentado como aplicado aquí en CLAUDE.md).
+        .eq('estructura_anterior', false)
         .in('estado_cobro', ['Pendiente', 'Cobrada parcialmente', 'Vencida'])
         .order('fecha_factura', { ascending: false });
       if (error) throw error;

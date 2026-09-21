@@ -167,8 +167,8 @@ function impuestoPorTramos(revenuParPart: number, config: ConfigFn) {
 // Impôt sur le revenu personal del foyer fiscal, con quotient familial (barème progresivo por
 // parte × número de partes), plafonnement de l'avantage fiscal de las medias partes extra por
 // hijos (art. 197 CGI) y décote para rentas bajas. Todos los umbrales vienen de fiscal_config
-// (barème 2026, revenus 2025 — el barème real de 2026 aún no está fijado por ley, se actualizará
-// aquí cuando se publique). No incluye los dividendos del PFU: por defecto el PFU es una
+// (barème 2026 sobre revenus 2025, publicado — cargado desde service-public.gouv.fr/particuliers/
+// actualites/A18045, confirmado 2026-08-16). No incluye los dividendos del PFU: por defecto el PFU es una
 // imposición separada que NO entra en el quotient familial (solo entraría si se opta por el
 // barème en vez del PFU, algo que rara vez conviene con estos importes — ver FAQ del Simulador).
 export function calcularIRPersonal(revenuNetImposableFoyer: number, parts: number, config: ConfigFn) {
@@ -372,7 +372,7 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
     // (casillas 1GB/1HB, "traitements et salaires" art. 62 CGI) — NO el 2042-C-PRO, que es para
     // autónomos con ingresos BIC/BNC y no aplica a un gérant majoritaire. Ver TabDeclaracionRenta.tsx.
     titulo: `Déclaration de revenus de Mario (formulaire 2042, casillas 1GB/1HB) — ingresos ${anio}`,
-    fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 5), config('declaracion_ir_dia', 25)),
+    fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 5), config('declaracion_ir_dia', 28)),
     organismo: 'DGFiP (IR personal)',
     url_oficial: 'https://www.impots.gouv.fr',
     importe_estimado: null,

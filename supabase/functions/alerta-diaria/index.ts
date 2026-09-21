@@ -11,18 +11,20 @@
 //   2. Presupuestos caducados sin respuesta (Pendiente, fecha_validez < hoy)
 //   3. Solicitudes nuevas sin revisar (estado = 'Nueva' y nunca se contestaron, mensaje_enviado_en null)
 //   4. Gastos de kilometraje pendientes de revisar (estado_gasto = 'pendiente')
-//   5. Respuestas de cliente a presupuestos sin revisar (seguimiento en estado 'Nueva', ver
-//      estadoSeguimiento en src/modules/solicitudes/types.ts) — categorías 4 y 5 añadidas
-//      2026-08-18, antes se quedaban fuera de este email pese a estar ya en la campana in-app.
-//   6. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
+//   5. Respuestas de cliente a solicitudes sin revisar (estado = 'Nueva' pero mensaje_enviado_en
 //      no-null — ya se había contestado y el cliente respondió otra vez en el mismo hilo; antes
 //      salía mezclado con la categoría 3 como "solicitud nueva", corregido 2026-08-19).
-//   7. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
+//   6. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
 //      in-app desde 2026-08-20 pero nunca se añadió aquí (2026-08-30).
 //
 // "Presupuestos a punto de caducar (7 días)" y "Presupuestos en Borrador sin enviar" salieron de
 // este email a petición de Gabriel (2026-09-11, no le aportaban valor en el resumen diario) — se
 // quedan solo en la campana in-app (useNotificaciones.ts), no se ha tocado nada de esa lógica.
+//
+// "Respuestas de cliente sin revisar" (presupuestos con ultima_respuesta_cliente_fecha sin
+// seguimiento generado/enviado) se quitó del email a petición de Gabriel (2026-09-21, no tenía
+// sentido como aviso aparte) — se queda solo en la campana in-app. Título del email renombrado a
+// "Tareas pendientes" el mismo día.
 //
 // Idempotente por día (`alerta_diaria_estado`, fila única con `ultima_fecha_enviada`) — si se
 // dispara más de una vez el mismo día (reintento, prueba manual) no se duplica el email
@@ -61,13 +63,6 @@ type FacturaVencida = { numero: string | null; cliente_nombre: string | null; fe
 type PresupuestoPendiente = { numero: string | null; cliente_nombre: string | null; fecha_validez: string };
 type SolicitudNueva = { nombre: string | null; email: string | null; created_at: string | null; mensaje_enviado_en: string | null };
 type GastoPendiente = { descripcion: string | null; fecha: string | null; importe_base: number | null };
-type SeguimientoNuevo = {
-  numero: string | null;
-  cliente_nombre: string | null;
-  ultima_respuesta_cliente_fecha: string | null;
-  mensaje_seguimiento_generado: string | null;
-  mensaje_seguimiento_enviado: boolean | null;
-};
 type VisitaRealizada = {
   id: string;
   nombre: string | null;
@@ -204,7 +199,7 @@ function construirHtml(secciones: string[]): string {
   <table role="presentation" width="100%" style="max-width:560px;margin:0 auto" cellpadding="0" cellspacing="0">
     <tr><td style="background:#0f3d24;padding:20px 24px;border-radius:10px 10px 0 0">
       <div style="color:#ffffff;font-size:16px;font-weight:600">Reformas Ordoñez</div>
-      <div style="color:#cdddd5;font-size:12px;margin-top:2px">Resumen diario de pendientes urgentes</div>
+      <div style="color:#cdddd5;font-size:12px;margin-top:2px">Tareas pendientes</div>
     </td></tr>
     <tr><td style="background:#ffffff;padding:24px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
       ${secciones.join('')}
@@ -238,7 +233,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, enviado: false, motivo: 'ya se envió hoy' });
     }
 
-    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, seguimientosRes, visitasRealizadasRes, presupuestosVinculadosRes, solicitudesDescartadasRes] = await Promise.all([
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, visitasRealizadasRes, presupuestosVinculadosRes, solicitudesDescartadasRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -248,14 +243,12 @@ Deno.serve(async (req: Request) => {
         .is('eliminado_en', null),
       supabase.from('solicitudes').select('nombre, email, created_at, mensaje_enviado_en').eq('estado', 'Nueva'),
       supabase.from('gastos').select('descripcion, fecha, importe_base').eq('estado_gasto', 'pendiente'),
-      supabase
-        .from('presupuestos')
-        .select('numero, cliente_nombre, ultima_respuesta_cliente_fecha, mensaje_seguimiento_generado, mensaje_seguimiento_enviado')
-        .is('eliminado_en', null)
-        .not('ultima_respuesta_cliente_fecha', 'is', null),
       supabase.from('visitas').select('id, nombre, apellidos, fecha_visita, email, telefono').eq('estado', 'Realizada').is('eliminado_en', null),
       supabase.from('presupuestos').select('visita_id, estado').is('eliminado_en', null).not('visita_id', 'is', null),
-      supabase.from('solicitudes').select('email, telefono').in('estado', ['No concretada', 'Rechazada', 'Eliminada']),
+      // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
+      // borrado definitivo, no una decisión de no presupuestar — incluirla ocultaba visitas
+      // reales del email diario solo por coincidir de contacto con una solicitud ya eliminada.
+      supabase.from('solicitudes').select('email, telefono').in('estado', ['No concretada', 'Rechazada']),
     ]);
 
     for (const [nombre, res] of Object.entries({
@@ -263,7 +256,6 @@ Deno.serve(async (req: Request) => {
       presupuestos: presupuestosRes,
       solicitudes: solicitudesRes,
       gastos: gastosRes,
-      seguimientos: seguimientosRes,
       visitasRealizadas: visitasRealizadasRes,
       presupuestosVinculados: presupuestosVinculadosRes,
       solicitudesDescartadas: solicitudesDescartadasRes,
@@ -285,11 +277,6 @@ Deno.serve(async (req: Request) => {
     const solicitudesNuevas = todasLasSolicitudesNueva.filter((s) => !s.mensaje_enviado_en);
     const solicitudesConRespuesta = todasLasSolicitudesNueva.filter((s) => s.mensaje_enviado_en);
     const gastosPendientes = (gastosRes.data ?? []) as GastoPendiente[];
-    // Mismo criterio que estadoSeguimiento() en src/modules/solicitudes/types.ts: hay respuesta
-    // del cliente y todavía no se generó ni envió ningún mensaje de seguimiento.
-    const seguimientosNuevos = ((seguimientosRes.data ?? []) as SeguimientoNuevo[]).filter(
-      (p) => !p.mensaje_seguimiento_enviado && !p.mensaje_seguimiento_generado,
-    );
 
     // Mismo criterio que "Presupuesto pendiente de enviar" en src/modules/notificaciones/useNotificaciones.ts:
     // visita Realizada sin ningún presupuesto no-Borrador vinculado (un borrador ya creado para esa
@@ -322,7 +309,6 @@ Deno.serve(async (req: Request) => {
       solicitudesNuevas.length +
       solicitudesConRespuesta.length +
       gastosPendientes.length +
-      seguimientosNuevos.length +
       visitasSinPresupuesto.length;
 
     if (totalUrgentes === 0) {
@@ -366,13 +352,6 @@ Deno.serve(async (req: Request) => {
         })),
       ),
       seccionHtml(
-        'Respuestas de cliente sin revisar',
-        seguimientosNuevos.map((p) => ({
-          titulo: p.numero ?? 'Sin número',
-          detalle: `${p.cliente_nombre ?? '—'} · respondió el ${p.ultima_respuesta_cliente_fecha ?? '—'}`,
-        })),
-      ),
-      seccionHtml(
         'Visitas realizadas sin presupuesto enviado',
         visitasSinPresupuesto.map((v) => ({
           titulo: `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim() || 'Sin nombre',
@@ -403,7 +382,6 @@ Deno.serve(async (req: Request) => {
         solicitudesNuevas: solicitudesNuevas.length,
         solicitudesConRespuesta: solicitudesConRespuesta.length,
         gastosPendientes: gastosPendientes.length,
-        seguimientosNuevos: seguimientosNuevos.length,
         visitasSinPresupuesto: visitasSinPresupuesto.length,
       },
     });

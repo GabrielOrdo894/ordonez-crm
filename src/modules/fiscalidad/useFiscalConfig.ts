@@ -38,6 +38,10 @@ export function useFiscalConfig() {
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['fiscal_config'] }),
+    // Garantizado a nivel de hook (no solo confiando en que cada call site pase su propio
+    // onError, como pasaba hasta ahora — mismo patrón que useGerantConfig.ts) para que un futuro
+    // botón que use `guardar(...)` no pueda fallar en silencio.
+    onError: (error) => toast.error(error.message),
   });
 
   return {

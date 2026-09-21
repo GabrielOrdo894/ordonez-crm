@@ -13,6 +13,7 @@ import { fechaCorta } from '../../../lib/fechas';
 import { numeroOrdenable } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { registrarEtapaPresupuestoConBackfill } from '../../../lib/funnelTracking';
+import { congelarTerminosCondiciones } from '../../../lib/terminos';
 import { DocumentoDetalleInline, type TipoDocumento } from '../DocumentoDetalleInline';
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../hooks/useToast';
@@ -175,6 +176,10 @@ export default function PresupuestosPage() {
     mutationFn: async ({ p, estado }: { p: Presupuesto; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', p.id);
       if (error) throw error;
+      // Congela los T&C al aceptar (no solo al enviar a firmar por Documenso) — cubre también el
+      // caso de aceptación manual sin firma electrónica, para que el documento quede fijado en
+      // el momento del acuerdo aunque Configuración cambie después.
+      if (estado === 'Aceptado') await congelarTerminosCondiciones(p);
       if (p.visita_id) {
         await notaSistema(p.visita_id, `Presupuesto ${p.numero} marcado como ${estado} por ${nombreUsuarioActual}`);
       }
@@ -209,6 +214,10 @@ export default function PresupuestosPage() {
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
+      if (estado === 'Aceptado') {
+        const seleccionados = (presupuestos ?? []).filter((p) => (ids as string[]).includes(p.id));
+        await Promise.all(seleccionados.map((p) => congelarTerminosCondiciones(p)));
+      }
       await Promise.all((ids as string[]).map((presupuestoId) => registrarEtapaPresupuestoConBackfill(estado, presupuestoId)));
     },
     onSuccess: () => {
@@ -287,7 +296,16 @@ export default function PresupuestosPage() {
   }, [presupuestos]);
 
   const handleEliminar = async (p: Presupuesto) => {
-    if (!(await confirmar(`¿Eliminar el presupuesto ${p.numero ?? ''}? Se moverá a la Papelera.`))) return;
+    // Papelerizar filtra `eliminado_en is null` en documenso-webhook (mismo criterio que las
+    // demás lecturas activas) — si el cliente firma después usando el enlace ya enviado, el
+    // webhook no encuentra el presupuesto y la firma se pierde en silencio, sin que este diálogo
+    // avisara de nada (a diferencia de purgar definitivamente desde /papelera, que sí lo hace).
+    // Hallazgo real, auditoría 2026-09-21.
+    const avisoFirma =
+      p.documenso_envelope_id && !p.firmado
+        ? ' Este presupuesto tiene un enlace de firma enviado y sin firmar todavía — si el cliente firma después de moverlo a la papelera, la firma no se registrará.'
+        : '';
+    if (!(await confirmar(`¿Eliminar el presupuesto ${p.numero ?? ''}? Se moverá a la Papelera.${avisoFirma}`))) return;
     eliminarMutation.mutate(p.id);
   };
 
@@ -467,7 +485,13 @@ export default function PresupuestosPage() {
             label: 'Eliminar',
             variant: 'danger',
             onClick: async () => {
-              if (!(await confirmar(`¿Eliminar ${seleccion.size} presupuesto(s)? Se moverán a la Papelera.`))) return;
+              const seleccionados = (presupuestos ?? []).filter((p) => seleccion.has(p.id));
+              const conFirmaPendiente = seleccionados.filter((p) => p.documenso_envelope_id && !p.firmado).length;
+              const avisoFirma =
+                conFirmaPendiente > 0
+                  ? ` ${conFirmaPendiente} de ellos tiene un enlace de firma enviado y sin firmar — si el cliente firma después, esa firma no se registrará.`
+                  : '';
+              if (!(await confirmar(`¿Eliminar ${seleccion.size} presupuesto(s)? Se moverán a la Papelera.${avisoFirma}`))) return;
               eliminarVariosMutation.mutate(Array.from(seleccion));
             },
             disabled: eliminarVariosMutation.isPending,

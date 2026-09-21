@@ -1181,7 +1181,12 @@ export default function ConfiguracionPage() {
                 {new Date(googleConfig.updated_at).toLocaleDateString('es', { day: '2-digit', month: 'short', year: '2-digit' })})
               </span>
             )}
-            <Button size="sm" variant="secondary" onClick={() => iniciarConexionGoogleCalendar('/configuracion')} className="ml-auto">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => iniciarConexionGoogleCalendar('/configuracion').catch((e) => toast.error(e.message))}
+              className="ml-auto"
+            >
               Reconectar (recomendado, para pasar al scope reducido)
             </Button>
           </div>
@@ -1191,7 +1196,7 @@ export default function ConfiguracionPage() {
               <span className="w-2 h-2 rounded-full bg-gray-300" />
               No conectado
             </span>
-            <Button size="sm" onClick={() => iniciarConexionGoogleCalendar('/configuracion')}>
+            <Button size="sm" onClick={() => iniciarConexionGoogleCalendar('/configuracion').catch((e) => toast.error(e.message))}>
               Conectar Google Calendar
             </Button>
           </div>
@@ -1202,7 +1207,12 @@ export default function ConfiguracionPage() {
           <div className="flex items-center gap-2 text-sm text-brand">
             <span className="w-2 h-2 rounded-full bg-brand" />
             Conectado
-            <Button size="sm" variant="secondary" onClick={() => iniciarConexionGmail('/configuracion')} className="ml-auto">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => iniciarConexionGmail('/configuracion').catch((e) => toast.error(e.message))}
+              className="ml-auto"
+            >
               Reconectar
             </Button>
           </div>
@@ -1214,7 +1224,7 @@ export default function ConfiguracionPage() {
                 ? 'No conectado por separado — usando de momento la conexión combinada antigua de Calendar'
                 : 'No conectado'}
             </span>
-            <Button size="sm" onClick={() => iniciarConexionGmail('/configuracion')}>
+            <Button size="sm" onClick={() => iniciarConexionGmail('/configuracion').catch((e) => toast.error(e.message))}>
               Conectar Gmail
             </Button>
           </div>

@@ -274,6 +274,12 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
       if (error) throw error;
       if (presupuestoId && !solicitud?.presupuesto_vinculado_id) {
+        // 'solicitud_respondida' primero — el fix de 2026-08-19 en vincularSolicitudPorContacto()
+        // (la vía automática) ya lo hace así para que el embudo nunca muestre más "Vinculadas a
+        // presupuesto" que "Respondidas". Esta vía MANUAL (el desplegable de esta ficha) se había
+        // quedado fuera de ese fix — mismo hueco, misma corrección (hallazgo real, auditoría
+        // 2026-09-21). Idempotente, seguro llamarlo aunque ya existiera el evento.
+        await registrarEventoFunnel('solicitud_respondida', { solicitudId: id, fuente: solicitud?.fuente });
         await registrarEventoFunnel('solicitud_vinculada_presupuesto', {
           solicitudId: id,
           presupuestoId,

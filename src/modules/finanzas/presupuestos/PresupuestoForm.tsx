@@ -957,6 +957,15 @@ export function PresupuestoForm({
             )}
           </FaseCard>
 
+          {presupuesto && presupuesto.documenso_signing_url && !presupuesto.firmado && (
+            <div className="bg-amber-50 border border-amber-300 rounded-sm px-3 py-2 text-xs text-amber-800">
+              Este presupuesto ya tiene un enlace de firma enviado al cliente y todavía sin firmar. El PDF que el
+              cliente ve y puede firmar en cualquier momento es el que se generó al enviarlo — si cambias líneas o
+              precios aquí, el cliente seguirá viendo el importe anterior hasta que generes un nuevo enlace ("Generar
+              nuevo enlace" en Firma, más abajo).
+            </div>
+          )}
+
           <FaseCard numero={3} titulo="Líneas del presupuesto">
             <LineasEditor
               lineas={form.lineas}

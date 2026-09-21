@@ -49,7 +49,7 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
   }, [gerantConfig]);
 
   const tns = calcularTNS(remuneracion, config);
-  const pass = config('pass_2026', 47100);
+  const pass = config('pass_2026', 48060);
 
   const handleDecision = async () => {
     setGenerandoDecision(true);
@@ -300,7 +300,7 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
           },
           {
             q: '¿Qué es el PASS y por qué importa aquí?',
-            a: `El PASS (Plafond Annuel de la Sécurité Sociale) es una cifra de referencia que fija el Estado francés cada año y que se usa como tope o base de cálculo en muchas prestaciones y cotizaciones sociales. Aquí se usa solo para saber a partir de qué rémunération deja de aplicarse el abatimiento del 26%: el 130% del PASS configurado (${fmt(pass)}) son ${fmt(pass * 1.3)}. El valor usado (configurable en fiscal_config, clave pass_2026) está marcado como "a verificar" hasta que se confirme en urssaf.fr.`,
+            a: `El PASS (Plafond Annuel de la Sécurité Sociale) es una cifra de referencia que fija el Estado francés cada año y que se usa como tope o base de cálculo en muchas prestaciones y cotizaciones sociales. Aquí se usa solo para saber a partir de qué rémunération deja de aplicarse el abatimiento del 26%: el 130% del PASS configurado (${fmt(pass)}) son ${fmt(pass * 1.3)}. El valor usado (configurable en fiscal_config, clave pass_2026) es el PASS 2026 oficial (decreto Journal Officiel 23/12/2025).`,
           },
           {
             q: '¿Por qué hay cotisations aunque no me pague nada (rémunération = 0)?',

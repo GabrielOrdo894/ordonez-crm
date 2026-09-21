@@ -20,6 +20,7 @@ import {
   valorNetoContable,
   type ActivoInmovilizado,
 } from '../../lib/inmovilizado';
+import { registrarAsientoBajaInmovilizado } from '../../lib/asientosContables';
 import { ResumenTitular } from './ResumenTitular';
 
 const CUENTAS_INMOVILIZADO = CUENTAS_FR.filter((c) => c.value.startsWith('20') || c.value.startsWith('21') || c.value === '231');
@@ -177,12 +178,31 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
       textoConfirmar: 'Dar de baja',
     });
     if (!confirmado) return;
-    const { error } = await supabase.from('inmovilizado').update({ dado_de_baja_en: new Date().toISOString().slice(0, 10) }).eq('id', activo.id);
+    const fechaBaja = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase.from('inmovilizado').update({ dado_de_baja_en: fechaBaja }).eq('id', activo.id);
     if (error) {
       toast.error(error.message);
       return;
     }
+    // Genera el asiento de baja (débit 2801 + 675, crédit cuenta del activo) para que el Bilan deje
+    // de arrastrar el VNC de un activo ya dado de baja — antes la baja no tocaba el libro diario en
+    // absoluto (hallazgo real, auditoría 2026-09-21). Best-effort: si falla, el activo ya quedó
+    // marcado como baja (lo importante para dejar de amortizar), así que se avisa pero no se revierte.
+    const anioBaja = Number(fechaBaja.slice(0, 4));
+    try {
+      await registrarAsientoBajaInmovilizado(
+        activo,
+        amortizacionAcumulada(activo, anioBaja),
+        valorNetoContable(activo, anioBaja),
+        fechaBaja,
+      );
+    } catch (errorAsiento) {
+      toast.warning(`Activo dado de baja, pero no se pudo registrar el asiento contable: ${(errorAsiento as Error).message}`);
+      queryClient.invalidateQueries({ queryKey: ['inmovilizado'] });
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['inmovilizado'] });
+    queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
     toast.success('Activo dado de baja');
   };
 

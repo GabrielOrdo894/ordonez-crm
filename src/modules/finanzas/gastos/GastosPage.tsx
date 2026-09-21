@@ -76,11 +76,23 @@ export default function GastosPage() {
     await rectificarAsientos('gasto', g.id, 'creacion');
   }
 
+  // Best-effort: ni el borrado individual ni el masivo limpiaban el justificante en el bucket
+  // privado 'justificantes' al eliminar el gasto — se quedaba huérfano para siempre, a diferencia
+  // de la purga RGPD (ClientePrivacidadTab.tsx), que sí lo hace. Un fallo aquí no debe impedir el
+  // borrado del gasto en sí. Hallazgo real, auditoría 2026-09-21.
+  async function borrarJustificanteSiHay(rutas: (string | null)[]) {
+    const validas = rutas.filter((r): r is string => !!r);
+    if (validas.length === 0) return;
+    const { error } = await supabase.storage.from('justificantes').remove(validas);
+    if (error) console.warn('No se pudieron borrar todos los justificantes en Storage:', error.message);
+  }
+
   const eliminarMutation = useMutation({
     mutationFn: async (g: Gasto) => {
       await rectificarSiHaceFalta(g);
       const { error } = await supabase.from('gastos').delete().eq('id', g.id);
       if (error) throw error;
+      await borrarJustificanteSiHay([g.adjunto_url]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
@@ -100,6 +112,7 @@ export default function GastosPage() {
         .delete()
         .in('id', seleccionados.map((g) => g.id));
       if (error) throw error;
+      await borrarJustificanteSiHay(seleccionados.map((g) => g.adjunto_url));
     },
     onSuccess: (_data, seleccionados) => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });

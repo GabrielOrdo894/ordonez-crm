@@ -86,48 +86,13 @@ Gabriel te entregará la información en bruto de cada obra: formularios, captur
    )
    update presupuestos set visita_id = (select visita_id from nueva_solicitud) where id = '<id del presupuesto>';
    ```
-   Y luego registra los eventos de funnel igual que en 8a (`solicitud_entrada` con la fecha de creación + `visita_agendada` con la `fecha_visita`), usando el id de `nueva_solicitud`.
-9. **Si el presupuesto tiene `visita_id`, sincroniza el pipeline de esa visita en el mismo turno**
-   (hallazgo real 2026-09-18: 3 visitas —Caterine Contreras, Aitor Mendizabal, Mila Fernandez—
-   quedaron con `estado_pipeline`/`pipeline_etapa_maxima` desincronizados porque este agente inserta
-   por SQL directo y nunca pasaba por `sincronizarPipelineCliente`/`etapaAutomatica` de
-   `src/lib/pipelineSync.ts`, que es lo que hace el CRM normalmente al cambiar el estado de un
-   presupuesto). Ejecuta esto siempre que insertes o actualices un presupuesto con `visita_id` no
-   nulo (tanto si venía dado como si lo resolviste en el paso 8):
-   ```sql
-   with orden(etapa, idx) as (
-     values ('Contacto',0),('Visita programada',1),('Visita realizada',2),
-            ('Presupuesto enviado',3),('Presupuesto aceptado',4),('En obra',5),('Finalizado',6)
-   ),
-   presus_visita as (
-     select estado, tipo from presupuestos where visita_id = '<visita_id>' and eliminado_en is null
-   ),
-   nueva as (
-     select case
-       when exists (select 1 from presus_visita where estado = 'Aceptado' and tipo = 'normal') then 'Presupuesto aceptado'
-       when exists (select 1 from presus_visita where estado = 'Pendiente') then 'Presupuesto enviado'
-       else (select estado_pipeline from visitas where id = '<visita_id>')
-     end as etapa
-   ),
-   actual as (
-     select estado_pipeline, pipeline_etapa_maxima from visitas where id = '<visita_id>'
-   )
-   update visitas v
-   set estado_pipeline = nueva.etapa,
-       pipeline_etapa_maxima = (
-         select o.etapa from orden o
-         where o.idx = greatest(
-           (select idx from orden where etapa = nueva.etapa),
-           (select idx from orden where etapa = coalesce(actual.pipeline_etapa_maxima, 'Contacto'))
-         )
-       )
-   from nueva, actual
-   where v.id = '<visita_id>';
-   ```
-   Esta versión simplificada solo cubre lo que este agente puede provocar (presupuesto Pendiente o
-   Aceptado normal) — no toca proyectos/facturas ni el estado "Perdido", eso lo sigue gestionando el
-   resto del CRM. Si ninguna de las dos condiciones se cumple, deja `estado_pipeline` como estaba (no
-   lo baja de categoría).
+   Y luego registra TODOS los eventos de funnel que correspondan, usando el id de `nueva_solicitud` — no solo `solicitud_entrada` (fecha de creación) y `visita_agendada` (`fecha_visita`): también `solicitud_respondida` y `solicitud_vinculada_presupuesto` exactamente igual que en 8a (con `presupuesto_id` el id del presupuesto). Omitir estos dos aquí fue un hallazgo real de la auditoría 2026-09-21 — 8 solicitudes reales (Maider, Florian Tixier, Bea Vangheluwe, varios "Particular"...) creadas por este paso se quedaron sin ellos, y el escalón "Vinculadas a presupuesto" del embudo salía inflado frente a "Respondidas".
+9. **El pipeline de la visita ya no hace falta sincronizarlo a mano** (corregido 2026-09-21): desde
+   la migración `pipeline_recalculo_automatico_trigger`, un trigger de base de datos recalcula
+   `estado_pipeline`/`pipeline_etapa_maxima` automáticamente en cada INSERT/UPDATE relevante de
+   `visitas`/`presupuestos`/`proyectos`/`facturas` — incluidos los inserts por SQL directo que hace
+   este mismo agente. El paso manual que vivía aquí (hallazgo real 2026-09-18, ver historial de
+   CLAUDE.md) ya no es necesario y se ha retirado; no repliques esa lógica a mano.
 10. **Opinión honesta desde el punto de vista del cliente** (Gabriel, 2026-09-01), una vez el presupuesto ya está insertado — no antes: da tu valoración de si el precio total (y, si algo destaca, alguna línea concreta) te parece **caro, normal o barato para un cliente que lo recibe**, sin tener en cuenta nada de la empresa (márgenes, coste de material, política de precios internos, posicionamiento medio-alto...) — esa parte ya la cubre el pre-análisis del paso 4 contra `tarifas-referencia.md`. Aquí es al revés: olvida que conoces la trastienda y reacciona como reaccionaría alguien que solo ve el PDF y compara con lo que cree que cuesta una reforma así en la zona. Un par de frases directas basta, no hace falta una sección aparte. Aplica igual a presupuestos normales y orientativos.
 
 ## Convenciones del presupuesto

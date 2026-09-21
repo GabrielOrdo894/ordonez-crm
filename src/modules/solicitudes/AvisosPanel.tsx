@@ -46,6 +46,7 @@ type SolicitudDescartada = {
   telefono: string | null;
   created_at: string;
   visita_id: string | null;
+  estado: string;
 };
 
 export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: string) => void }) {
@@ -64,19 +65,24 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
     },
   });
 
-  // Solicitudes no concretadas/rechazadas/eliminadas (mismo criterio de cruce por contacto que funnelTracking.ts /
+  // Solicitudes no concretadas/rechazadas (mismo criterio de cruce por contacto que funnelTracking.ts /
   // pipelineSync.ts) — una visita cuya solicitud de origen se marcó como cerrada (Gabriel decidió no
   // presupuestar esa obra) no debe seguir apareciendo indefinidamente como "sin presupuesto
   // enviado": no es que se haya olvidado, es que ya se decidió no enviar nada (hallazgo real de
   // Gabriel 2026-09-07, caso Raphael Szuba — declinado por riesgo estructural pese a insistir el
   // cliente, la solicitud se marcó Descartada —ahora Rechazada— pero la visita seguía en este panel).
+  // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un borrado
+  // definitivo (sustituye al DELETE real), no una decisión de negocio de no presupuestar — si se
+  // incluye aquí, una visita real que coincide por contacto con una solicitud duplicada/errónea ya
+  // eliminada queda invisible como "necesita presupuesto" en este panel, la campana y el email
+  // diario, aunque nadie haya decidido de verdad no presupuestarla.
   const { data: solicitudesDescartadas } = useQuery({
     queryKey: ['solicitudes', 'descartadas-contacto'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('solicitudes')
-        .select('id, nombre, email, telefono, created_at, visita_id')
-        .in('estado', ['No concretada', 'Rechazada', 'Eliminada']);
+        .select('id, nombre, email, telefono, created_at, visita_id, estado')
+        .in('estado', ['No concretada', 'Rechazada']);
       if (error) throw error;
       return data as SolicitudDescartada[];
     },
@@ -167,6 +173,13 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
   // pese a la visita, o puede que sea el mismo hueco que dejó "Vinculadas a presupuesto" antes del
   // rediseño del embudo (2026-09-16) — vincular desde la ficha de la solicitud (SolicitudDetalle.tsx,
   // selector "Vincular a visita") si corresponde.
+  // Excluye estado 'Eliminada' a propósito (bug real de Gabriel, 2026-09-21, casos Sra Lourdes y
+  // Mickaël Maystre): "Eliminada" sustituye al DELETE real (ver types.ts) — es un descarte
+  // definitivo, no un cierre que siga necesitando revisión manual, así que no debe generar este
+  // aviso indefinidamente solo porque su contacto coincide con una visita ya hecha. La query de
+  // solicitudesDescartadas de arriba ya excluye 'Eliminada' desde origen (extendido 2026-09-21 a
+  // todos sus consumidores, no solo este) — 'No concretada' y 'Rechazada' son los únicos cierres
+  // reales que pueden merecer vincularse a mano.
   const solicitudesRechazadasConVisita = (visitas ?? [])
     .map((v): { id: string; visita: VisitaRealizada; solicitud: SolicitudDescartada } | null => {
       const candidatas = (solicitudesDescartadas ?? []).filter((s) => !s.visita_id);

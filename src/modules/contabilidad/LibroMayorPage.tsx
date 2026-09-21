@@ -58,6 +58,18 @@ export default function LibroMayorPage() {
     },
   });
 
+  // Salvaguarda de truncación — mismo motivo que LibroDiarioPage.tsx (queryKey propia, no la
+  // compartida ['asientos_contables'], así que no interfiere con el select de arriba).
+  const { data: totalReal } = useQuery({
+    queryKey: ['asientos_contables', 'count'],
+    queryFn: async () => {
+      const { count, error } = await supabase.from('asientos_contables').select('id', { count: 'exact', head: true });
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+  const truncado = totalReal != null && asientos != null && totalReal > asientos.length;
+
   const cuentas = useMemo<CuentaMayor[]>(() => {
     const porCuenta = new Map<string, { totalDebe: number; totalHaber: number }>();
     for (const a of asientos ?? []) {
@@ -108,6 +120,13 @@ export default function LibroMayorPage() {
           />
         </div>
       </div>
+
+      {truncado && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-sm px-3 py-2 mb-4">
+          Mostrando {asientos?.length} de {totalReal} apuntes — la consulta se ha truncado. Los saldos por cuenta de
+          esta página no se pueden confiar tal cual hasta resolverlo (contacta con soporte técnico).
+        </div>
+      )}
 
       {sinClasificar.mensaje && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-sm px-3 py-2 mb-4">

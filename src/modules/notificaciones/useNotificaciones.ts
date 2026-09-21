@@ -191,15 +191,20 @@ export function useNotificaciones() {
     const visitaIdsConPresupuestoEnviado = new Set(
       (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
     );
+    // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
+    // borrado definitivo (sustituye al DELETE real), no una decisión de negocio de no
+    // presupuestar — incluirla aquí ocultaba visitas reales que sí necesitan presupuesto solo
+    // porque coincidían por contacto con una solicitud duplicada/errónea ya eliminada. Mismo
+    // criterio aplicado a la vez en AvisosPanel.tsx y alerta-diaria/index.ts.
     const emailsDescartados = new Set(
       (solicitudes ?? [])
-        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada' || s.estado === 'Eliminada')
+        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
         .map((s) => s.email?.trim().toLowerCase())
         .filter((e): e is string => !!e),
     );
     const telefonosDescartados = new Set(
       (solicitudes ?? [])
-        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada' || s.estado === 'Eliminada')
+        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
         .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
         .filter((t) => t.length > 0),
     );

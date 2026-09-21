@@ -13,19 +13,30 @@ describe('renderizarTC', () => {
     expect(texto).toBe('Emitido: 2026-09-17. Válido hasta: 2026-10-01 (14 días).');
   });
 
-  it('actualiza el plazo fijo de las plantillas históricas', () => {
-    const texto = renderizarTC('Art. 1 — Validez: presupuesto válido 30 días naturales desde la fecha de emisión.', [], 'es', {
-      diasValidez: 14,
-    });
+  it('actualiza el plazo fijo del texto real de empresa_config.tc_es (Artículo 2)', () => {
+    // Texto real de producción (no un fixture inventado) — la regex anterior nunca coincidía
+    // con esta redacción exacta ("presupuesto es válido durante" + "desde su fecha de
+    // emisión"), bug crítico corregido 2026-09-21.
+    const texto = renderizarTC(
+      'El presupuesto es válido durante 7 días naturales desde su fecha de emisión, transcurridos los cuales el prestador podrá revisar precios.',
+      [],
+      'es',
+      { diasValidez: 14 },
+    );
 
-    expect(texto).toContain('presupuesto válido 14 días naturales desde la fecha de emisión');
+    expect(texto).toContain('El presupuesto es válido durante 14 días naturales desde su fecha de emisión');
   });
 
-  it('actualiza el plazo fijo francés sin cambiar el idioma del documento', () => {
-    const texto = renderizarTC("Le devis reste valable 30 jours à compter de sa date d'émission.", [], 'fr', {
-      diasValidez: 14,
-    });
+  it('actualiza el plazo fijo del texto real de empresa_config.tc_fr (Article 2)', () => {
+    // Texto real de producción — la regex anterior exigía "devis" pegado a "valable", pero en
+    // el texto real hay una frase entera entre medias.
+    const texto = renderizarTC(
+      "Il est établi gratuitement et reste valable 7 jours à compter de sa date d'émission. Passé ce délai, l'entreprise se réserve la possibilité de revoir les prix.",
+      [],
+      'fr',
+      { diasValidez: 14 },
+    );
 
-    expect(texto).toContain("devis reste valable 14 jours à compter de sa date d'émission");
+    expect(texto).toContain("reste valable 14 jours à compter de sa date d'émission");
   });
 });

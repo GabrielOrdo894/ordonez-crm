@@ -324,6 +324,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
       toast.error(errorFirma.message);
       return;
     }
+    // Best-effort: si ya había un adjunto (se está reemplazando), borra el anterior en Storage —
+    // cada subida usa un path aleatorio nuevo, así que sin esto el fichero viejo quedaba huérfano
+    // para siempre en el bucket privado (hallazgo real, auditoría 2026-09-21).
+    if (adjunto?.path) {
+      const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([adjunto.path]);
+      if (errorBorrado) console.warn('No se pudo borrar el justificante anterior en Storage:', errorBorrado.message);
+    }
     setAdjunto({ path, url: data.signedUrl, nombre: file.name, tipo: file.type });
   };
 
@@ -343,8 +350,20 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
           duracion_anios: duracionAmortizacion,
         };
         if (inmovilizadoId) {
-          const { error } = await supabase.from('inmovilizado').update(datosActivo).eq('id', inmovilizadoId);
-          if (error) throw error;
+          // Solo se sobrescribe el activo si ESTA edición cambió de verdad alguno de los 5 campos
+          // compartidos con GastoForm — antes se pisaba en cada guardado, aunque el único cambio
+          // fuera el adjunto o el proveedor, deshaciendo en silencio cualquier corrección manual
+          // hecha después en Fiscalidad → Inmovilizado (ActivoForm edita los mismos campos de forma
+          // independiente). Hallazgo real, auditoría 2026-09-21.
+          const cambioDescripcion = datosActivo.descripcion !== (gasto?.descripcion || gasto?.proveedor || 'Activo sin descripción');
+          const cambioCuenta = datosActivo.cuenta_pcg !== gasto?.cuenta_contable;
+          const cambioFecha = datosActivo.fecha_adquisicion !== gasto?.fecha;
+          const cambioValor = datosActivo.valor_adquisicion !== gasto?.importe_base;
+          const cambioDuracion = inmovilizadoVinculado != null && datosActivo.duracion_anios !== inmovilizadoVinculado.duracion_anios;
+          if (!gasto || cambioDescripcion || cambioCuenta || cambioFecha || cambioValor || cambioDuracion) {
+            const { error } = await supabase.from('inmovilizado').update(datosActivo).eq('id', inmovilizadoId);
+            if (error) throw error;
+          }
         } else {
           const { data, error } = await supabase.from('inmovilizado').insert(datosActivo).select('id').single();
           if (error) throw error;
@@ -735,7 +754,18 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAdjunto(null)}
+                    onClick={() => {
+                      // Best-effort, mismo motivo que al reemplazar un adjunto — ver handleSubirAdjunto.
+                      if (adjunto?.path) {
+                        supabase.storage
+                          .from('justificantes')
+                          .remove([adjunto.path])
+                          .then(({ error }) => {
+                            if (error) console.warn('No se pudo borrar el justificante en Storage:', error.message);
+                          });
+                      }
+                      setAdjunto(null);
+                    }}
                     className="text-gray-400 hover:text-red-600 shrink-0 ml-2"
                     title="Quitar justificante"
                   >

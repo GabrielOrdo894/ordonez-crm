@@ -31,7 +31,7 @@ export type NuevoAsiento = {
   debe: number;
   haber: number;
   concepto: string;
-  documento_tipo: 'factura' | 'gasto';
+  documento_tipo: 'factura' | 'gasto' | 'inmovilizado';
   documento_id: string;
   tipo_evento: TipoEvento;
   // Solo para tipo_evento 'cobro' de una factura con más de un pago (ver pagos_factura) — permite
@@ -53,6 +53,7 @@ const CUENTA_SIN_CLASIFICAR = '471';
 const CUENTA_BANCO = '512';
 const CUENTA_IVA_DEDUCIBLE = '44566';
 const CUENTA_AMORTIZACIONES_ACUMULADAS = '2801';
+const CUENTA_VALEUR_COMPTABLE_CEDEE = '675';
 const CUENTA_CLIENTES = '411';
 const CUENTA_VENTAS = '706';
 const CUENTA_IVA_COLECTADA = '44571';
@@ -97,9 +98,13 @@ export function construirAsientosGasto(gasto: {
   // como cualquier otro (bug real corregido 2026-08-31, confundía ambas cuentas).
   const esAmortizacion = cuenta.startsWith('681');
 
-  const asientos: NuevoAsiento[] = [
-    { fecha, cuenta, debe: base, haber: 0, concepto, documento_tipo: 'gasto', documento_id: gasto.id, tipo_evento: 'creacion' },
-  ];
+  // Guarda de importe 0 en cada línea (mismo motivo que apunte() más abajo) — un gasto con
+  // importe_base 0 (p. ej. compuesto solo de IVA, o mal introducido) no debe generar una fila
+  // fantasma 0/0 en un libro insert-only.
+  const asientos: NuevoAsiento[] = [];
+  if (base !== 0) {
+    asientos.push({ fecha, cuenta, debe: base, haber: 0, concepto, documento_tipo: 'gasto', documento_id: gasto.id, tipo_evento: 'creacion' });
+  }
   if (iva > 0) {
     asientos.push({
       fecha,
@@ -138,16 +143,18 @@ export function construirAsientosGasto(gasto: {
       },
     );
   }
-  asientos.push({
-    fecha,
-    cuenta: esAmortizacion ? CUENTA_AMORTIZACIONES_ACUMULADAS : CUENTA_BANCO,
-    debe: 0,
-    haber: base + iva,
-    concepto,
-    documento_tipo: 'gasto',
-    documento_id: gasto.id,
-    tipo_evento: 'creacion',
-  });
+  if (base + iva !== 0) {
+    asientos.push({
+      fecha,
+      cuenta: esAmortizacion ? CUENTA_AMORTIZACIONES_ACUMULADAS : CUENTA_BANCO,
+      debe: 0,
+      haber: base + iva,
+      concepto,
+      documento_tipo: 'gasto',
+      documento_id: gasto.id,
+      tipo_evento: 'creacion',
+    });
+  }
 
   return asientos;
 }
@@ -162,12 +169,17 @@ export function construirAsientosGasto(gasto: {
 // `debe: -1100` en vez de `haber: 1100`), y la línea de TVA collectée (con guard `iva > 0`) se
 // omitía del todo en vez de invertirse, dejando el asiento descuadrado por el importe exacto del
 // IVA en toda rectificativa que llevara IVA.
+// Devuelve null si el importe es 0 — sin esto, una factura con todas las líneas a 0€ (permitido
+// desde el editor, que solo clampa negativos, no ceros) insertaría una fila fantasma 0/0 en un
+// libro insert-only que no se puede corregir después (hallazgo real, auditoría 2026-09-21, no
+// manifestado en producción pero posible desde el editor de líneas actual).
 function apunte(
   cuenta: string,
   monto: number,
   ladoNormal: 'debe' | 'haber',
   base: Pick<NuevoAsiento, 'fecha' | 'concepto' | 'documento_tipo' | 'documento_id' | 'tipo_evento'>,
-): NuevoAsiento {
+): NuevoAsiento | null {
+  if (monto === 0) return null;
   const importe = Math.abs(monto);
   const enDebe = ladoNormal === 'debe' ? monto >= 0 : monto < 0;
   return { ...base, cuenta, debe: enDebe ? importe : 0, haber: enDebe ? 0 : importe };
@@ -186,12 +198,12 @@ export function construirAsientosFacturaEmision(factura: {
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Factura';
   const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'creacion' as const };
 
-  const asientos: NuevoAsiento[] = [apunte(CUENTA_CLIENTES, totalConIva, 'debe', base), apunte(CUENTA_VENTAS, totalSinIva, 'haber', base)];
+  const asientos = [apunte(CUENTA_CLIENTES, totalConIva, 'debe', base), apunte(CUENTA_VENTAS, totalSinIva, 'haber', base)];
   if (iva !== 0) {
     asientos.push(apunte(CUENTA_IVA_COLECTADA, iva, 'haber', base));
   }
 
-  return asientos;
+  return asientos.filter((a): a is NuevoAsiento => a !== null);
 }
 
 export function construirAsientosFacturaCobro(
@@ -250,6 +262,43 @@ export async function registrarAsientoFacturaEmision(factura: Parameters<typeof 
   await insertarAsientos(construirAsientosFacturaEmision(factura));
 }
 
+// Baja (mise au rebut) de un activo de Inmovilizado — hasta 2026-09-21 no generaba ningún asiento:
+// el valor neto contable quedaba congelado en el punto de la baja y se seguía arrastrando para
+// siempre en el Bilan/Liasse Fiscale (useComptaFrancia.ts suma directamente valorNetoContable() de
+// TODOS los activos de la tabla `inmovilizado`, dados de baja o no), sin ningún mecanismo para
+// corregirlo (hallazgo real, auditoría 2026-09-21). Tratamiento PCG estándar de una baja sin
+// contraprestación (no se modela precio de venta, solo "dado de baja"):
+//   Débit 2801 (amortissements cumulés) — limpia lo ya amortizado de este activo.
+//   Débit 675 (valeur comptable des éléments d'actif cédés) — el VNC restante, como gasto.
+//   Crédit <cuenta_pcg del activo> — saca el valor bruto del activo del balance.
+// `amortizacionAcumuladaActivo`/`valorNetoContableActivo` se calculan en el caller (TabInmovilizado.tsx,
+// vía amortizacionAcumulada()/valorNetoContable() de inmovilizado.ts) y se pasan ya calculados para
+// evitar un import circular (inmovilizado.ts ya importa de este fichero).
+export function construirAsientosBajaInmovilizado(
+  activo: { id: string; descripcion: string; cuenta_pcg: string },
+  amortizacionAcumuladaActivo: number,
+  valorNetoContableActivo: number,
+  fecha: string,
+): NuevoAsiento[] {
+  const concepto = `Baja de inmovilizado — ${activo.descripcion}`;
+  const base = { fecha, concepto, documento_tipo: 'inmovilizado' as const, documento_id: activo.id, tipo_evento: 'creacion' as const };
+  const asientos = [
+    apunte(CUENTA_AMORTIZACIONES_ACUMULADAS, amortizacionAcumuladaActivo, 'debe', base),
+    apunte(CUENTA_VALEUR_COMPTABLE_CEDEE, valorNetoContableActivo, 'debe', base),
+    apunte(activo.cuenta_pcg, amortizacionAcumuladaActivo + valorNetoContableActivo, 'haber', base),
+  ];
+  return asientos.filter((a): a is NuevoAsiento => a !== null);
+}
+
+export async function registrarAsientoBajaInmovilizado(
+  activo: { id: string; descripcion: string; cuenta_pcg: string },
+  amortizacionAcumuladaActivo: number,
+  valorNetoContableActivo: number,
+  fecha: string,
+) {
+  await insertarAsientos(construirAsientosBajaInmovilizado(activo, amortizacionAcumuladaActivo, valorNetoContableActivo, fecha));
+}
+
 // Al registrar un pago de Factura: Débit Banco / Crédit Clients, por el importe de ESE pago
 // concreto (una factura puede tener varios, ver pagos_factura) — nunca el total acumulado.
 export async function registrarAsientoFacturaCobro(
@@ -271,8 +320,8 @@ export async function registrarAsientoFacturaCobro(
 // necesario ahora que un mismo evento ('cobro') puede tener varios apuntes en fechas distintas.
 //
 // `pagoId`: si se da, solo reversa los apuntes de ESE pago concreto (deja los demás cobros de la
-// misma factura intactos). Si se omite, reversa TODOS los apuntes del evento (usado al editar una
-// factura/gasto entero, o al vaciar todos los pagos de una factura).
+// misma factura intactos). Si se omite, reversa TODOS los pagos del evento — usado al editar una
+// factura/gasto entero, al vaciar todos los pagos de una factura, o al papelerizarla.
 export async function rectificarAsientos(
   documentoTipo: 'factura' | 'gasto',
   documentoId: string,
@@ -281,7 +330,7 @@ export async function rectificarAsientos(
 ) {
   let query = supabase
     .from('asientos_contables')
-    .select('cuenta, debe, haber, concepto, fecha, created_at')
+    .select('cuenta, debe, haber, concepto, fecha, created_at, pago_id')
     .eq('documento_tipo', documentoTipo)
     .eq('documento_id', documentoId)
     .eq('tipo_evento', tipoEvento)
@@ -291,16 +340,32 @@ export async function rectificarAsientos(
   if (error) throw error;
   if (!historico || historico.length === 0) return;
 
-  // Solo se reversa el ÚLTIMO lote insertado, no todo el histórico acumulado. insertarAsientos()
-  // mete cada lote en una única sentencia INSERT, y Postgres le da a todas sus filas el mismo
-  // `now()` — eso basta para agrupar "las filas de esta misma llamada" sin ninguna columna nueva.
-  // Antes se reversaba TODO lo que hubiera para ese documento/evento, incluidas reversas de
-  // ediciones anteriores: el saldo neto seguía cuadrando siempre (reversar la reversa se cancela
-  // sola, ver test), pero cada edición duplicaba aproximadamente el número de filas del histórico
-  // completo — un documento editado 4-5 veces (habitual) acumulaba decenas de apuntes casi
-  // duplicados, difícil de leer ante una inspección fiscal (bug real, corregido 2026-09-10).
-  const ultimoLote = historico[0].created_at;
-  const previos = historico.filter((a) => a.created_at === ultimoLote);
+  // Agrupado por pago_id (null incluido, para 'creacion' o cobros de antes de que existiera esta
+  // trazabilidad) — una factura de Francia puede tener varios pagos reales, cada uno su propio
+  // lote de asientos con su propio pago_id (ver pagos_factura). Sin agrupar por pago_id, reversar
+  // "todo el evento" solo tocaba el lote más reciente insertado en general, dejando contabilizados
+  // para siempre los pagos anteriores si se vaciaban todos a la vez o se papelerizaba la factura
+  // (bug real corregido 2026-09-21 — nunca se había manifestado en producción porque hasta esa
+  // fecha ninguna factura real había tenido más de un pago, pero el propio CLAUDE.md documenta
+  // "factura cobrada en dos meses distintos" como caso soportado).
+  //
+  // Dentro de cada grupo, solo se reversa su ÚLTIMO lote (mismo criterio que antes, ver comentario
+  // histórico de 2026-09-10): insertarAsientos() mete cada lote en una única sentencia INSERT y
+  // Postgres le da a todas sus filas el mismo `now()`, así que agrupar por `created_at` basta para
+  // identificar "las filas de esta misma llamada" sin ninguna columna nueva — evita que un pago
+  // editado varias veces acumule decenas de apuntes casi duplicados.
+  const porPago = new Map<string, typeof historico>();
+  for (const fila of historico) {
+    const clave = fila.pago_id ?? '__sin_pago__';
+    const grupo = porPago.get(clave);
+    if (grupo) grupo.push(fila);
+    else porPago.set(clave, [fila]);
+  }
+
+  const previos = Array.from(porPago.values()).flatMap((filasDelPago) => {
+    const ultimoLote = filasDelPago[0].created_at;
+    return filasDelPago.filter((a) => a.created_at === ultimoLote);
+  });
 
   await insertarAsientos(construirAsientosRectificacion(previos, documentoTipo, documentoId, tipoEvento));
 }

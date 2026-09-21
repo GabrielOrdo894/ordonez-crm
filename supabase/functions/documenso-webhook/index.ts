@@ -20,48 +20,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
-type EstadoVisita = string;
-type SenalesPipeline = {
-  visitaEstado: EstadoVisita | null;
-  visitaTieneFecha: boolean;
-  presupuestos: { estado: string }[];
-  proyectoEstado: string | null;
-  facturaCobrada: boolean;
-};
-
-// Misma lógica que src/lib/pipelineSync.ts (etapaAutomatica) — duplicada porque las
-// Edge Functions (Deno) no pueden importar código del frontend (Vite/React).
-function etapaAutomatica(s: SenalesPipeline): string {
-  if (s.proyectoEstado === 'Finalizado' || s.facturaCobrada) return 'Finalizado';
-  if (s.proyectoEstado === 'En curso' || s.proyectoEstado === 'Pausado') return 'En obra';
-  if (s.presupuestos.some((p) => p.estado === 'Aceptado')) return 'Presupuesto aceptado';
-  if (s.presupuestos.some((p) => p.estado === 'Pendiente')) return 'Presupuesto enviado';
-  if (s.visitaEstado === 'Realizada') return 'Visita realizada';
-  if (s.visitaTieneFecha) return 'Visita programada';
-  return 'Contacto';
-}
-
-// Mismo orden que ETAPAS_PIPELINE en src/modules/clientes/types.ts — duplicado porque este Edge
-// Function no puede importar código del frontend. `etapaMaximaAlcanzada` replica
-// src/lib/pipelineSync.ts: la etapa "máxima alcanzada" nunca retrocede, ni siquiera si el pipeline
-// actual baja (ver comentario original en pipelineSync.ts). Hallazgo real 2026-09-19: esta función
-// solo actualizaba `estado_pipeline` tras una firma, nunca `pipeline_etapa_maxima` — mismo bug de
-// desincronización ya corregido en creador-presupuestos.md (ver ese fichero para el caso real que lo
-// destapó).
-const ETAPAS_PIPELINE = ['Contacto', 'Visita programada', 'Visita realizada', 'Presupuesto enviado', 'Presupuesto aceptado', 'En obra', 'Finalizado'];
-function etapaMaximaAlcanzada(nuevaEtapa: string, maximaPrevia: string | null): string {
-  const idxNueva = ETAPAS_PIPELINE.indexOf(nuevaEtapa);
-  const idxPrevia = ETAPAS_PIPELINE.indexOf(maximaPrevia ?? 'Contacto');
-  return ETAPAS_PIPELINE[Math.max(idxNueva, idxPrevia, 0)];
-}
-
-function normalizarTelefono(tel: string): string {
-  // Se queda con los últimos 9 dígitos, igual que src/modules/clientes/types.ts (Deno no puede
-  // importar ese módulo, así que se duplica) — cruza formato nacional e internacional del mismo
-  // número (bug real corregido 2026-08-31, esta copia se había quedado desactualizada).
-  return tel.replace(/[^\d]/g, '').slice(-9);
-}
-
 // Compara hasheando ambos valores (SHA-256, longitud fija) byte a byte sin cortocircuitar, en vez
 // de `!==` directo sobre las cadenas — un timing attack sobre un `!==` normal podría, en teoría,
 // deducir el secreto carácter a carácter por cuánto tarda en fallar la comparación (riesgo bajo en
@@ -292,7 +250,7 @@ Deno.serve(async (req: Request) => {
   // corregido 2026-08-18).
   const busqueda = supabase
     .from('presupuestos')
-    .select('id, numero, visita_id, cliente_tel, cliente_nombre, cliente_email, idioma, firmado, documenso_envelope_id')
+    .select('id, numero, visita_id, cliente_nombre, cliente_email, idioma, firmado, documenso_envelope_id, estado')
     .is('eliminado_en', null)
     .limit(1);
   const { data: presupuestos, error: buscarError } = externalId
@@ -303,6 +261,19 @@ Deno.serve(async (req: Request) => {
   const presupuesto = presupuestos?.[0];
   if (!presupuesto) return jsonResponse({ ok: true, ignorado: 'presupuesto no encontrado' });
   if (presupuesto.firmado) return jsonResponse({ ok: true, ignorado: 'ya estaba firmado' });
+  // Un presupuesto ya Rechazado a mano no debe revertirse a Aceptado solo porque el cliente firma
+  // más tarde con un enlace todavía activo (nunca se cancela el envelope en Documenso al rechazar,
+  // no existe esa integración) — hallazgo real de seguridad/negocio, auditoría 2026-09-21: caso
+  // real P-2026-0066, Rechazado pero con documenso_estado='ENVIADO' sin firmar. Se ignora el
+  // webhook y se deja constancia para revisión manual en vez de sobrescribir la decisión.
+  if (presupuesto.estado === 'Rechazado') {
+    await supabase.from('documento_eventos').insert({
+      documento_tipo: 'presupuesto',
+      documento_id: presupuesto.id,
+      evento: 'Firma de Documenso recibida pero IGNORADA — el presupuesto ya estaba Rechazado. Revisar a mano si corresponde.',
+    });
+    return jsonResponse({ ok: true, ignorado: 'presupuesto ya estaba Rechazado, no se sobrescribe' });
+  }
 
   const { error: updateError } = await supabase
     .from('presupuestos')
@@ -375,69 +346,13 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Sincroniza la etapa de pipeline del cliente, igual que hace la firma manual en el frontend
-  // (sincronizarPipelineCliente) — aquí no hay usuario con sesión abierta que lo dispare.
-  const tel = normalizarTelefono(presupuesto.cliente_tel ?? '');
-  if (tel) {
-    const { data: visitas } = await supabase.from('visitas').select('*').is('eliminado_en', null).order('created_at', { ascending: false });
-    const visitasCliente = (visitas ?? []).filter((v: { telefono?: string }) => normalizarTelefono(v.telefono ?? '') === tel);
-    const ultimaVisita = visitasCliente[0];
-
-    if (ultimaVisita) {
-      // Señales acotadas a ESTA visita (visita_id), no a todo el histórico del teléfono — un
-      // cliente repetidor con un proyecto viejo ya cobrado no debe arrastrar su visita nueva a
-      // "Finalizado" solo por compartir teléfono con esa obra anterior (bug real corregido
-      // 2026-08-11, mismo fix que src/lib/pipelineSync.ts).
-      const { data: presupuestosVisita } = await supabase
-        .from('presupuestos')
-        .select('id, estado')
-        .eq('visita_id', ultimaVisita.id)
-        .is('eliminado_en', null);
-      const delVisita = presupuestosVisita ?? [];
-
-      let proyectoEstado: string | null = null;
-      const idsPresupuestos = delVisita.map((p: { id: string }) => p.id);
-      if (idsPresupuestos.length > 0) {
-        const { data: proyectos } = await supabase.from('proyectos').select('estado, presupuesto_id').in('presupuesto_id', idsPresupuestos);
-        const lista = proyectos ?? [];
-        const relevante = lista.find((p: { estado: string }) => p.estado === 'Finalizado') ?? lista.find((p: { estado: string }) => p.estado === 'En curso') ?? lista[0];
-        proyectoEstado = relevante?.estado ?? null;
-      }
-
-      const { data: facturas } = await supabase
-        .from('facturas')
-        .select('estado_cobro')
-        .eq('visita_id', ultimaVisita.id)
-        .is('eliminado_en', null);
-      const facturaCobrada = (facturas ?? []).some((f: { estado_cobro?: string }) => f.estado_cobro === 'Cobrada');
-
-      const nuevaEtapa = etapaAutomatica({
-        visitaEstado: ultimaVisita.estado ?? null,
-        visitaTieneFecha: !!ultimaVisita.fecha_visita,
-        presupuestos: delVisita,
-        proyectoEstado,
-        facturaCobrada,
-      });
-
-      const etapaMaxima = etapaMaximaAlcanzada(nuevaEtapa, ultimaVisita.pipeline_etapa_maxima ?? null);
-      if (nuevaEtapa !== ultimaVisita.estado_pipeline || etapaMaxima !== ultimaVisita.pipeline_etapa_maxima) {
-        const { error: pipelineError } = await supabase
-          .from('visitas')
-          .update({ estado_pipeline: nuevaEtapa, pipeline_etapa_maxima: etapaMaxima })
-          .eq('id', ultimaVisita.id);
-        if (pipelineError) {
-          console.error('No se pudo sincronizar estado_pipeline tras la firma:', pipelineError.message);
-        } else {
-          await supabase.from('notas_cliente').insert({
-            visita_id: ultimaVisita.id,
-            tipo: 'sistema',
-            texto: `Pipeline actualizado automáticamente a "${nuevaEtapa}"`,
-            autor: 'Sistema',
-          });
-        }
-      }
-    }
-  }
-
+  // El pipeline ya se sincroniza solo: el UPDATE de `presupuestos.estado` de más arriba dispara el
+  // trigger `pipeline_sync_presupuestos` (migración `pipeline_recalculo_automatico_trigger`,
+  // 2026-09-21) que recalcula estado_pipeline/pipeline_etapa_maxima de la visita exacta enlazada
+  // por presupuesto.visita_id — sustituye este bloque manual, que hacía lo mismo pero buscando "la
+  // visita más reciente por teléfono" (menos preciso) y solo se ejecutaba en este webhook, no en
+  // el resto de caminos que cambian un presupuesto (ver hallazgo de la auditoría 2026-09-21: el
+  // pipeline se quedaba desincronizado en la mayoría de sitios por depender de que cada uno
+  // recordara sincronizarlo a mano).
   return jsonResponse({ ok: true });
 });

@@ -1,6 +1,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { generarPdfPresupuestoBlob } from './generarPdfPresupuesto';
+import { congelarTerminosCondiciones } from './terminos';
 import type { Presupuesto } from '../modules/finanzas/presupuestos/types';
 
 // La Edge Function devuelve el mensaje de error real en el cuerpo JSON de la respuesta, pero
@@ -44,6 +45,10 @@ export async function enviarPresupuestoAFirmar(p: Presupuesto, opts: { regenerar
   if (!p.cliente_email) {
     throw new Error('El presupuesto necesita un email de cliente para enviarlo a firmar con Documenso');
   }
+
+  // Congela los T&C ANTES de generar el PDF que se sube a Documenso, para que el propio PDF
+  // firmado ya use el texto congelado (consistente con lo que se vuelva a ver/descargar después).
+  await congelarTerminosCondiciones(p);
 
   const { blob: pdfBlob, cajaFirma } = await generarPdfPresupuestoBlob(p);
   if (!cajaFirma) {

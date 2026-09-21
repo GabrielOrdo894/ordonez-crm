@@ -64,7 +64,16 @@ export function calcularBilanActivo(
     const { totalConIva } = calcularTotales(f.lineas);
     return s + Math.max(0, totalConIva - (f.monto_pagado ?? 0));
   }, 0);
-  const inmovilizadoNeto = activos.reduce((s, a) => s + valorNetoContable(a, anio), 0);
+  // Un activo dado de baja antes del cierre del ejercicio ya salió del balance (asiento de baja,
+  // ver registrarAsientoBajaInmovilizado en asientosContables.ts) — su VNC ya no debe sumar aquí.
+  // Antes se seguía sumando valorNetoContable(a, anio), que se queda "congelado" en el valor que
+  // tuviera hasta el mes de la baja para siempre (calcularDotacionAnual devuelve 0 en años
+  // posteriores, así que amortizacionAcumulada deja de crecer): un activo vendido/desechado
+  // aparecía con un VNC fantasma indefinidamente en el Bilan (hallazgo real, auditoría 2026-09-21).
+  const inmovilizadoNeto = activos.reduce((s, a) => {
+    if (a.dado_de_baja_en && a.dado_de_baja_en <= `${anio}-12-31`) return s;
+    return s + valorNetoContable(a, anio);
+  }, 0);
   return { tresoreria, creancesClients, inmovilizadoNeto, total: tresoreria + creancesClients + inmovilizadoNeto };
 }
 

@@ -4,6 +4,7 @@ import { Inbox, Layers, Send, Star, FileEdit, Archive, Trash2, Paperclip, PenSqu
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { useSeleccionMultiple } from '../../hooks/useSeleccionMultiple';
 import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
@@ -39,6 +40,7 @@ type Carpeta = 'general' | 'bandeja' | 'enviados' | 'destacados' | 'borradores' 
 export default function MensajeriaPage() {
   const { user } = useAuth();
   const toast = useToast();
+  const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [carpeta, setCarpeta] = useState<Carpeta>('bandeja');
   const [abiertoId, setAbiertoId] = useState<string | null>(null);
@@ -157,8 +159,13 @@ export default function MensajeriaPage() {
     if (!user) return;
     actualizarMutation.mutate({ id: m.id, cambios: { archivado_por: sinId(m.archivado_por, user.id) } });
   };
-  const eliminar = (m: MensajeEquipo) => {
+  // Único punto de "eliminar" (soft-delete reversible vía carpeta Papelera) sin confirmación de
+  // todo el CRM — el resto de secciones con la misma semántica (Visitas, Clientes, Planning) sí
+  // piden confirmar antes de mover a papelera, más sensible aún en la acción masiva de abajo
+  // (varios mensajes de golpe sin ningún paso intermedio). Hallazgo real, auditoría 2026-09-21.
+  const eliminar = async (m: MensajeEquipo) => {
     if (!user) return;
+    if (!(await confirmar('¿Eliminar este mensaje? Se moverá a la Papelera.'))) return;
     actualizarMutation.mutate({ id: m.id, cambios: { eliminado_por: conId(m.eliminado_por, user.id) } });
     if (abiertoId === m.id) setAbiertoId(null);
   };
@@ -223,8 +230,10 @@ export default function MensajeriaPage() {
         : {
             label: 'Eliminar',
             variant: 'danger' as const,
-            onClick: () =>
-              accionMasivaMutation.mutate({ ids, calcularCambios: (m) => ({ eliminado_por: conId(m.eliminado_por, user.id) }) }),
+            onClick: async () => {
+              if (!(await confirmar(`¿Eliminar ${ids.length} mensaje(s)? Se moverán a la Papelera.`))) return;
+              accionMasivaMutation.mutate({ ids, calcularCambios: (m) => ({ eliminado_por: conId(m.eliminado_por, user.id) }) });
+            },
           },
     ];
   })();

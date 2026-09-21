@@ -108,7 +108,12 @@ export const GRUPOS_CATEGORIA: GrupoCategoria[] = [
     icono: CreditCard,
     colorFondo: 'bg-slate-100',
     colorTexto: 'text-slate-700',
-    cuentas: ['661', '666', '668'],
+    // 686 (dotations financières) vive aquí, no en "Amortissements" — el motor contable
+    // (asientosContables.ts/useComptaFrancia.ts) ya la trata como carga financiera desde el
+    // 2026-08-31 (contrapartida banco, no inmovilizado), pero el desplegable seguía agrupándola
+    // visualmente junto a 681 como si fuera una amortización, pudiendo confundir a Gabriel al
+    // elegir cuenta (hallazgo real, auditoría 2026-09-21 — cosmético, sin efecto en cifras).
+    cuentas: ['661', '666', '668', '686'],
   },
   {
     id: 'exceptionnelles',
@@ -124,7 +129,7 @@ export const GRUPOS_CATEGORIA: GrupoCategoria[] = [
     icono: TrendingDown,
     colorFondo: 'bg-gray-100',
     colorTexto: 'text-gray-600',
-    cuentas: ['681', '686'],
+    cuentas: ['681'],
   },
 ];
 

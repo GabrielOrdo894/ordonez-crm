@@ -38,6 +38,21 @@ export default function LibroDiarioPage() {
     },
   });
 
+  // Salvaguarda de truncación (auditoría 2026-09-21): un libro insert-only y legalmente
+  // inalterable no tiene ningún límite de filas configurado ni ningún conteo que avisara si algún
+  // día se supera el límite por defecto de PostgREST — el KPI "Descuadre" no lo detectaría (cada
+  // lote insertado ya está cuadrado en sí mismo, recortar lotes completos por arriba no lo
+  // desequilibra). Queda de sobra hoy (96 filas reales) pero el aviso es gratis y cierra el hueco.
+  const { data: totalReal } = useQuery({
+    queryKey: ['asientos_contables', 'count'],
+    queryFn: async () => {
+      const { count, error } = await supabase.from('asientos_contables').select('id', { count: 'exact', head: true });
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+  const truncado = totalReal != null && asientos != null && totalReal > asientos.length;
+
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     const lista = asientos ?? [];
@@ -68,6 +83,13 @@ export default function LibroDiarioPage() {
           </InfoTooltip>
         </h1>
       </div>
+
+      {truncado && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-sm px-3 py-2 mb-4">
+          Mostrando {asientos?.length} de {totalReal} apuntes — la consulta se ha truncado. Este libro no se puede
+          confiar tal cual hasta resolverlo (contacta con soporte técnico).
+        </div>
+      )}
 
       {sinClasificar.mensaje && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-sm px-3 py-2 mb-4">

@@ -22,9 +22,21 @@ const SCOPE_GMAIL = 'https://www.googleapis.com/auth/gmail.readonly https://www.
 // Ver docs/tecnico/google-apis.md — flujo de autorización persistente.
 let tokenEnMemoria: { access_token: string; expires_at: number } | null = null;
 
-function iniciarConexionGoogle(purpose: 'calendar' | 'gmail', scope: string, volverA: string) {
+// El `state` que se manda a Google ya no lleva purpose/volverA en texto plano — es un token de un
+// solo uso emitido por la Edge Function `google-oauth-iniciar` (que exige un usuario autenticado
+// del CRM), protección CSRF añadida 2026-09-21 tras un hallazgo de seguridad real: sin esto,
+// cualquiera podía construir a mano la URL de consentimiento (client_id/redirect_uri son públicos)
+// e iniciar el flujo con SU PROPIA cuenta de Google, y google-oauth-callback guardaba ese
+// refresh_token como si fuera la conexión oficial de la empresa. Ver el comentario grande en
+// google-oauth-callback/index.ts para el detalle completo.
+async function iniciarConexionGoogle(purpose: 'calendar' | 'gmail', scope: string, volverA: string) {
   const redirectUri = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-oauth-callback`;
-  const state = new URLSearchParams({ purpose, volverA: `${window.location.origin}${volverA}` }).toString();
+  const { data, error } = await supabase.functions.invoke('google-oauth-iniciar', {
+    body: { purpose, volverA: `${window.location.origin}${volverA}` },
+  });
+  if (error || !data?.token) {
+    throw new Error(error?.message ?? 'No se pudo iniciar la conexión con Google');
+  }
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     redirect_uri: redirectUri,
@@ -32,17 +44,17 @@ function iniciarConexionGoogle(purpose: 'calendar' | 'gmail', scope: string, vol
     access_type: 'offline',
     prompt: 'consent',
     scope,
-    state,
+    state: data.token,
   });
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-export function iniciarConexionGoogleCalendar(volverA: string = window.location.pathname) {
-  iniciarConexionGoogle('calendar', SCOPE_CALENDAR, volverA);
+export async function iniciarConexionGoogleCalendar(volverA: string = window.location.pathname) {
+  await iniciarConexionGoogle('calendar', SCOPE_CALENDAR, volverA);
 }
 
-export function iniciarConexionGmail(volverA: string = window.location.pathname) {
-  iniciarConexionGoogle('gmail', SCOPE_GMAIL, volverA);
+export async function iniciarConexionGmail(volverA: string = window.location.pathname) {
+  await iniciarConexionGoogle('gmail', SCOPE_GMAIL, volverA);
 }
 
 async function obtenerAccessToken(forzarRenovacion = false): Promise<string> {

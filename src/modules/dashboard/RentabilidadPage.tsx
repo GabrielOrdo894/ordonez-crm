@@ -51,7 +51,7 @@ export default function RentabilidadPage() {
 
   const cargando = cargandoVisitas || cargandoFacturas || cargandoGastos;
 
-  const { filas, gastosSinProyecto } = useMemo(() => {
+  const { filas, gastosSinProyecto, facturadoSinProyecto, cobradoSinProyecto } = useMemo(() => {
     const porVisita = new Map<string, { facturado: number; cobrado: number; gastos: number }>();
     const asegurar = (id: string) => {
       if (!porVisita.has(id)) porVisita.set(id, { facturado: 0, cobrado: 0, gastos: 0 });
@@ -60,9 +60,22 @@ export default function RentabilidadPage() {
 
     // estructura_anterior (2026-08-22): cobros de una empresa anterior a la EURL actual, se
     // registran en el CRM para las acomptes pero no son ingreso/margen real de esta EURL.
+    let facturadoSinProyecto = 0;
+    let cobradoSinProyecto = 0;
     for (const f of facturas ?? []) {
-      if (!f.visita_id || f.estructura_anterior) continue;
+      if (f.estructura_anterior) continue;
       const { totalConIva } = calcularTotales(f.lineas ?? []);
+      // Facturas sin visita_id (p. ej. presupuestos orientativos Aceptados sin visita, o facturas
+      // sueltas sin coincidencia en el CRM) se descartaban en silencio del todo — la única factura
+      // real de la EURL hoy en producción (AC-2026-0021) no tiene visita_id, así que "Facturado/
+      // Cobrado/Margen real (proyectos)" mostraba prácticamente 0€ pese a haber dinero cobrado de
+      // verdad (bug real, auditoría 2026-09-21) — mismo patrón que ya se aplicaba a gastos sin
+      // proyecto (gastosSinProyecto más abajo), ahora simétrico para facturas.
+      if (!f.visita_id) {
+        facturadoSinProyecto += totalConIva;
+        cobradoSinProyecto += f.monto_pagado ?? 0;
+        continue;
+      }
       const fila = asegurar(f.visita_id);
       fila.facturado += totalConIva;
       // monto_pagado es el cobro real acumulado de esa factura (RegistrarPagoModal/
@@ -102,7 +115,7 @@ export default function RentabilidadPage() {
       })
       .sort((a, b) => a.margen - b.margen);
 
-    return { filas, gastosSinProyecto };
+    return { filas, gastosSinProyecto, facturadoSinProyecto, cobradoSinProyecto };
   }, [visitas, facturas, gastos]);
 
   const totales = useMemo(
@@ -137,8 +150,16 @@ export default function RentabilidadPage() {
           </p>
         </div>
       </div>
-      {gastosSinProyecto > 0 && (
-        <p className="text-xs text-gray-500">Gastos sin proyecto vinculado: {formatearPrecio(gastosSinProyecto)}</p>
+      {(gastosSinProyecto > 0 || facturadoSinProyecto > 0) && (
+        <div className="text-xs text-gray-500 flex flex-col gap-0.5">
+          {gastosSinProyecto > 0 && <p>Gastos sin proyecto vinculado: {formatearPrecio(gastosSinProyecto)}</p>}
+          {facturadoSinProyecto > 0 && (
+            <p>
+              Facturas sin proyecto vinculado: {formatearPrecio(facturadoSinProyecto)} facturado ·{' '}
+              {formatearPrecio(cobradoSinProyecto)} cobrado
+            </p>
+          )}
+        </div>
       )}
 
       <div className="bg-surface border border-gray-200 rounded-sm p-4">

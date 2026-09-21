@@ -204,6 +204,15 @@ export default function PlanningObraPage() {
 
   const handleDescargarPlanning = async (p: Proyecto) => {
     const presupuesto = presupuestoPorId(p.presupuesto_id);
+    // A diferencia de handleDescargarDossier, esta función no comprobaba si el presupuesto
+    // vinculado existía — generarPdfPlanning degrada en silencio a '—' en cada campo del cliente
+    // en vez de lanzar un error, así que sin esta guarda el PDF salía con nombre/dirección/
+    // teléfono/total en blanco sin ningún aviso (hallazgo real, auditoría 2026-09-21; no se ha
+    // dado el caso todavía en producción, pero el código no estaba protegido si ocurriera).
+    if (!presupuesto) {
+      toast.warning('Este planning no tiene un presupuesto vinculado activo — no se puede generar el PDF con los datos del cliente.');
+      return;
+    }
     const pais = presupuesto?.pais ?? 'España';
     const idioma = presupuesto?.idioma === 'Français' ? 'fr' : 'es';
     try {
