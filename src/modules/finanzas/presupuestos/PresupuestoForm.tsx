@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Star, Gift, Plus, Copy, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Trash2, Star, Gift, Plus, Copy, ExternalLink, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { camposContactoFaltantes } from '../../../lib/datosContacto';
@@ -1204,6 +1204,15 @@ export function PresupuestoForm({
                         Copiar
                       </span>
                     </Button>
+                    <a
+                      href={linkDocumenso}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 hover:bg-brand-light"
+                    >
+                      <ExternalLink size={13} />
+                      Abrir
+                    </a>
                   </div>
                   <p className="text-xs text-gray-400">
                     Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto pasará a

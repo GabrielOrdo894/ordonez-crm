@@ -31,7 +31,7 @@ verdad que usa la aplicación. Revísalo tú y corrígelo si algo ha cambiado de
 | `plan_pago` | jsonb | array de `{ concepto: text, porcentaje: number, importe: number }` — **solo presupuestos, nunca facturas** |
 | `terminos_condiciones` | text | si se rellena, sobrescribe la plantilla general de `empresa_config` solo para este documento |
 | `condiciones_pago` | jsonb | `{ delaiEs, delaiFr, penalizacionEs, penalizacionFr, medioEs, medioFr }`, opcional |
-| `nota` | text | nota interna, no sale en el PDF |
+| `nota` | text | **visible para el cliente** — se imprime en el PDF (sección "Nota"/"Note"). Solo texto que le importe al cliente, redactado de forma profesional y en el idioma del documento. Lo interno (razonamiento, historial, decisiones de Gabriel) va en `nota_interna` |
 | `estado` | text | `'Borrador'` \| `'Pendiente'` \| `'Aceptado'` \| `'Rechazado'` |
 | `firmado` | boolean | `true` una vez firmado (manual o Documenso) |
 | `firma_nombre` / `firma_fecha` / `firma_base64` | | datos de la firma manual histórica (canvas) — ya no se usa para presupuestos nuevos |

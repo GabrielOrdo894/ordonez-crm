@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, FileSignature, Copy, Languages, Eye, StickyNote, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { camposContactoFaltantes } from '../../lib/datosContacto';
 import { useAuth } from '../../hooks/useAuth';
@@ -518,6 +518,15 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                 Copiar
               </span>
             </Button>
+            <a
+              href={linkDocumensoModal ?? '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-sm flex items-center gap-1 hover:bg-brand-light"
+            >
+              <ExternalLink size={13} />
+              Abrir
+            </a>
           </div>
           <p className="text-xs text-gray-400">
             Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto pasará a "Aceptado"
