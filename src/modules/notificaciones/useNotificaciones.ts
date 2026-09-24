@@ -398,6 +398,35 @@ export function useNotificaciones() {
       );
 
       for (const f of cobradasConContacto) {
+        // Reseña automática (resena-automatica, 2026-09-24): mientras está 'programada' o en
+        // 'revisar' sustituye al aviso genérico de "Prepara el mensaje" — en el primer caso el
+        // envío ya está en marcha y lo único que cabe es cancelarlo desde la factura; en el
+        // segundo hay que decidirlo a mano porque el cron encontró una rectificativa o notas recientes.
+        if (f.resena_auto_estado === 'programada' && !f.resena_enviado_en) {
+          const envio = f.resena_auto_programada_en ? new Date(f.resena_auto_programada_en) : new Date();
+          envio.setDate(envio.getDate() + 1);
+          lista.push({
+            id: `resena-auto-${f.id}`,
+            categoria: 'resena',
+            titulo: `Reseña automática programada para ${f.cliente_nombre ?? 'cliente'}`,
+            resumen: `Se enviará el ${envio.toLocaleDateString('es', { day: '2-digit', month: 'short' })} a las 9:00 al email del cliente (factura ${f.numero ?? ''}). Si no procede, cancélala desde la factura.`,
+            to: '/finanzas/facturas',
+            state: { verDocId: f.id, verDocTipo: 'factura' },
+          });
+          continue;
+        }
+        if (f.resena_auto_estado === 'revisar' && !f.resena_enviado_en) {
+          lista.push({
+            id: `resena-auto-revisar-${f.id}`,
+            categoria: 'resena',
+            titulo: `Reseña automática no programada para ${f.cliente_nombre ?? 'cliente'}`,
+            resumen: `Hay una rectificativa o notas recientes en la obra de la factura ${f.numero ?? ''}. Revísalo y, si procede, envía el mensaje de cierre a mano desde Inicio.`,
+            to: '/finanzas/facturas',
+            state: { verDocId: f.id, verDocTipo: 'factura' },
+            urgente: true,
+          });
+          continue;
+        }
         if (!f.resena_enviado_en && f.fecha_pago! <= limiteCierre) {
           lista.push({
             id: `cierre-obra-${f.id}`,

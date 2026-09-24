@@ -850,3 +850,19 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   únicas facturas con `monto_pagado` ya registrado (incluida `AC-2026-0020`, `estructura_anterior`,
   sin generar asiento nuevo — su ledger ya estaba correctamente reversado a neto cero) y se vinculó
   el `pago_id` a los asientos de `AC-2026-0021` insertados en esta misma ronda.
+- **Petición de reseña automática al cerrar una obra** (Edge Function `resena-automatica`, cron
+  `resena-automatica-diaria` a las 07:00 UTC, 2026-09-24): sustituye el paso manual del banner de
+  Inicio para el caso normal. Cada mañana (1) envía las peticiones programadas la víspera llamando a
+  `enviar-resena-email` (misma plantilla, mismo enlace medible, misma marca `resena_enviado_en`), y
+  (2) programa las nuevas: facturas normales cobradas hace exactamente `resenas.diasEspera` días
+  (**5**, decisión de Gabriel — antes 3; el banner y la campana usan el mismo valor), con email de
+  cliente y sin reseña pedida. El envío real siempre espera a la ejecución del día siguiente: esas
+  24 h son el margen para cancelarlo — la campana avisa "Reseña automática programada para X" con
+  enlace a la factura, y la ficha de la factura tiene "Cancelar reseña automática" en el menú.
+  Columnas nuevas `facturas.resena_auto_estado` (`programada`/`enviada`/`cancelada`/`revisar`) y
+  `resena_auto_programada_en`. **No programa** (queda en `revisar`, aviso urgente en la campana) si
+  la obra tiene una factura rectificativa posterior o notas de cliente no de sistema en los últimos
+  7 días — ahí decide Gabriel a mano desde el banner. Las facturas cobradas antes del 2026-09-24
+  no entran (ventana de 3 días sobre `fecha_pago`), siguen solo por el banner. El mensaje de
+  cortesía a los 6 meses sigue siendo manual a propósito. Verificado con una ejecución real
+  (200, sin candidatas ese día) — el primer envío real todavía no ha ocurrido.

@@ -419,6 +419,8 @@ export function FacturaForm({
         resena_enviado_en: factura?.resena_enviado_en ?? null,
         resena_clic_en: factura?.resena_clic_en ?? null,
         resena_cortesia_enviada_en: factura?.resena_cortesia_enviada_en ?? null,
+        resena_auto_estado: factura?.resena_auto_estado ?? null,
+        resena_auto_programada_en: factura?.resena_auto_programada_en ?? null,
       };
 
       if (factura) {

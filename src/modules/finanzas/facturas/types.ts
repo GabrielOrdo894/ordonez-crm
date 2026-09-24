@@ -43,6 +43,12 @@ export type Factura = {
   resena_enviado_en: string | null;
   resena_clic_en: string | null;
   resena_cortesia_enviada_en: string | null;
+  // Reseña automática (Edge Function resena-automatica, 2026-09-24): 'programada' se enviará en la
+  // siguiente ejecución del cron (≥ 24 h después, margen para cancelarla desde la factura),
+  // 'enviada', 'cancelada', o 'revisar' (no se programó por rectificativa/notas recientes — la
+  // campana pide decidirlo a mano). NULL = todavía no evaluada.
+  resena_auto_estado: 'programada' | 'enviada' | 'cancelada' | 'revisar' | null;
+  resena_auto_programada_en: string | null;
   // Cobro de una estructura empresarial anterior a la EURL actual (2026-08-22) — se registra en
   // el CRM solo para que lineaDeduccionAcomptes calcule bien la factura definitiva, pero no es
   // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de

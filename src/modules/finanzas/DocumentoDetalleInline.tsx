@@ -217,6 +217,23 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     onError: (error) => toast.error(error.message),
   });
 
+  // Cancela una petición de reseña programada por resena-automatica antes de que el cron la envíe
+  // (la campana avisa con 24 h de margen). Solo visible mientras está 'programada'.
+  const cancelarResenaAutoMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('facturas').update({ resena_auto_estado: 'cancelada' }).eq('id', id);
+      if (error) throw error;
+      await registrarEvento('factura', id, 'Reseña automática cancelada');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
+      refetchFactura();
+      toast.success('Reseña automática cancelada');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const quitarPagoMutation = useMutation({
     mutationFn: async () => {
       if (!factura) return;
@@ -500,6 +517,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                     factura.estado_cobro === 'Cobrada' || factura.estado_cobro === 'Cobrada parcialmente'
                       ? { label: 'Vaciar pagos registrados', onClick: () => quitarPagoMutation.mutate() }
                       : { label: 'Registrar pago', onClick: () => setRegistrandoPago(true) },
+                    {
+                      label: 'Cancelar reseña automática',
+                      onClick: () => cancelarResenaAutoMutation.mutate(),
+                      oculto: factura.resena_auto_estado !== 'programada',
+                    },
                   ] satisfies AccionMenu[])
                 : []),
               { label: 'Eliminar', onClick: handleEliminar, destructivo: true },
