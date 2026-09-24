@@ -50,6 +50,7 @@ import { SELECT_SOLICITUDES, type Solicitud } from '../solicitudes/types';
 import { CalendarioMini } from './CalendarioMini';
 import { CierreObraBanner } from './CierreObraBanner';
 import { NotificacionesBell } from '../notificaciones/NotificacionesBell';
+import { filtrarVisitasSinPresupuesto } from '../notificaciones/useNotificaciones';
 import { VisitaResumenModal, urlGoogleMaps } from './VisitaResumenModal';
 import { esVisitaAgendada, type Visita } from './types';
 import type { Factura } from '../finanzas/facturas/types';
@@ -454,13 +455,15 @@ export default function InicioPage() {
     };
   }, [facturasKpi]);
 
-  const presupuestosPendientes = useMemo(() => {
-    const pendientes = (presupuestosKpi ?? []).filter((p) => p.estado === 'Pendiente');
+  // "Presupuestos sin enviar": visitas Realizadas sin presupuesto enviado (mismo criterio que la
+  // campana y el aviso diario). Sustituye al antiguo "pendientes de respuesta" (Gabriel, 2026-09-24).
+  const presupuestosSinEnviar = useMemo(() => {
+    const todas = filtrarVisitasSinPresupuesto(visitasKpi, presupuestosKpi, solicitudesResumen);
     return {
-      pendientes,
-      lista: [...pendientes].sort((a, b) => (b.fecha_emision ?? '').localeCompare(a.fecha_emision ?? '')).slice(0, 3),
+      todas,
+      lista: [...todas].sort((a, b) => (a.fecha_visita ?? '').localeCompare(b.fecha_visita ?? '')).slice(0, 3),
     };
-  }, [presupuestosKpi]);
+  }, [visitasKpi, presupuestosKpi, solicitudesResumen]);
 
   const resumenIva = useMemo(() => {
     const repercutido = (facturasKpi ?? [])
@@ -850,18 +853,18 @@ export default function InicioPage() {
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <TarjetaHeader icon={FileText} badge="bg-amber-50 text-amber-600" titulo="Presupuestos" to="/finanzas/presupuestos" />
           <div className="mb-3">
-            <p className="text-xs text-gray-400">Pendientes de respuesta</p>
-            <p className="text-sm font-semibold text-amber-600">{presupuestosPendientes.pendientes.length}</p>
+            <p className="text-xs text-gray-400">Sin enviar</p>
+            <p className="text-sm font-semibold text-amber-600">{presupuestosSinEnviar.todas.length}</p>
           </div>
           <div className="flex flex-col gap-2">
-            {presupuestosPendientes.lista.length === 0 && <p className="text-xs text-gray-400">Sin presupuestos pendientes</p>}
-            {presupuestosPendientes.lista.map((p) => (
-              <div key={p.id} className="text-xs border-t border-gray-100 pt-2">
+            {presupuestosSinEnviar.lista.length === 0 && <p className="text-xs text-gray-400">Sin presupuestos por enviar</p>}
+            {presupuestosSinEnviar.lista.map((v) => (
+              <div key={v.id} className="text-xs border-t border-gray-100 pt-2">
                 <p className="text-gray-900 font-medium">
-                  {p.numero} · {p.cliente_nombre}
+                  {v.nombre} {v.apellidos}
                 </p>
                 <p className="text-gray-500">
-                  {p.fecha_emision ?? '—'} · {calcularTotales(p.lineas).totalConIva.toFixed(2)} €
+                  Visita {fechaVisitaCorta(v.fecha_visita)} · {v.direccion ?? '—'}
                 </p>
               </div>
             ))}
@@ -1178,12 +1181,12 @@ export default function InicioPage() {
             </span>
           </div>
           <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-            <span className="text-sm text-gray-600">Presupuestos pendientes</span>
-            <span className={`text-lg font-semibold ${presupuestosPendientes.pendientes.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-              {presupuestosPendientes.pendientes.length}
+            <span className="text-sm text-gray-600">Presupuestos sin enviar</span>
+            <span className={`text-lg font-semibold ${presupuestosSinEnviar.todas.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+              {presupuestosSinEnviar.todas.length}
             </span>
           </div>
-          {nuevasSolicitudes === 0 && presupuestosPendientes.pendientes.length === 0 && (
+          {nuevasSolicitudes === 0 && presupuestosSinEnviar.todas.length === 0 && (
             <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Todo al día — sin pendientes.</p>
           )}
         </div>

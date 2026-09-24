@@ -11,6 +11,42 @@ import type { Visita } from '../visitas/types';
 
 const LIMITE_HISTORIAL = 50;
 
+// Visitas Realizadas sin ningún presupuesto enviado (un Borrador no cuenta como enviado). Función
+// pura compartida por la campana y por el KPI "Presupuestos sin enviar" de la Home (InicioPage.tsx)
+// para que ambos den siempre el mismo número — mismo criterio que alerta-diaria/index.ts.
+export function filtrarVisitasSinPresupuesto<V extends Pick<Visita, 'id' | 'estado' | 'email' | 'telefono'>>(
+  visitas: V[] | undefined,
+  presupuestos: { visita_id: string | null; estado: string }[] | undefined,
+  solicitudes: Pick<Solicitud, 'estado' | 'email' | 'telefono'>[] | undefined,
+): V[] {
+  const visitaIdsConPresupuestoEnviado = new Set(
+    (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
+  );
+  // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
+  // borrado definitivo (sustituye al DELETE real), no una decisión de negocio de no
+  // presupuestar — incluirla aquí ocultaba visitas reales que sí necesitan presupuesto solo
+  // porque coincidían por contacto con una solicitud duplicada/errónea ya eliminada. Mismo
+  // criterio aplicado a la vez en AvisosPanel.tsx y alerta-diaria/index.ts.
+  const emailsDescartados = new Set(
+    (solicitudes ?? [])
+      .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
+      .map((s) => s.email?.trim().toLowerCase())
+      .filter((e): e is string => !!e),
+  );
+  const telefonosDescartados = new Set(
+    (solicitudes ?? [])
+      .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
+      .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
+      .filter((t) => t.length > 0),
+  );
+  return (visitas ?? []).filter((v) => {
+    if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+    if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
+    if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
+    return true;
+  });
+}
+
 // Los avisos de reseña/caso de éxito son tareas del dueño del negocio — no se
 // reparten a los 3 usuarios del CRM. Sin convención previa de "usuario dueño"
 // en el proyecto, se identifica por email de sesión.
@@ -187,34 +223,10 @@ export function useNotificaciones() {
   // Extraído de eventosActuales para poder exponer la lista completa de visitas (no solo el
   // resumen del aviso) — la usa el botón de descarga de PDF de la campana, que necesita
   // dirección/tipo/descripción y no solo el texto ya recortado de la notificación.
-  const visitasSinPresupuesto = useMemo(() => {
-    const visitaIdsConPresupuestoEnviado = new Set(
-      (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
-    );
-    // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
-    // borrado definitivo (sustituye al DELETE real), no una decisión de negocio de no
-    // presupuestar — incluirla aquí ocultaba visitas reales que sí necesitan presupuesto solo
-    // porque coincidían por contacto con una solicitud duplicada/errónea ya eliminada. Mismo
-    // criterio aplicado a la vez en AvisosPanel.tsx y alerta-diaria/index.ts.
-    const emailsDescartados = new Set(
-      (solicitudes ?? [])
-        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
-        .map((s) => s.email?.trim().toLowerCase())
-        .filter((e): e is string => !!e),
-    );
-    const telefonosDescartados = new Set(
-      (solicitudes ?? [])
-        .filter((s) => s.estado === 'No concretada' || s.estado === 'Rechazada')
-        .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
-        .filter((t) => t.length > 0),
-    );
-    return (visitas ?? []).filter((v) => {
-      if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
-      if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
-      if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
-      return true;
-    });
-  }, [visitas, presupuestos, solicitudes]);
+  const visitasSinPresupuesto = useMemo(
+    () => filtrarVisitasSinPresupuesto(visitas, presupuestos, solicitudes),
+    [visitas, presupuestos, solicitudes],
+  );
 
   const eventosActuales = useMemo(() => {
     const lista: Omit<Notificacion, 'hecha' | 'creadaEn'>[] = [];
