@@ -134,18 +134,16 @@ async function construirPdfFactura(f: Factura) {
   // (para el resumen de pago de la factura final).
   let devisNumero: string | null = null;
   let condPagoPresupuesto: Record<string, string> | null = null;
-  let planPagoPresupuesto: { concepto: string; porcentaje: number; importe: number }[] = [];
   let acomptesPrevios: { numero: string | null; total: number }[] = [];
   if (f.presupuesto_id) {
     const { data: presupuestoOrigen, error: errorPresupuestoOrigen } = await supabase
       .from('presupuestos')
-      .select('numero, condiciones_pago, plan_pago')
+      .select('numero, condiciones_pago')
       .eq('id', f.presupuesto_id)
       .single();
     if (errorPresupuestoOrigen) throw errorPresupuestoOrigen;
     devisNumero = presupuestoOrigen?.numero ?? null;
     condPagoPresupuesto = presupuestoOrigen?.condiciones_pago ?? null;
-    planPagoPresupuesto = presupuestoOrigen?.plan_pago ?? [];
     if (f.tipo === 'normal') {
       const { data: acomptesData, error: errorAcomptes } = await supabase
         .from('facturas')
@@ -372,34 +370,45 @@ async function construirPdfFactura(f: Factura) {
   }
 
   // ---- Datos de la factura, bajo la cabecera y encima de las tarjetas (solo minimalista) ----
-  // Los datos legales de la empresa se muestran ahora en la tarjeta "Emisor" (ver más abajo).
+  // Mismo reparto en dos columnas que el devis (generarPdfPresupuesto.ts): fechas e IVA a la
+  // izquierda, número/devis/estado/método de pago a la derecha — antes iba todo en una sola
+  // columna de 6 líneas y la factura no parecía el mismo documento que el devis (Gabriel,
+  // 2026-09-24). Los datos legales de la empresa se muestran en la tarjeta "Emisor" (ver más abajo).
   if (plantilla === 'minimalista') {
+    const xDerDatos = margen + 95;
     doc.setFont(FUENTE_PDF, 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...GRIS_TEXTO);
-    doc.text(`${t.numero}: ${f.numero ?? ''}`, margen, yCards);
-    yCards += 4.5;
-    doc.text(`${t.emision}: ${f.fecha_factura ?? ''}`, margen, yCards);
-    yCards += 4.5;
-    doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, margen, yCards);
-    yCards += 4.5;
+
+    let yIzqDatos = yCards;
+    doc.text(`${t.emision}: ${f.fecha_factura ?? ''}`, margen, yIzqDatos);
+    yIzqDatos += 4.5;
+    doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, margen, yIzqDatos);
+    yIzqDatos += 4.5;
+    doc.text(`${t.iva} : ${porcentajeIva(f.tipo_iva)}%`, margen, yIzqDatos);
+    yIzqDatos += 4.5;
+
+    let yDerDatos = yCards;
+    doc.text(`${t.numero}: ${f.numero ?? ''}`, xDerDatos, yDerDatos);
+    yDerDatos += 4.5;
     if (devisNumero) {
-      doc.text(`${idioma === 'fr' ? 'Devis associé' : 'Presupuesto asociado'}: ${devisNumero}`, margen, yCards);
-      yCards += 4.5;
+      doc.text(`${idioma === 'fr' ? 'Devis associé' : 'Presupuesto asociado'}: ${devisNumero}`, xDerDatos, yDerDatos);
+      yDerDatos += 4.5;
     }
     const estadoCanonicoTop = f.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
     const estadoDocumentoTop = idioma === 'fr' ? (estadoCanonicoTop === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonicoTop;
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setTextColor(...colorEstadoPdf(estadoCanonicoTop));
-    doc.text(`${t.estado} : ${estadoDocumentoTop}`, margen, yCards);
+    doc.text(`${t.estado} : ${estadoDocumentoTop}`, xDerDatos, yDerDatos);
     doc.setFont(FUENTE_PDF, 'normal');
     doc.setTextColor(...GRIS_TEXTO);
-    yCards += 4.5;
+    yDerDatos += 4.5;
     if (f.metodo_pago) {
-      doc.text(`${t.metodoPago}: ${f.metodo_pago}`, margen, yCards);
-      yCards += 4.5;
+      doc.text(`${t.metodoPago}: ${f.metodo_pago}`, xDerDatos, yDerDatos);
+      yDerDatos += 4.5;
     }
-    yCards += 3;
+
+    yCards = Math.max(yIzqDatos, yDerDatos) + 3;
   }
 
   // ---- Tarjetas cliente / factura ----
@@ -702,17 +711,21 @@ async function construirPdfFactura(f: Factura) {
 
   let y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
-  // ---- Resumen de pago (izquierda) + Forma de pago (derecha) ----
+  // ---- Resumen de pago + condiciones de pago / forma de pago ----
+  // Misma disposición que el devis (generarPdfPresupuesto.ts): condiciones y forma de pago en
+  // texto plano, sin cajas, en la columna que marque Configuración → Plantillas
+  // (`planPagoIzquierda`), y el resumen de pago en la otra. Sin plan de pago: se quitó de todas
+  // las facturas a petición de Gabriel (2026-09-24) — el échéancier ya va en el devis. El bloque
+  // entero se mide antes de pintarlo y, si no cabe, salta de página completo: antes cada caja
+  // decidía por separado y "Modalités de paiement" podía quedarse sola en una página nueva.
   const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
 
   const gapCol = 6;
   const anchoCol = (anchoContenido - gapCol) / 2;
-  const xColIzq = margen;
-  const xColDer = margen + anchoCol + gapCol;
-  const yInicioColumnas = y;
+  const xColIzq = configPlantilla.planPagoIzquierda ? margen + anchoCol + gapCol : margen; // resumen de pago
+  const xColDer = configPlantilla.planPagoIzquierda ? margen : margen + anchoCol + gapCol; // condiciones + forma de pago
 
   const tieneAcomptes = acomptesPrevios.length > 0;
-  doc.setDrawColor(...GRIS_BORDE);
 
   // Si la factura ya incluye la línea de deducción de anticipos (ver lineaDeduccionAcomptes /
   // FacturaForm.tsx), f.lineas y por tanto totalConIva/totalSinIva YA son el resto a pagar neto —
@@ -721,6 +734,40 @@ async function construirPdfFactura(f: Factura) {
   // mano sin pasar por el formulario), se mantiene el cálculo anterior por restar como fallback.
   const textoDeduccion = idioma === 'fr' ? 'Déduction acompte(s)' : 'Deducción de anticipo(s)';
   const tieneLineaDeduccion = f.lineas.some((l) => l.designacion === textoDeduccion);
+
+  const camposCond: [string, string][] = [];
+  if (condicionesPago?.delai) camposCond.push([idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago', condicionesPago.delai]);
+  if (condicionesPago?.penalizacion)
+    camposCond.push([idioma === 'fr' ? 'Pénalité de retard' : 'Penalización por retraso', condicionesPago.penalizacion]);
+  if (condicionesPago?.medio) camposCond.push([idioma === 'fr' ? 'Moyens de paiement' : 'Medio de pago', condicionesPago.medio]);
+  const camposBanco = entidad.iban
+    ? ([
+        entidad.nombre_titular && [`${t.titular}: `, entidad.nombre_titular],
+        ['IBAN: ', entidad.iban],
+        entidad.bic && ['BIC: ', entidad.bic],
+        entidad.banco && [`${t.banco}: `, entidad.banco],
+      ].filter(Boolean) as [string, string][])
+    : [];
+
+  // Estimación de altura de cada columna con las mismas fórmulas que se usan al dibujar más abajo.
+  let alturaColResumen = (tieneAcomptes ? 8 + (2 + 1 + acomptesPrevios.length + 2 + 1 + 1) * 5 : 26) + 5;
+  if (mencionIvaReducida(f.tipo_iva)) alturaColResumen += 6;
+  let alturaColCondForma = 0;
+  if (camposCond.length > 0) {
+    doc.setFont(FUENTE_PDF, 'normal');
+    doc.setFontSize(7.5);
+    alturaColCondForma += 11;
+    for (const [, valor] of camposCond) alturaColCondForma += 4 + doc.splitTextToSize(valor, anchoCol).length * 4 + 2;
+    alturaColCondForma += 2;
+  }
+  if (camposBanco.length > 0) alturaColCondForma += 11 + camposBanco.length * 5.5;
+
+  if (y + Math.max(alturaColResumen, alturaColCondForma) > 270) {
+    doc.addPage();
+    y = 20;
+  }
+  const yInicioColumnas = y;
+  doc.setDrawColor(...GRIS_BORDE);
 
   let yIzq: number;
   if (tieneAcomptes) {
@@ -785,96 +832,65 @@ async function construirPdfFactura(f: Factura) {
     yIzq += 6;
   }
 
-  // Derecha: plan de pago (encima) + condiciones de pago + forma de pago (titular / IBAN / BIC / banco)
+  // Otra columna: condiciones de pago (encima de forma de pago) — sin caja, en blanco, igual que el devis
   let yDer = yInicioColumnas;
 
-  // Mismo diseño y misma tabla que el "Plan de pago" del devis (generarPdfPresupuesto.ts) — para
-  // que la factura (anticipo o final) no se vea como un documento distinto del devis que la origina
-  // (pedido explícito 2026-08-11). Se muestra en cualquier factura ligada a un devis con échéancier,
-  // no solo en el anticipo, para que el cliente vea siempre el calendario completo de pago.
-  if (planPagoPresupuesto.length > 0) {
-    autoTable(doc, {
-      startY: yDer,
-      margin: { left: xColDer, right: 210 - xColDer - anchoCol },
-      tableWidth: anchoCol,
-      head: [[t.planPago, ...t.columnasPago.slice(1)]],
-      body: planPagoPresupuesto.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
-      // cellWidth fijo en % e importe para que ninguno tenga que partirse en dos líneas dentro de
-      // la celda ("33,33%" no cabía en 10mm — reportado 2026-08-14, mismo fix que en el devis).
-      styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
-      headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
-      bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right', cellWidth: 24 } },
-    });
-    yDer = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
-  }
-
-  if (condicionesPago && (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)) {
-    const campos: [string, string][] = [];
-    if (condicionesPago.delai) campos.push([idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago', condicionesPago.delai]);
-    if (condicionesPago.penalizacion) campos.push([idioma === 'fr' ? 'Pénalité de retard' : 'Penalización por retraso', condicionesPago.penalizacion]);
-    if (condicionesPago.medio) campos.push([idioma === 'fr' ? 'Moyens de paiement' : 'Medio de pago', condicionesPago.medio]);
-    const altoCond = 9 + campos.length * 9;
-
-    // Igual que el bloque de "Seguro y garantía" más abajo: si no cabe entero en lo que queda de
-    // página, se pasa a una nueva en vez de dejarlo pintado a caballo con el pie de página fijo.
+  if (camposCond.length > 0) {
+    doc.setFont(FUENTE_PDF, 'normal');
+    doc.setFontSize(7.5);
+    let altoCond = 11;
+    for (const [, valor] of camposCond) altoCond += 4 + doc.splitTextToSize(valor, anchoCol).length * 4 + 2;
     if (yDer + altoCond > 270) {
       doc.addPage();
       yDer = 20;
     }
 
-    doc.setFillColor(...colorClaroRgb);
-    doc.setDrawColor(...GRIS_BORDE);
-    doc.roundedRect(xColDer, yDer, anchoCol, altoCond, 2, 2, 'FD');
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...colorRgb);
-    doc.text(idioma === 'fr' ? 'Conditions de paiement' : 'Condiciones de pago', xColDer + 4, yDer + 7);
-    let yyCond = yDer + 13;
-    for (const [label, valor] of campos) {
+    doc.text(idioma === 'fr' ? 'Conditions de paiement' : 'Condiciones de pago', xColDer, yDer + 4);
+    let yCond = yDer + 11;
+    for (const [label, valor] of camposCond) {
       doc.setFont(FUENTE_PDF, 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(30, 30, 30);
-      doc.text(label, xColDer + 4, yyCond);
-      yyCond += 4;
+      doc.text(label, xColDer, yCond);
+      yCond += 4;
       doc.setFont(FUENTE_PDF, 'normal');
       doc.setTextColor(...GRIS_TEXTO);
-      doc.text(valor, xColDer + 4, yyCond);
-      yyCond += 5;
+      const lineasValor = doc.splitTextToSize(valor, anchoCol);
+      doc.text(lineasValor, xColDer, yCond);
+      yCond += lineasValor.length * 4 + 2;
     }
-    yDer += altoCond + 8;
+    yDer = yCond + 2;
   }
-  if (entidad.iban) {
-    const camposBanco = [
-      entidad.nombre_titular && `${t.titular}: ${entidad.nombre_titular}`,
-      `IBAN: ${entidad.iban}`,
-      entidad.bic && `BIC: ${entidad.bic}`,
-      entidad.banco && `${t.banco}: ${entidad.banco}`,
-    ].filter(Boolean) as string[];
-    const altoForma = 10 + camposBanco.length * 5;
 
-    if (yDer + altoForma > 270) {
+  // Forma de pago (titular / IBAN / BIC / banco) — sin caja, en blanco, igual que el devis
+  if (camposBanco.length > 0) {
+    const altoBanco = 11 + camposBanco.length * 5.5;
+    if (yDer + altoBanco > 270) {
       doc.addPage();
       yDer = 20;
     }
 
-    doc.setFillColor(...colorClaroRgb);
-    doc.setDrawColor(...GRIS_BORDE);
-    doc.roundedRect(xColDer, yDer, anchoCol, altoForma, 2, 2, 'FD');
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...colorRgb);
-    doc.text(t.formaPago, xColDer + 4, yDer + 7);
-    doc.setFont(FUENTE_PDF, 'normal');
+    doc.text(t.formaPago, xColDer, yDer + 4);
     doc.setFontSize(8.5);
-    doc.setTextColor(30, 30, 30);
-    camposBanco.forEach((campo, i) => {
-      doc.text(campo, xColDer + 4, yDer + 13 + i * 5);
+    camposBanco.forEach(([etiqueta, valor], i) => {
+      const yLinea = yDer + 11 + i * 5.5;
+      doc.setFont(FUENTE_PDF, 'bold');
+      doc.setTextColor(...colorRgb);
+      doc.text(etiqueta, xColDer, yLinea);
+      doc.setFont(FUENTE_PDF, 'normal');
+      doc.setTextColor(30, 30, 30);
+      doc.text(valor, xColDer + doc.getTextWidth(etiqueta) + 1, yLinea);
     });
-    yDer += altoForma + 8;
+    yDer += altoBanco;
   }
 
-  y = Math.max(yIzq, yDer) + 2;
+  y = Math.max(yIzq, yDer) + 4;
 
   // ---- Seguro y garantía ----
   if (entidad.seguro || entidad.num_attestation) {
