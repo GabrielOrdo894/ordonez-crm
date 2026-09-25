@@ -79,8 +79,10 @@ export default function ProveedoresPage() {
   const filtrados = useMemo(() => {
     if (!proveedores) return [];
     const q = busqueda.trim().toLowerCase();
-    if (!q) return proveedores;
-    return proveedores.filter((p) => `${p.razon_social ?? ''} ${p.identificador ?? ''}`.toLowerCase().includes(q));
+    // Orden aplicado aquí: GastoForm comparte la queryKey ['proveedores'] ordenada alfabéticamente.
+    const ordenados = [...proveedores].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (!q) return ordenados;
+    return ordenados.filter((p) => `${p.razon_social ?? ''} ${p.identificador ?? ''}`.toLowerCase().includes(q));
   }, [proveedores, busqueda]);
 
   const paraZip = useMemo(() => {

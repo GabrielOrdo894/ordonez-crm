@@ -144,6 +144,8 @@ export function agruparClientes(visitas: Visita[]): Cliente[] {
     else grupos.set(clave, [v]);
   }
 
+  // Cliente con la visita más reciente primero — sin esto el orden dependía de qué pantalla había
+  // cargado antes la caché compartida ['visitas'] (hallazgo real 2026-09-25).
   return Array.from(grupos.entries()).map(([clave, vs]) => {
     const ordenadas = [...vs].sort((a, b) =>
       (b.created_at ?? '').localeCompare(a.created_at ?? ''),
@@ -159,7 +161,7 @@ export function agruparClientes(visitas: Visita[]): Cliente[] {
       pais: ultima.pais,
       visitas: ordenadas,
     };
-  });
+  }).sort((a, b) => (b.visitas[0].created_at ?? '').localeCompare(a.visitas[0].created_at ?? ''));
 }
 
 // "Cliente potencial": alguien que todavía no tiene ninguna visita registrada, pero del que ya

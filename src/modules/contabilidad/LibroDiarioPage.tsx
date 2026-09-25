@@ -55,7 +55,10 @@ export default function LibroDiarioPage() {
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    const lista = asientos ?? [];
+    // Orden aplicado aquí y no solo en el queryFn: la queryKey la comparten otras pantallas sin el
+    // mismo .order() y Tanstack Query cachea el resultado de la primera que carga (mismo bug ya
+    // corregido en Facturas/Presupuestos; hallazgo real de Gabriel 2026-09-25).
+    const lista = [...(asientos ?? [])].sort((a, b) => b.fecha.localeCompare(a.fecha));
     if (!q) return lista;
     return lista.filter((a) => a.concepto.toLowerCase().includes(q) || a.cuenta.includes(q));
   }, [asientos, busqueda]);

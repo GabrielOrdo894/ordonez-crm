@@ -1,15 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
-import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
+import { totalConIvaFactura } from '../finanzas/facturas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { MovimientoBanco } from './types';
-import { registrarEvento } from '../../lib/eventos';
-import { registrarAsientoFacturaCobro } from '../../lib/asientosContables';
+import { facturasPendientesDeCobro, vincularMovimientoAFactura } from '../../lib/conciliacionBancaria';
 
 function totalFactura(f: Factura) {
   return totalConIvaFactura(f);
@@ -28,20 +26,7 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
   const { data: facturas, isLoading } = useQuery({
     queryKey: ['facturas', 'pendientes-vinculo'],
     enabled: !!movimiento,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('facturas')
-        .select('*')
-        .is('eliminado_en', null)
-        // estructura_anterior: cobro de la estructura autónoma anterior a la EURL, no ingreso
-        // real — nunca debe aparecer como destino de conciliación bancaria (corregido 2026-09-21,
-        // contradecía lo ya documentado como aplicado aquí en CLAUDE.md).
-        .eq('estructura_anterior', false)
-        .in('estado_cobro', ['Pendiente', 'Cobrada parcialmente', 'Vencida'])
-        .order('fecha_factura', { ascending: false });
-      if (error) throw error;
-      return data as Factura[];
-    },
+    queryFn: facturasPendientesDeCobro,
   });
 
   const filtradas = useMemo(() => {
@@ -58,75 +43,22 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
     );
   }, [facturas, busqueda, movimiento]);
 
+  // La lógica del pago (pagos_factura + campos derivados + asiento de cobro) vive en
+  // src/lib/conciliacionBancaria.ts, compartida con la conciliación automática de cobros.
   const vincularMutation = useMutation({
     mutationFn: async (factura: Factura) => {
       if (!movimiento) return null;
-      // Un movimiento bancario conciliado es un pago real — mismo modelo que RegistrarPagoModal.tsx
-      // (pagos_factura, un pago = una fila): antes esto sobrescribía facturas.monto_pagado/
-      // fecha_pago directamente, así que un cobro conciliado por banco (la vía más fiable de
-      // todas) quedaba invisible para el Libro de Ingresos/Resultado/Dashboard/Asistente de IVA en
-      // cuanto esas pantallas empezaron a leer pagos_factura (hallazgo real, auditoría 2026-09-08).
-      const { data: nuevoPago, error: errorPago } = await supabase
-        .from('pagos_factura')
-        .insert({ factura_id: factura.id, fecha: movimiento.fecha, monto: movimiento.importe, creado_por: 'Conciliación bancaria (OFX)' })
-        .select()
-        .single();
-      if (errorPago) throw errorPago;
-
-      const { data: pagosFactura, error: errorPagos } = await supabase.from('pagos_factura').select('monto').eq('factura_id', factura.id);
-      if (errorPagos) throw errorPagos;
-      const totalPagado = Math.round((pagosFactura ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
-      const estado_cobro = estadoCobroDePagos(totalPagado, totalFactura(factura));
-
-      const { error: errorFactura } = await supabase
-        .from('facturas')
-        .update({ fecha_pago: movimiento.fecha, monto_pagado: totalPagado, estado_cobro })
-        .eq('id', factura.id);
-      if (errorFactura) throw errorFactura;
-
-      const { error: errorMovimiento } = await supabase
-        .from('movimientos_banco')
-        .update({ estado: 'Vinculado', factura_id: factura.id, pago_id: nuevoPago.id })
-        .eq('id', movimiento.id);
-      if (errorMovimiento) throw errorMovimiento;
-
-      await registrarEvento(
-        'factura',
-        factura.id,
-        `Pago de ${movimiento.importe.toFixed(2)} € vinculado automáticamente desde movimiento bancario importado (OFX)`,
-      );
-
-      return { factura, pagoId: nuevoPago.id as string };
+      const resultado = await vincularMovimientoAFactura(movimiento, factura, 'manual');
+      return { factura, ...resultado };
     },
-    onSuccess: async (resultado) => {
-      if (!resultado || !movimiento) {
-        onClose();
-        return;
-      }
-      const { factura, pagoId } = resultado;
-      queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['pagos_factura', factura.id] });
-      queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
-      toast.success('Factura marcada como cobrada y movimiento vinculado');
-      // Solo facturas de Francia van al libro diario (PCG). Sin esto, un cobro conciliado por
-      // banco quedaba invisible para el Libro Diario/Mayor y la Liasse Fiscale, sin que el KPI de
-      // "Descuadre" pudiera detectarlo — cada grupo de asiento cuadra por construcción, así que un
-      // cobro que nunca se registró no descuadra nada, solo falta (bug real corregido 2026-08-18).
-      // estructura_anterior (2026-08-22): cobro de una empresa anterior a la EURL, no es ingreso
-      // real de la EURL — no genera apunte. Se espera (await) antes de cerrar el modal, misma
-      // razón que en el resto de esta ronda: un fallo debe verse mientras el modal sigue abierto.
-      if (factura.pais === 'Francia' && !factura.estructura_anterior) {
+    onSuccess: (resultado) => {
+      if (resultado) {
+        queryClient.invalidateQueries({ queryKey: ['facturas'] });
+        queryClient.invalidateQueries({ queryKey: ['pagos_factura', resultado.factura.id] });
+        queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
         queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-        try {
-          await registrarAsientoFacturaCobro(
-            { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
-            movimiento.importe,
-            movimiento.fecha,
-            pagoId,
-          );
-        } catch (error) {
-          toast.warning(`Pago vinculado, pero no se pudo registrar en el libro diario: ${(error as Error).message}`);
-        }
+        toast.success('Factura marcada como cobrada y movimiento vinculado');
+        if (resultado.avisoAsiento) toast.warning(resultado.avisoAsiento);
       }
       onClose();
     },

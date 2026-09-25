@@ -12,6 +12,7 @@ import { parseOfx } from '../../lib/ofx';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { GastoForm } from '../finanzas/gastos/GastoForm';
 import { VincularFacturaModal } from './VincularFacturaModal';
+import { ConexionBancoPanel } from './ConexionBancoPanel';
 import type { MovimientoBanco } from './types';
 import { rectificarAsientos } from '../../lib/asientosContables';
 import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
@@ -33,7 +34,11 @@ export default function BancoPage() {
   const { data: movimientos, isLoading } = useQuery({
     queryKey: ['movimientos_banco'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('movimientos_banco').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('movimientos_banco')
+        .select('*')
+        .order('fecha', { ascending: false })
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as MovimientoBanco[];
     },
@@ -172,12 +177,15 @@ export default function BancoPage() {
         <h1 className="text-xl font-bold text-gray-900 mb-1 flex items-center gap-1.5">
           Movimientos bancarios
           <InfoTooltip>
-            Importa el fichero OFX exportado desde la banca online y vincula cada movimiento a una factura (ingreso)
-            o crea un gasto — sin conexión automática todavía, ver Configuración → Sincronización bancaria para el
-            plan a futuro.
+            Con la cuenta conectada, los movimientos se descargan solos cada mañana: los pagos se registran como gastos
+            pendientes de revisar en Gastos y los cobros se concilian con su factura cuando el importe pendiente
+            coincide exactamente. Lo que no encaja se queda aquí como Pendiente para vincularlo a mano. El fichero OFX
+            sigue disponible como alternativa manual.
           </InfoTooltip>
         </h1>
       </div>
+
+      <ConexionBancoPanel />
 
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <label
@@ -215,10 +223,22 @@ export default function BancoPage() {
         <Table
           loading={isLoading}
           data={filtrados}
-          emptyMessage="Sin movimientos — importa un fichero OFX de tu banca online para empezar"
+          emptyMessage="Sin movimientos — conecta la cuenta bancaria o importa un fichero OFX para empezar"
           columns={[
             { key: 'fecha', label: 'Fecha', render: (m) => fechaVisitaCorta(m.fecha) },
-            { key: 'descripcion', label: 'Descripción' },
+            {
+              key: 'descripcion',
+              label: 'Descripción',
+              render: (m) =>
+                m.contraparte && m.contraparte !== m.descripcion ? (
+                  <span>
+                    <span className="font-medium text-gray-900">{m.contraparte}</span>
+                    <span className="text-gray-500"> · {m.descripcion}</span>
+                  </span>
+                ) : (
+                  m.descripcion
+                ),
+            },
             {
               key: 'importe',
               label: 'Importe',

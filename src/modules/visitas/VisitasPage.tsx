@@ -160,7 +160,15 @@ export default function VisitasPage() {
   const filtradas = useMemo(() => {
     if (!visitas) return [];
     const q = busqueda.trim().toLowerCase();
-    return visitas.filter((v) => {
+    // Orden aplicado aquí y no solo en el queryFn: la queryKey la comparten otras pantallas sin el
+    // mismo .order() y Tanstack Query cachea el resultado de la primera que carga (mismo bug ya
+    // corregido en Facturas/Presupuestos; hallazgo real de Gabriel 2026-09-25).
+    const ordenadas = [...visitas].sort(
+      (a, b) =>
+        (b.fecha_visita ?? '').localeCompare(a.fecha_visita ?? '') ||
+        (b.hora_visita ?? '').localeCompare(a.hora_visita ?? ''),
+    );
+    return ordenadas.filter((v) => {
       if (!v.fecha_visita) return false; // clientes creados sin visita programada (ver ClienteForm)
       if (filtroEstado !== 'Todos' && v.estado !== filtroEstado) return false;
       if (filtroPais !== 'Todos' && v.pais !== filtroPais) return false;

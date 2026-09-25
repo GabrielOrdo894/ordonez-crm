@@ -87,9 +87,22 @@ export default function GastosPage() {
     if (error) console.warn('No se pudieron borrar todos los justificantes en Storage:', error.message);
   }
 
+  // movimientos_banco.gasto_id apunta a gastos sin ON DELETE: un gasto creado o enlazado desde el
+  // banco no se podía borrar. Se suelta antes el movimiento — 'Pendiente' al eliminar el gasto (se
+  // puede volver a vincular), 'Ignorado' al rechazar uno pendiente (el pago no era un gasto de la
+  // empresa, p. ej. una transferencia interna).
+  async function liberarMovimientosBanco(gastoIds: string[], estado: 'Pendiente' | 'Ignorado') {
+    const { error } = await supabase
+      .from('movimientos_banco')
+      .update({ estado, gasto_id: null })
+      .in('gasto_id', gastoIds);
+    if (error) throw error;
+  }
+
   const eliminarMutation = useMutation({
     mutationFn: async (g: Gasto) => {
       await rectificarSiHaceFalta(g);
+      await liberarMovimientosBanco([g.id], 'Pendiente');
       const { error } = await supabase.from('gastos').delete().eq('id', g.id);
       if (error) throw error;
       await borrarJustificanteSiHay([g.adjunto_url]);
@@ -107,6 +120,10 @@ export default function GastosPage() {
       for (const g of seleccionados) {
         await rectificarSiHaceFalta(g);
       }
+      await liberarMovimientosBanco(
+        seleccionados.map((g) => g.id),
+        'Pendiente',
+      );
       const { error } = await supabase
         .from('gastos')
         .delete()
@@ -155,6 +172,7 @@ export default function GastosPage() {
   // el vehículo del cálculo) — nunca llegó a generar asiento, así que no hay nada que rectificar.
   const rechazarPendienteMutation = useMutation({
     mutationFn: async (id: string) => {
+      await liberarMovimientosBanco([id], 'Ignorado');
       const { error } = await supabase.from('gastos').delete().eq('id', id);
       if (error) throw error;
     },
@@ -174,7 +192,13 @@ export default function GastosPage() {
   const filtrados = useMemo(() => {
     if (!gastos) return [];
     const q = busqueda.trim().toLowerCase();
-    return gastos.filter((g) => {
+    // Orden aplicado aquí y no solo en el queryFn: la queryKey la comparten otras pantallas sin el
+    // mismo .order() y Tanstack Query cachea el resultado de la primera que carga (mismo bug ya
+    // corregido en Facturas/Presupuestos; hallazgo real de Gabriel 2026-09-25).
+    const ordenados = [...gastos].sort(
+      (a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? '') || (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+    );
+    return ordenados.filter((g) => {
       if (filtroPais !== 'Todos' && g.pais !== filtroPais) return false;
       if (filtroCategoria === SIN_CATEGORIZAR) {
         if (g.cuenta_contable) return false;

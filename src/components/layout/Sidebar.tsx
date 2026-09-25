@@ -458,14 +458,17 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
             onHover={(e) => mostrarTooltip('Inicio', e.currentTarget.getBoundingClientRect())}
             onLeave={ocultarTooltip}
           />
-          <ItemSuelto
-            to="/rapido"
-            icon={Smartphone}
-            label="Acciones rápidas"
-            collapsed={collapsedVisual}
-            onHover={(e) => mostrarTooltip('Acciones rápidas', e.currentTarget.getBoundingClientRect())}
-            onLeave={ocultarTooltip}
-          />
+          {/* Solo en móvil: en ordenador las acciones rápidas no se muestran (petición de Gabriel 2026-09-25). */}
+          {esMobil && (
+            <ItemSuelto
+              to="/rapido"
+              icon={Smartphone}
+              label="Acciones rápidas"
+              collapsed={collapsedVisual}
+              onHover={(e) => mostrarTooltip('Acciones rápidas', e.currentTarget.getBoundingClientRect())}
+              onLeave={ocultarTooltip}
+            />
+          )}
         </div>
 
         {SECTIONS.map((section) => {

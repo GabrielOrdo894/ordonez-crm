@@ -208,7 +208,10 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
 
   const filas = useMemo(
     () =>
-      (activos ?? []).map((a) => ({
+      // Orden aplicado aquí: useComptaFrancia comparte la queryKey ['inmovilizado'] sin .order().
+      [...(activos ?? [])]
+        .sort((a, b) => b.fecha_adquisicion.localeCompare(a.fecha_adquisicion))
+        .map((a) => ({
         ...a,
         dotacionEsteAnio: calcularDotacionAnual(a, anioActual),
         acumulada: amortizacionAcumulada(a, anioActual),

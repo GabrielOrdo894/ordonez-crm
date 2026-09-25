@@ -308,6 +308,20 @@ export default function ConfiguracionPage() {
     },
   });
 
+  // queryKey propia (no ['banco_conexiones']): ese la usa ConexionBancoPanel con otro select, y dos
+  // selects distintos bajo la misma clave se pisan la caché.
+  const { data: bancoConectado } = useQuery({
+    queryKey: ['banco_conexiones', 'hay-activa'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('banco_conexiones')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'activa');
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+  });
+
   const { data: googleConfig, refetch: refetchGoogleConfig, error: errorGoogleConfig } = useQuery({
     queryKey: ['google_config'],
     queryFn: async () => {
@@ -1299,21 +1313,22 @@ export default function ConfiguracionPage() {
           </Button>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          De momento no hay ninguna conexión automática — investigado el 2026-08: ningún agregador bancario (Powens,
-          Bridge, Tink) ofrece self-service barato para una sola cuenta, todos piden contrato comercial. Mientras
-          tanto, ya se puede importar el extracto exportado en formato OFX desde la banca online en{' '}
+          La cuenta se conecta vía <span className="font-medium text-gray-600">Enable Banking</span> (modo restringido
+          gratuito, solo cuentas propias) desde{' '}
           <NavLink to="/contabilidad/banco" className="text-brand underline">
             Contabilidad → Movimientos bancarios
-          </NavLink>{' '}
-          (gratis, manual). Cuando esté abierta la cuenta en Crédit Agricole, probar primero{' '}
-          <span className="font-medium text-gray-600">Enable Banking</span> (único con tier gratuito para conectar
-          solo la cuenta propia, pero sin confirmar que cubra banca profesional de Crédit Agricole) — si no cubre,
-          la alternativa de pago con cobertura confirmada de Crédit Agricole Pro es{' '}
-          <span className="font-medium text-gray-600">Bridge</span> (bridgeapi.io).
+          </NavLink>
+          . Puesta en marcha, una sola vez: crear la aplicación en enablebanking.com (Control Panel → Applications,
+          entorno de producción), añadir{' '}
+          <span className="font-mono text-gray-600">https://ordonezrenov.com/crm/contabilidad/banco</span> como
+          redirect URL, vincular la cuenta propia para activar el modo restringido y guardar el application ID y la
+          clave privada (.pem) como secretos ENABLEBANKING_APP_ID y ENABLEBANKING_PRIVATE_KEY en Supabase → Edge
+          Functions → Secrets. La autorización del banco caduca como máximo a los 180 días: cuando pase, la pantalla de
+          Movimientos bancarios pide reconectar.
         </p>
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
-          <span className="w-2 h-2 rounded-full bg-gray-300" />
-          No conectado — usando importación manual OFX
+          <span className={`w-2 h-2 rounded-full ${bancoConectado ? 'bg-brand' : 'bg-gray-300'}`} />
+          {bancoConectado ? 'Conectada — sincronización diaria activa' : 'No conectada — usando importación manual OFX'}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
           <Input

@@ -10,6 +10,8 @@ import { ClienteForm } from '../../modules/clientes/ClienteForm';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
+import { conciliarCobrosAutomaticos } from '../../lib/conciliacionBancaria';
+import { useToast } from '../../hooks/useToast';
 import type { PrefillVisita, Visita } from '../../modules/visitas/types';
 import type { ClienteFormPrefill } from '../../modules/clientes/ClienteForm';
 
@@ -33,6 +35,8 @@ export function AppLayout() {
   const [sidebarMobilAbierto, setSidebarMobilAbierto] = useState(false);
   const [busquedaAbierta, setBusquedaAbierta] = useState(false);
   const gmailAutoRevisado = useRef(false);
+  const cobrosAutoConciliados = useRef(false);
+  const toast = useToast();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -63,6 +67,28 @@ export function AppLayout() {
       queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       queryClient.invalidateQueries({ queryKey: ['presupuestos', 'respuestas-pendientes'] });
     });
+  }, [queryClient]);
+
+  // Cobros bancarios descargados por el cron nocturno (banco-sync) → factura, una vez por sesión de
+  // la pestaña. Vive en el frontend porque cobrar una factura genera asientos contables cuya lógica
+  // solo existe aquí (src/lib/asientosContables.ts). Lo que no se pueda conciliar se queda Pendiente
+  // en Contabilidad → Movimientos bancarios.
+  useEffect(() => {
+    if (cobrosAutoConciliados.current) return;
+    cobrosAutoConciliados.current = true;
+    conciliarCobrosAutomaticos()
+      .then(({ conciliados, avisos }) => {
+        for (const a of avisos) toast.warning(a);
+        if (conciliados === 0) return;
+        toast.success(`${conciliados} cobro(s) del banco conciliado(s) automáticamente con su factura`);
+        for (const clave of ['movimientos_banco', 'facturas', 'asientos_contables']) {
+          queryClient.invalidateQueries({ queryKey: [clave] });
+        }
+      })
+      .catch((error: unknown) =>
+        toast.error(`Conciliación automática de cobros: ${(error as { message?: string })?.message ?? String(error)}`),
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryClient]);
 
   // Auto-completar visitas pasadas de hora — antes vivía solo en InicioPage.tsx (y sin margen: se

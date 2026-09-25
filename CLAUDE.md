@@ -900,7 +900,8 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   "Ir al CRM completo" (marca de `sessionStorage`, `src/lib/crmCompletoMovil.ts`, que se borra al volver a
   `/rapido` y muere al cerrar la app). `/rapido` está fuera de `AppLayout` a propósito — sin menú lateral
   ni barra superior, con su propia cabecera y el botón "Ir al CRM completo" al pie. En escritorio `/` sigue
-  siendo la Home de siempre y `/rapido` solo se abre desde el menú.
+  siendo la Home de siempre y la entrada "Acciones rápidas" del menú lateral no se muestra (solo
+  aparece en móvil, petición de Gabriel 2026-09-25).
   **Selector de país + reformateo en vivo** (mismo día): `TelefonoInput.tsx` (selector +34/+33 y
   número) sustituye a los tres `<Input type="tel">` de `VisitaForm.tsx`. Con el país elegido, lo tecleado
   se agrupa al momento (`formatearNucleoTelefono`, Francia 1-2-2-2-2 quitando el 0 nacional, España
@@ -915,3 +916,33 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   **Fotos de obra** (mismas obras que el desplegable de `/galeria` vía `cargarObrasDisponibles`, ficha creada
   al vuelo con `abrirOCrearFichaGaleria`, categoría antes/durante/después/detalle, mismo bucket público
   `galeria`, máximo 20 por obra). Atajo de icono nuevo "Foto de ticket" en el manifest.
+- **Sincronización bancaria automática con Enable Banking** (Edge Function `banco-sync`, tabla
+  `banco_conexiones`, cron `banco-sync-diario` a las 05:30 UTC, 2026-09-25, petición de Gabriel): sustituye
+  a la importación manual OFX como vía principal (el OFX sigue disponible). Se conecta desde
+  Contabilidad → Movimientos bancarios (`ConexionBancoPanel.tsx`): elegir banco → autorizar en la web del
+  banco → vuelve a `/crm/contabilidad/banco?code=&state=` y se guarda la sesión. Cada sincronización
+  descarga solo movimientos contabilizados (`BOOK`), deduplica por `fitid` (`eb:<cuenta>:<entry_reference>`)
+  y guarda `origen = 'sincronizacion'` y `contraparte`. **Pagos** (débitos, en la Edge Function): si hay un
+  único gasto con el mismo total en [-10, +3] días sin movimiento enlazado, se enlaza a ese; si no hay
+  ninguno, se crea un gasto `estado_gasto = 'pendiente'` (Francia, EXENTO, sin cuenta, "revisar cuenta e
+  IVA") que se confirma desde Gastos igual que el kilometraje — nunca asiento contable hasta confirmarlo;
+  con varios candidatos el movimiento queda Pendiente. **Cobros** (créditos, en el frontend, porque el
+  asiento de cobro solo existe allí): `conciliarCobrosAutomaticos()` en `src/lib/conciliacionBancaria.ts`
+  vincula el cobro a su factura solo si exactamente una tiene ese importe PENDIENTE al céntimo (nunca
+  rectificativas ni `estructura_anterior`); se ejecuta al sincronizar a mano y una vez por sesión en
+  `AppLayout.tsx` (lo que descargó el cron de madrugada se concilia al abrir el CRM). La lógica del pago
+  (pagos_factura + asiento) es la misma función que usa el vínculo manual de `VincularFacturaModal.tsx`.
+  Rechazar/eliminar en Gastos un gasto enlazado suelta antes su movimiento (`Ignorado`/`Pendiente`) — antes
+  la FK `movimientos_banco.gasto_id` impedía borrarlo. **Pendiente de Gabriel para que funcione**: crear la
+  aplicación en enablebanking.com (producción, modo restringido vinculando la cuenta propia), registrar
+  `https://ordonezrenov.com/crm/contabilidad/banco` como redirect URL y guardar `ENABLEBANKING_APP_ID` y
+  `ENABLEBANKING_PRIVATE_KEY` (el .pem, PKCS#8) en Supabase → Edge Functions → Secrets. **Sin probar con el
+  banco real**: no está confirmado que Enable Banking cubra la banca profesional de Crédit Agricole
+  Pyrénées Gascogne (el selector lista los bancos disponibles). El consentimiento caduca a los ≤ 180 días y
+  la pantalla pide reconectar.
+- **Orden de las tablas con queryKey compartida** (2026-09-25, hallazgo real de Gabriel en Gastos: los
+  gastos nuevos salían al final): la Home carga `['gastos']` sin `.order()` y Tanstack Query reutiliza esa
+  caché en Gastos, así que el `.order()` de la propia pantalla no se aplicaba. Mismo bug que ya se corrigió
+  en Facturas/Presupuestos. Ahora el orden se aplica en pantalla (no en el queryFn) en Gastos, Visitas,
+  Libro diario, Inmovilizado, Proveedores y Clientes (`agruparClientes`). Regla: una tabla cuya queryKey la
+  compartan otras pantallas debe ordenar en un `useMemo`, nunca fiarse del `.order()` del queryFn.
