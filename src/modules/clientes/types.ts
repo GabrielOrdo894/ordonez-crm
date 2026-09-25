@@ -55,36 +55,52 @@ export function normalizarNombre(nombre: string) {
     .toLowerCase();
 }
 
-// Solo detalle visual (2026-09-15, petición de Gabriel) — nunca toca el valor guardado ni
-// normalizarTelefono() de arriba, que sigue igual para deduplicación. Un francés/español solo se
-// distingue con certeza cuando el número trae el indicio: prefijo +33/0033/+34/0034, o el "0"
-// nacional francés (10 dígitos). Un número suelto de 9 dígitos sin nada de eso es AMBIGUO a
-// propósito — un móvil francés sin su 0 ("689456552") es indistinguible de uno español
-// ("618949480"), se ha comprobado con datos reales que ambos casos existen en producción — así que
-// se deja tal cual en vez de arriesgarse a formatear mal la mitad de las veces.
-export function formatearTelefonoVisual(tel: string | null | undefined): string {
-  if (!tel) return '';
+// País y núcleo (9 dígitos) de un teléfono, solo cuando el número trae el indicio: prefijo
+// +33/0033/+34/0034 (o 33/34 delante de 11 dígitos), o el "0" nacional francés (10 dígitos). Un
+// número suelto de 9 dígitos sin nada de eso es AMBIGUO a propósito — un móvil francés sin su 0
+// ("689456552") es indistinguible de uno español ("618949480"), hay casos reales de ambos en
+// producción — y devuelve null. Tampoco se deduce del país de la visita/obra: el cliente puede ser
+// español con obra en Francia y móvil francés (caso real 2026-09-25, Ricardo no conseguía llamarle
+// desde su móvil español sin el +33). Quien sabe el país es Gabriel: VisitaForm pide el prefijo al
+// guardar (tieneCodigoPais) y a partir de ahí el número ya queda guardado en internacional.
+export function nucleoTelefono(tel: string | null | undefined): { pais: 'ES' | 'FR'; nucleo: string } | null {
+  if (!tel) return null;
   const bruto = tel.trim();
-  if (!bruto) return '';
   const digitos = bruto.replace(/\D/g, '');
   const conMas = bruto.startsWith('+');
 
   let nucleoFr: string | null = null;
-  if (conMas && digitos.startsWith('33') && digitos.length === 11) nucleoFr = digitos.slice(2);
+  if (digitos.startsWith('33') && digitos.length === 11) nucleoFr = digitos.slice(2);
   else if (!conMas && digitos.startsWith('0033') && digitos.length === 13) nucleoFr = digitos.slice(4);
   else if (!conMas && digitos.startsWith('0') && digitos.length === 10) nucleoFr = digitos.slice(1);
-  if (nucleoFr && nucleoFr.length === 9) {
-    return `0${nucleoFr}`.match(/.{1,2}/g)!.join(' ');
-  }
+  if (nucleoFr && nucleoFr.length === 9) return { pais: 'FR', nucleo: nucleoFr };
 
   let nucleoEs: string | null = null;
-  if (conMas && digitos.startsWith('34') && digitos.length === 11) nucleoEs = digitos.slice(2);
+  if (digitos.startsWith('34') && digitos.length === 11) nucleoEs = digitos.slice(2);
   else if (!conMas && digitos.startsWith('0034') && digitos.length === 13) nucleoEs = digitos.slice(4);
-  if (nucleoEs && nucleoEs.length === 9) {
-    return `${nucleoEs.slice(0, 3)} ${nucleoEs.slice(3, 6)} ${nucleoEs.slice(6, 9)}`;
-  }
+  if (nucleoEs && nucleoEs.length === 9) return { pais: 'ES', nucleo: nucleoEs };
 
-  return bruto;
+  return null;
+}
+
+export function tieneCodigoPais(tel: string | null | undefined): boolean {
+  return nucleoTelefono(tel) !== null;
+}
+
+// Formato internacional con separaciones — "+34 659 88 47 06" / "+33 6 87 52 40 12" (petición de
+// Gabriel 2026-09-25: siempre con +34/+33 y sus espacios, en Calendar, en el aviso al equipo y en
+// cualquier sitio donde se lea el número; antes, desde 2026-09-15, salía en formato nacional sin
+// prefijo). Nunca toca normalizarTelefono() de arriba, que sigue igual para deduplicación. Un
+// número ambiguo (ver nucleoTelefono) se devuelve tal cual, nunca se adivina el prefijo.
+export function formatearTelefonoVisual(tel: string | null | undefined): string {
+  if (!tel) return '';
+  const bruto = tel.trim();
+  const info = nucleoTelefono(bruto);
+  if (!info) return bruto;
+  const n = info.nucleo;
+  return info.pais === 'FR'
+    ? `+33 ${n.slice(0, 1)} ${n.slice(1, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`
+    : `+34 ${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`;
 }
 
 export function agruparClientes(visitas: Visita[]): Cliente[] {

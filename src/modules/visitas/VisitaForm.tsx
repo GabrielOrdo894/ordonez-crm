@@ -26,6 +26,7 @@ import {
   dividirNombreCompleto,
   formatearTelefonoVisual,
   normalizarTelefono,
+  tieneCodigoPais,
   type Cliente,
   type ClientePotencial,
 } from '../clientes/types';
@@ -423,9 +424,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     if (continuar) setEditandoDatosCliente(true);
   };
 
+  // Desde hoy incluido — el "+1" original (commit inicial) impedía registrar una visita acordada
+  // para el mismo día (caso real de Gabriel, 2026-09-25: visita cerrada por WhatsApp para hoy a las 12:30).
   const fechaMinima = useMemo(() => {
     const d = new Date();
-    d.setDate(d.getDate() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
@@ -541,6 +543,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       nuevosErrores.email = 'Falta teléfono o email (al menos uno de los dos)';
     }
     if (form.telefono && form.telefono.replace(/\D/g, '').length < 9) nuevosErrores.telefono = 'Parece incompleto (menos de 9 dígitos)';
+    // Un número sin prefijo es ambiguo (móvil francés sin su 0 = móvil español) y el país del
+    // teléfono no es el de la obra — se le pide a quien registra la visita, que sí lo sabe
+    // (Gabriel, 2026-09-25). Al guardar se almacena ya en formato internacional.
+    else if (form.telefono && !tieneCodigoPais(form.telefono))
+      nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España) o +33 (Francia)';
     if (form.email && !EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (!form.fecha_visita) nuevosErrores.fecha_visita = 'Obligatorio';
@@ -552,6 +559,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     mutationFn: async () => {
       const nueva: NuevaVisita = {
         ...form,
+        telefono: formatearTelefonoVisual(form.telefono),
         email: form.email || null,
         referido_por: form.referido_por || null,
         direccion_extra: form.direccion_extra || null,

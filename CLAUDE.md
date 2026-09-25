@@ -866,3 +866,17 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   no entran (ventana de 3 días sobre `fecha_pago`), siguen solo por el banner. El mensaje de
   cortesía a los 6 meses sigue siendo manual a propósito. Verificado con una ejecución real
   (200, sin candidatas ese día) — el primer envío real todavía no ha ocurrido.
+- **Teléfonos siempre en formato internacional** (2026-09-25, petición de Gabriel): `formatearTelefonoVisual()`
+  (`clientes/types.ts`) devuelve ahora `+34 659 88 47 06` / `+33 6 87 52 40 12` en vez del formato
+  nacional sin prefijo que tenía desde el 2026-09-15. Lo usan la ficha/lista de clientes, el buscador,
+  la descripción del evento de Google Calendar y (copia propia, no puede importar) el aviso al equipo de
+  `notificar-visita`. **Un número de 9 dígitos sin prefijo es ambiguo y nunca se adivina** — ni siquiera
+  por el país de la visita: el cliente puede ser español, con obra en Francia y móvil francés (caso real,
+  Ricardo no conseguía llamarle desde su móvil español). Por eso `VisitaForm.tsx` exige el prefijo al
+  guardar (`tieneCodigoPais`, error "Añade el prefijo del país: +34 o +33") y guarda `visitas.telefono`
+  ya formateado; al editar una visita antigua sin prefijo lo pide una vez. `normalizarTelefono()` (últimos
+  9 dígitos) no cambia, así que el formato nuevo cruza igual con los datos viejos. Solo afecta a visitas
+  creadas/editadas desde ahora; los eventos de Calendar ya existentes no se tocan.
+- **Visitas para el mismo día** (2026-09-25): `fechaMinima` de `VisitaForm.tsx` era "mañana" desde el
+  commit inicial (sin decisión documentada) e impedía registrar una visita cerrada por WhatsApp para
+  hoy mismo (caso real). Ahora la fecha mínima es hoy.

@@ -187,6 +187,31 @@ function pieCorreoAutomatico(fr: boolean): string {
   return `<div style="color:#9ca3af;font-size:10px;margin-top:6px">${esc(texto)}</div>`;
 }
 
+// Copia de formatearTelefonoVisual() de src/modules/clientes/types.ts (una Edge Function no puede
+// importar del frontend): "+34 659 88 47 06" / "+33 6 87 52 40 12" cuando el número trae prefijo o
+// el 0 nacional francés; un número ambiguo de 9 dígitos se deja tal cual (VisitaForm ya exige el
+// prefijo al guardar desde 2026-09-25, así que solo pasan por aquí visitas antiguas sin editar).
+function formatearTelefonoVisual(tel: string | null | undefined): string {
+  if (!tel) return '';
+  const bruto = tel.trim();
+  const digitos = bruto.replace(/\D/g, '');
+  const conMas = bruto.startsWith('+');
+  let nucleoFr: string | null = null;
+  if (digitos.startsWith('33') && digitos.length === 11) nucleoFr = digitos.slice(2);
+  else if (!conMas && digitos.startsWith('0033') && digitos.length === 13) nucleoFr = digitos.slice(4);
+  else if (!conMas && digitos.startsWith('0') && digitos.length === 10) nucleoFr = digitos.slice(1);
+  if (nucleoFr && nucleoFr.length === 9) {
+    return `+33 ${nucleoFr.slice(0, 1)} ${nucleoFr.slice(1, 3)} ${nucleoFr.slice(3, 5)} ${nucleoFr.slice(5, 7)} ${nucleoFr.slice(7, 9)}`;
+  }
+  let nucleoEs: string | null = null;
+  if (digitos.startsWith('34') && digitos.length === 11) nucleoEs = digitos.slice(2);
+  else if (!conMas && digitos.startsWith('0034') && digitos.length === 13) nucleoEs = digitos.slice(4);
+  if (nucleoEs && nucleoEs.length === 9) {
+    return `+34 ${nucleoEs.slice(0, 3)} ${nucleoEs.slice(3, 5)} ${nucleoEs.slice(5, 7)} ${nucleoEs.slice(7, 9)}`;
+  }
+  return bruto;
+}
+
 function fechaLegible(fecha: string | null): string {
   if (!fecha) return '—';
   return new Date(`${fecha}T00:00:00`).toLocaleDateString('es', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -526,7 +551,7 @@ Deno.serve(async (req: Request) => {
       fechaTxt: fechaLegible(v.fecha_visita),
       hora,
       nombreCliente: `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim(),
-      telefono: v.telefono || 'No indicado',
+      telefono: formatearTelefonoVisual(v.telefono) || 'No indicado',
       email: v.email || 'No indicado',
       idioma: v.idioma || 'No indicado',
       direccionTexto,
