@@ -20,6 +20,7 @@ function msHastaProximaMedianoche() {
 }
 
 const InicioPage = lazy(() => import('./modules/visitas/InicioPage'));
+const RapidoPage = lazy(() => import('./modules/rapido/RapidoPage'));
 const VisitasPage = lazy(() => import('./modules/visitas/VisitasPage'));
 const SolicitudesPage = lazy(() => import('./modules/solicitudes/SolicitudesPage'));
 const CalendarioPage = lazy(() => import('./modules/visitas/CalendarioPage'));
@@ -90,6 +91,7 @@ export default function App() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/" element={<InicioPage />} />
+          <Route path="/rapido" element={<RapidoPage />} />
           <Route path="/visitas" element={<VisitasPage />} />
           <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
           <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />

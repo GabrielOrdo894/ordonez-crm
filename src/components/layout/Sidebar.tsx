@@ -4,6 +4,7 @@ import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Home,
+  Smartphone,
   Wrench,
   Inbox,
   Reply,
@@ -455,6 +456,14 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
             label="Inicio"
             collapsed={collapsedVisual}
             onHover={(e) => mostrarTooltip('Inicio', e.currentTarget.getBoundingClientRect())}
+            onLeave={ocultarTooltip}
+          />
+          <ItemSuelto
+            to="/rapido"
+            icon={Smartphone}
+            label="Acciones rápidas"
+            collapsed={collapsedVisual}
+            onHover={(e) => mostrarTooltip('Acciones rápidas', e.currentTarget.getBoundingClientRect())}
             onLeave={ocultarTooltip}
           />
         </div>

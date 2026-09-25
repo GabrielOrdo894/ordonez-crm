@@ -31,11 +31,30 @@ export async function crearGastoKilometricoPendiente(visita: Visita): Promise<vo
   if (existente && existente.length > 0) return;
 
   const km = visita.lat != null && visita.lng != null ? await calcularKmIdaYVuelta({ lat: visita.lat, lng: visita.lng }) : null;
+  await insertarGastoKilometricoPendiente({
+    fecha: visita.fecha_visita,
+    etiqueta: `visita ${visita.nombre} ${visita.apellidos}`,
+    km,
+    visitaId: visita.id,
+  });
+}
+
+/** Mismo gasto de kilometraje pendiente, pero desde un lugar cualquiera (la pantalla de acciones
+ * rápidas del móvil, `RapidoPage.tsx`, con la ubicación actual): `km` viene ya calculado por el
+ * llamador (que puede haberlo corregido a mano) y `visitaId` solo si el lugar coincide con una
+ * visita. Nunca genera asiento contable — igual que el automático, se confirma desde Gastos. */
+export async function insertarGastoKilometricoPendiente(opts: {
+  fecha: string | null;
+  etiqueta: string;
+  km: number | null;
+  visitaId: string | null;
+}): Promise<void> {
+  const { fecha, etiqueta, km, visitaId } = opts;
   const importeBase = km != null ? calcularIndemnizacionKm(km, CV_VEHICULO_DEFECTO) : 0;
 
   const nuevo: NuevoGasto = {
-    fecha: visita.fecha_visita,
-    descripcion: `Indemnité kilométrique — visita ${visita.nombre} ${visita.apellidos}${km != null ? ` (${km} km)` : ' (km pendiente de completar)'}`,
+    fecha,
+    descripcion: `Indemnité kilométrique — ${etiqueta}${km != null ? ` (${km} km)` : ' (km pendiente de completar)'}`,
     categoria: cuentaLabel(CUENTA_KILOMETRICO),
     proveedor: null,
     proveedor_id: null,
@@ -44,7 +63,7 @@ export async function crearGastoKilometricoPendiente(visita: Visita): Promise<vo
     importe_iva: 0,
     pais: 'Francia',
     cuenta_contable: CUENTA_KILOMETRICO,
-    visita_id: visita.id,
+    visita_id: visitaId,
     adjunto_url: null,
     adjunto_nombre: null,
     adjunto_tipo: null,

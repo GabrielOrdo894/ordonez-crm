@@ -880,3 +880,18 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
 - **Visitas para el mismo día** (2026-09-25): `fechaMinima` de `VisitaForm.tsx` era "mañana" desde el
   commit inicial (sin decisión documentada) e impedía registrar una visita cerrada por WhatsApp para
   hoy mismo (caso real). Ahora la fecha mínima es hoy.
+- **App instalable en el móvil con acciones rápidas** (`/rapido`, `src/modules/rapido/RapidoPage.tsx`,
+  2026-09-25, petición de Gabriel): el CRM ya tenía manifest PWA; ahora `start_url` apunta a `/crm/rapido`
+  y hay `shortcuts` (mantener pulsado el icono en Android) a `?accion=km|visitas|legal`. La pantalla es
+  móvil-first con tres cosas y nada más: **Datos legales** (fr/es de `empresa_config`, cada dato se copia
+  con un toque; se guarda una copia en `localStorage` para verlos sin cobertura), **Registrar
+  kilometraje** (geolocalización del móvil → dirección por Geocoding de Google → km ida y vuelta con
+  `calcularKmIdaYVuelta` → si está a ≤ 300 m de una visita de hoy se enlaza a ella → inserta el mismo
+  gasto "pendiente de revisar" que el cierre automático de visitas, vía `insertarGastoKilometricoPendiente`
+  en `gastoKilometrico.ts`, sin asiento contable hasta confirmarlo en Gastos) y **Visitas pendientes**
+  (hoy y próximas, con enlace a Maps, `tel:` y ficha). Entrada "Acciones rápidas" en el Sidebar bajo
+  Inicio. `public/sw.js` es un service worker mínimo (red primero para el HTML, caché primero para
+  `assets/` e `icons/`, nada de Supabase/Google) registrado en `main.tsx` solo en producción — sin él la
+  app instalada no abría sin cobertura. **La sesión sigue caducando a medianoche también en la app
+  instalada** (no se tocó a propósito, decisión pendiente de Gabriel). Sin probar todavía en un móvil real
+  ni el permiso de ubicación ni la instalación; verificado solo tipado/lint/build.

@@ -2,7 +2,7 @@
   "name": "Reformas Ordoñez · CRM",
   "short_name": "Ordoñez CRM",
   "description": "CRM interno de Reformas Ordoñez",
-  "start_url": "/crm/",
+  "start_url": "/crm/rapido",
   "scope": "/crm/",
   "display": "standalone",
   "background_color": "#f4f4f2",
@@ -12,5 +12,25 @@
     { "src": "/crm/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/crm/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
     { "src": "/crm/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Registrar kilometraje",
+      "short_name": "Kilometraje",
+      "url": "/crm/rapido?accion=km",
+      "icons": [{ "src": "/crm/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Visitas de hoy",
+      "short_name": "Visitas",
+      "url": "/crm/rapido?accion=visitas",
+      "icons": [{ "src": "/crm/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Datos legales",
+      "short_name": "Datos",
+      "url": "/crm/rapido?accion=legal",
+      "icons": [{ "src": "/crm/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }
