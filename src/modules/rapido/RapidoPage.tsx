@@ -10,6 +10,7 @@ import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
 import { CV_VEHICULO_DEFECTO, insertarGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { calcularIndemnizacionKm } from '../finanzas/gastos/baremoKilometrico';
 import { SeccionFotosObra, SeccionTicket } from './seccionesMedia';
+import { MapsAutocomplete, type LugarSeleccionado } from '../google/MapsAutocomplete';
 import { formatearTelefonoVisual } from '../clientes/types';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
@@ -422,21 +423,49 @@ function SeccionKilometraje() {
     setKmTexto(propuesta?.km != null ? String(propuesta.km) : '');
   }, [propuesta]);
 
-  const localizar = async () => {
+  const [direccionManual, setDireccionManual] = useState('');
+
+  // Misma propuesta venga de donde venga el punto (ubicación del móvil o dirección escrita):
+  // km ida y vuelta desde el taller y, si está a ≤ 300 m de una visita de hoy, enlace a ella.
+  const proponerDesde = async (lat: number, lng: number, direccionConocida: string | null) => {
     setBuscando(true);
     try {
-      const { lat, lng } = await obtenerUbicacion();
-      const [direccion, km] = await Promise.all([direccionDesdeCoordenadas(lat, lng), calcularKmIdaYVuelta({ lat, lng })]);
+      const [direccion, km] = await Promise.all([
+        direccionConocida ?? direccionDesdeCoordenadas(lat, lng),
+        calcularKmIdaYVuelta({ lat, lng }),
+      ]);
       const visita =
         (visitas ?? []).find(
           (v) => v.fecha_visita === hoy && v.lat != null && v.lng != null && distanciaMetros({ lat, lng }, { lat: v.lat, lng: v.lng }) <= RADIO_VISITA_METROS,
         ) ?? null;
       setPropuesta({ lat, lng, direccion: direccion ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`, km, visita });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'No se pudo obtener la ubicación');
+      toast.error(err instanceof Error ? err.message : 'No se pudo calcular la ruta');
     } finally {
       setBuscando(false);
     }
+  };
+
+  const localizar = async () => {
+    setBuscando(true);
+    try {
+      const { lat, lng } = await obtenerUbicacion();
+      await proponerDesde(lat, lng, null);
+    } catch (err) {
+      setBuscando(false);
+      toast.error(err instanceof Error ? err.message : 'No se pudo obtener la ubicación');
+    }
+  };
+
+  // Alta manual (Gabriel, 2026-09-25): la dirección se elige con el mismo buscador de Google del
+  // formulario de visita, así llega ya con coordenadas y el cálculo de km es el mismo.
+  const elegirDireccion = (lugar: LugarSeleccionado) => {
+    setDireccionManual(lugar.direccion);
+    if (lugar.lat == null || lugar.lng == null) {
+      toast.error('Google no ha devuelto coordenadas para esa dirección — elige una sugerencia de la lista');
+      return;
+    }
+    void proponerDesde(lugar.lat, lugar.lng, lugar.direccion);
   };
 
   const guardarMutation = useMutation({
@@ -482,6 +511,12 @@ function SeccionKilometraje() {
           <MapPin size={16} />
           {buscando ? 'Localizando…' : propuesta ? 'Volver a localizar' : 'Usar mi ubicación'}
         </button>
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span className="flex-1 border-t border-gray-200" />
+          o escribe la dirección
+          <span className="flex-1 border-t border-gray-200" />
+        </div>
+        <MapsAutocomplete label="Dirección del desplazamiento" value={direccionManual} onChange={setDireccionManual} onSelect={elegirDireccion} />
       </div>
 
       {propuesta && (
