@@ -11,6 +11,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Input } from '../../components/ui/Input';
+import { TelefonoInput } from '../../components/ui/TelefonoInput';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { EditorTexto } from '../../components/ui/EditorTexto';
@@ -786,12 +787,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                     error={errors.apellidos}
                     onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
                   />
-                  <Input
-                    label="Teléfono"
-                    type="tel"
+                  <TelefonoInput
                     value={form.telefono}
                     error={errors.telefono}
-                    onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                    onChange={(telefono) => setForm((f) => ({ ...f, telefono }))}
                   />
                   <Input
                     label="Email"
@@ -847,12 +846,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                     error={errors.apellidos}
                     onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
                   />
-                  <Input
-                    label="Teléfono"
-                    type="tel"
+                  <TelefonoInput
                     value={form.telefono}
                     error={errors.telefono}
-                    onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                    onChange={(telefono) => setForm((f) => ({ ...f, telefono }))}
                   />
                   <Input
                     label="Email"
@@ -907,12 +904,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 error={errors.apellidos}
                 onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
               />
-              <Input
-                label="Teléfono"
-                type="tel"
+              <TelefonoInput
                 value={form.telefono}
                 error={errors.telefono}
-                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                onChange={(telefono) => setForm((f) => ({ ...f, telefono }))}
                 onBlur={verificarClienteRepetidor}
               />
               <Input

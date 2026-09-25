@@ -901,3 +901,9 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `/rapido` y muere al cerrar la app). `/rapido` está fuera de `AppLayout` a propósito — sin menú lateral
   ni barra superior, con su propia cabecera y el botón "Ir al CRM completo" al pie. En escritorio `/` sigue
   siendo la Home de siempre y `/rapido` solo se abre desde el menú.
+  **Selector de país + reformateo en vivo** (mismo día): `TelefonoInput.tsx` (selector +34/+33 y
+  número) sustituye a los tres `<Input type="tel">` de `VisitaForm.tsx`. Con el país elegido, lo tecleado
+  se agrupa al momento (`formatearNucleoTelefono`, Francia 1-2-2-2-2 quitando el 0 nacional, España
+  3-2-2-2) y se guarda ya en internacional (`telefonoInternacional`); pegar un número con prefijo coloca
+  el selector solo. El selector arranca vacío a propósito (no se deduce del país de la obra) y la
+  validación de guardado sigue pidiendo el prefijo si no se eligió.

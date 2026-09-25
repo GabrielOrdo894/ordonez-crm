@@ -97,10 +97,37 @@ export function formatearTelefonoVisual(tel: string | null | undefined): string 
   const bruto = tel.trim();
   const info = nucleoTelefono(bruto);
   if (!info) return bruto;
-  const n = info.nucleo;
-  return info.pais === 'FR'
-    ? `+33 ${n.slice(0, 1)} ${n.slice(1, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`
-    : `+34 ${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`;
+  return telefonoInternacional(info.pais, info.nucleo);
+}
+
+export type PaisTelefono = 'ES' | 'FR';
+const PREFIJO_TELEFONO: Record<PaisTelefono, string> = { ES: '+34', FR: '+33' };
+const GRUPOS_TELEFONO: Record<PaisTelefono, number[]> = { ES: [3, 2, 2, 2], FR: [1, 2, 2, 2, 2] };
+
+// Núcleo (hasta 9 dígitos) a partir de lo que se teclea o pega en el campo de teléfono, ya sabido
+// el país (selector de TelefonoInput.tsx): solo dígitos, y en Francia se quita el 0 inicial del
+// formato nacional ("0744501173" → "744501173") — el núcleo francés nunca empieza por 0.
+export function nucleoDesdeTexto(pais: PaisTelefono, texto: string): string {
+  let digitos = texto.replace(/\D/g, '');
+  if (pais === 'FR') digitos = digitos.replace(/^0+/, '');
+  return digitos.slice(0, 9);
+}
+
+// Agrupa un núcleo (completo o a medias, mientras se escribe): "659 88 47 06" / "7 44 50 11 73".
+export function formatearNucleoTelefono(pais: PaisTelefono, nucleo: string): string {
+  const trozos: string[] = [];
+  let i = 0;
+  for (const tam of GRUPOS_TELEFONO[pais]) {
+    if (i >= nucleo.length) break;
+    trozos.push(nucleo.slice(i, i + tam));
+    i += tam;
+  }
+  return trozos.join(' ');
+}
+
+// Valor que se guarda en la base de datos: "+34 659 88 47 06" / "+33 7 44 50 11 73".
+export function telefonoInternacional(pais: PaisTelefono, nucleo: string): string {
+  return `${PREFIJO_TELEFONO[pais]} ${formatearNucleoTelefono(pais, nucleo)}`;
 }
 
 export function agruparClientes(visitas: Visita[]): Cliente[] {

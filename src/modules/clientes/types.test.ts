@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { formatearTelefonoVisual, normalizarNombre, normalizarTelefono, tieneCodigoPais } from './types';
+import {
+  formatearNucleoTelefono,
+  formatearTelefonoVisual,
+  normalizarNombre,
+  normalizarTelefono,
+  nucleoDesdeTexto,
+  telefonoInternacional,
+  tieneCodigoPais,
+} from './types';
 
 describe('normalizarTelefono', () => {
   it('cruza formato nacional francés y formato internacional del mismo número', () => {
@@ -55,5 +63,26 @@ describe('formatearTelefonoVisual / tieneCodigoPais (formato internacional, 2026
   it('no rompe la deduplicación: el formateado normaliza igual que el bruto', () => {
     expect(normalizarTelefono(formatearTelefonoVisual('+33687524012'))).toBe(normalizarTelefono('0687524012'));
     expect(normalizarTelefono(formatearTelefonoVisual('+34659884706'))).toBe(normalizarTelefono('659884706'));
+  });
+});
+
+describe('TelefonoInput — reformateo en vivo (nucleoDesdeTexto / formatearNucleoTelefono / telefonoInternacional)', () => {
+  it('Francia: quita el 0 nacional y agrupa 1-2-2-2-2, tecleado o con 0 delante', () => {
+    expect(nucleoDesdeTexto('FR', '744501173')).toBe('744501173');
+    expect(nucleoDesdeTexto('FR', '0744501173')).toBe('744501173');
+    expect(formatearNucleoTelefono('FR', '744501173')).toBe('7 44 50 11 73');
+    expect(telefonoInternacional('FR', '744501173')).toBe('+33 7 44 50 11 73');
+  });
+
+  it('España: solo dígitos y agrupa 3-2-2-2', () => {
+    expect(nucleoDesdeTexto('ES', '659 88 47 06')).toBe('659884706');
+    expect(formatearNucleoTelefono('ES', '659884706')).toBe('659 88 47 06');
+    expect(telefonoInternacional('ES', '659884706')).toBe('+34 659 88 47 06');
+  });
+
+  it('agrupa a medias mientras se escribe y corta a 9 dígitos', () => {
+    expect(formatearNucleoTelefono('ES', '6598')).toBe('659 8');
+    expect(formatearNucleoTelefono('FR', '744')).toBe('7 44');
+    expect(nucleoDesdeTexto('ES', '65988470612345')).toBe('659884706');
   });
 });
