@@ -895,3 +895,9 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   app instalada no abría sin cobertura. **La sesión sigue caducando a medianoche también en la app
   instalada** (no se tocó a propósito, decisión pendiente de Gabriel). Sin probar todavía en un móvil real
   ni el permiso de ubicación ni la instalación; verificado solo tipado/lint/build.
+  **Ampliación del mismo día:** en móvil (ancho < 768 px, `useEsMobil`) la pantalla principal del CRM ES
+  `/rapido`: `InicioSegunDispositivo` en `App.tsx` redirige `/` → `/rapido` salvo que se haya pulsado
+  "Ir al CRM completo" (marca de `sessionStorage`, `src/lib/crmCompletoMovil.ts`, que se borra al volver a
+  `/rapido` y muere al cerrar la app). `/rapido` está fuera de `AppLayout` a propósito — sin menú lateral
+  ni barra superior, con su propia cabecera y el botón "Ir al CRM completo" al pie. En escritorio `/` sigue
+  siendo la Home de siempre y `/rapido` solo se abre desde el menú.

@@ -5,8 +5,18 @@ import { supabase } from './lib/supabase';
 import LoginPage from './modules/auth/LoginPage';
 import NuevaContrasenaPage from './modules/auth/NuevaContrasenaPage';
 import { AppLayout } from './components/layout/AppLayout';
+import { useEsMobil } from './hooks/useEsMobil';
+import { quiereCrmCompletoEnMovil } from './lib/crmCompletoMovil';
 
 const CLAVE_FECHA_SESION = 'crm_sesion_fecha';
+
+// En móvil la pantalla principal es la de acciones rápidas (/rapido), no la Home del CRM
+// (Gabriel, 2026-09-25) — salvo que se haya pulsado "Ir al CRM completo" (ver crmCompletoMovil.ts).
+function InicioSegunDispositivo() {
+  const esMobil = useEsMobil();
+  if (esMobil && !quiereCrmCompletoEnMovil()) return <Navigate to="/rapido" replace />;
+  return <InicioPage />;
+}
 
 function fechaLocalHoy() {
   const d = new Date();
@@ -89,9 +99,11 @@ export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
+        {/* Fuera de AppLayout a propósito: en el móvil es la pantalla principal, sin menú lateral ni
+            barra superior del CRM — solo sus acciones y un botón para ir al CRM completo. */}
+        <Route path="/rapido" element={<RapidoPage />} />
         <Route element={<AppLayout />}>
-          <Route path="/" element={<InicioPage />} />
-          <Route path="/rapido" element={<RapidoPage />} />
+          <Route path="/" element={<InicioSegunDispositivo />} />
           <Route path="/visitas" element={<VisitasPage />} />
           <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
           <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />

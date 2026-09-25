@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Car, Check, ChevronLeft, Copy, ExternalLink, FileText, MapPin, Phone, Wrench } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Car, Check, ChevronLeft, Copy, ExternalLink, FileText, LayoutDashboard, MapPin, Phone, Wrench } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { marcarCrmCompletoEnMovil } from '../../lib/crmCompletoMovil';
 import { useToast } from '../../hooks/useToast';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
@@ -117,18 +118,34 @@ function obtenerUbicacion(): Promise<{ lat: number; lng: number }> {
 
 export default function RapidoPage() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const accion = params.get('accion');
   const seccion: Seccion | null = esSeccion(accion) ? accion : null;
   const irA = (s: Seccion | null) => setParams(s ? { accion: s } : {}, { replace: true });
 
+  // Al entrar aquí se borra la marca de "CRM completo": la próxima vez que se abra "/" en el móvil
+  // vuelve a esta pantalla (ver InicioSegunDispositivo en App.tsx).
+  useEffect(() => {
+    marcarCrmCompletoEnMovil(false);
+  }, []);
+
+  const irAlCrmCompleto = () => {
+    marcarCrmCompletoEnMovil(true);
+    navigate('/');
+  };
+
   return (
-    <div className="max-w-md mx-auto px-4 py-4 flex flex-col gap-4">
-      {seccion === null ? (
-        <>
-          <div>
-            <p className="text-xs uppercase tracking-wide text-gray-400">Reformas Ordoñez</p>
-            <h1 className="text-lg font-semibold text-gray-900">Acciones rápidas</h1>
-          </div>
+    <div className="min-h-screen bg-[#f4f4f2] flex flex-col">
+      <header className="bg-brand-dark text-white px-4 py-3 flex items-center gap-3">
+        <img src={`${import.meta.env.BASE_URL}icons/icon-192.png`} alt="" className="w-8 h-8 rounded-sm" />
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wide text-white/65">Reformas Ordoñez</p>
+          <p className="text-sm font-semibold leading-tight">Acciones rápidas</p>
+        </div>
+      </header>
+
+      <div className="flex-1 w-full max-w-md mx-auto px-4 py-4 flex flex-col gap-4">
+        {seccion === null ? (
           <div className="flex flex-col gap-3">
             {SECCIONES.map((s) => (
               <button
@@ -147,21 +164,29 @@ export default function RapidoPage() {
               </button>
             ))}
           </div>
-          <Link to="/" className="text-xs text-gray-500 underline text-center mt-2">
-            Ir al CRM completo
-          </Link>
-        </>
-      ) : (
-        <>
-          <button type="button" onClick={() => irA(null)} className="flex items-center gap-1 text-sm text-gray-600 self-start">
-            <ChevronLeft size={16} />
-            Acciones rápidas
-          </button>
-          {seccion === 'legal' && <SeccionLegal />}
-          {seccion === 'km' && <SeccionKilometraje />}
-          {seccion === 'visitas' && <SeccionVisitas onRegistrarKm={() => irA('km')} />}
-        </>
-      )}
+        ) : (
+          <>
+            <button type="button" onClick={() => irA(null)} className="flex items-center gap-1 text-sm text-gray-600 self-start">
+              <ChevronLeft size={16} />
+              Acciones rápidas
+            </button>
+            {seccion === 'legal' && <SeccionLegal />}
+            {seccion === 'km' && <SeccionKilometraje />}
+            {seccion === 'visitas' && <SeccionVisitas onRegistrarKm={() => irA('km')} />}
+          </>
+        )}
+      </div>
+
+      <footer className="w-full max-w-md mx-auto px-4 pb-6 pt-2">
+        <button
+          type="button"
+          onClick={irAlCrmCompleto}
+          className="w-full bg-white border border-gray-200 text-gray-700 px-3 py-2.5 rounded-sm text-sm flex items-center justify-center gap-2"
+        >
+          <LayoutDashboard size={16} />
+          Ir al CRM completo
+        </button>
+      </footer>
     </div>
   );
 }
