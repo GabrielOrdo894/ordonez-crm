@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Car, Check, ChevronLeft, Copy, ExternalLink, FileText, LayoutDashboard, MapPin, Phone, Wrench } from 'lucide-react';
+import { Car, Check, ChevronLeft, Copy, ExternalLink, FileText, Images, LayoutDashboard, MapPin, Phone, Receipt, Wrench } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { marcarCrmCompletoEnMovil } from '../../lib/crmCompletoMovil';
 import { useToast } from '../../hooks/useToast';
@@ -9,6 +9,7 @@ import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
 import { CV_VEHICULO_DEFECTO, insertarGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { calcularIndemnizacionKm } from '../finanzas/gastos/baremoKilometrico';
+import { SeccionFotosObra, SeccionTicket } from './seccionesMedia';
 import { formatearTelefonoVisual } from '../clientes/types';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
@@ -20,16 +21,18 @@ import type { Visita } from '../visitas/types';
 // mismas tablas, mismo cálculo de km (calcularKmIdaYVuelta) y mismo gasto "pendiente de revisar"
 // que genera el cierre automático de visitas (gastoKilometrico.ts).
 
-type Seccion = 'legal' | 'km' | 'visitas';
+type Seccion = 'legal' | 'km' | 'visitas' | 'ticket' | 'fotos';
 
 const SECCIONES: { id: Seccion; titulo: string; descripcion: string; icon: typeof Car }[] = [
   { id: 'km', titulo: 'Registrar kilometraje', descripcion: 'Usa tu ubicación para calcular los km desde el taller', icon: Car },
+  { id: 'ticket', titulo: 'Foto de ticket', descripcion: 'Guarda el justificante en Gastos para completarlo después', icon: Receipt },
+  { id: 'fotos', titulo: 'Fotos de obra', descripcion: 'Sube fotos a la galería de la obra', icon: Images },
   { id: 'visitas', titulo: 'Visitas pendientes', descripcion: 'Hoy y próximas, con mapa y teléfono', icon: Wrench },
   { id: 'legal', titulo: 'Datos legales', descripcion: 'SIRET, SIREN, TVA, IBAN… para copiar', icon: FileText },
 ];
 
 function esSeccion(valor: string | null): valor is Seccion {
-  return valor === 'legal' || valor === 'km' || valor === 'visitas';
+  return valor === 'legal' || valor === 'km' || valor === 'visitas' || valor === 'ticket' || valor === 'fotos';
 }
 
 function hoyLocalIso(): string {
@@ -172,6 +175,8 @@ export default function RapidoPage() {
             </button>
             {seccion === 'legal' && <SeccionLegal />}
             {seccion === 'km' && <SeccionKilometraje />}
+            {seccion === 'ticket' && <SeccionTicket />}
+            {seccion === 'fotos' && <SeccionFotosObra />}
             {seccion === 'visitas' && <SeccionVisitas onRegistrarKm={() => irA('km')} />}
           </>
         )}

@@ -907,3 +907,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   3-2-2-2) y se guarda ya en internacional (`telefonoInternacional`); pegar un número con prefijo coloca
   el selector solo. El selector arranca vacío a propósito (no se deduce del país de la obra) y la
   validación de guardado sigue pidiendo el prefijo si no se eligió.
+  **Dos acciones rápidas más** (mismo día, `seccionesMedia.tsx`): **Foto de ticket** (cámara → imagen
+  optimizada al bucket privado `justificantes` con la misma convención de path que `GastoForm.tsx` → gasto
+  `estado_gasto = 'pendiente'` sin importe/cuenta/país, con el justificante adjunto y una nota opcional en
+  la descripción; se completa y confirma desde Gastos, sin asiento hasta entonces — ojo, el filtro
+  "Pendientes de revisar" de Gastos y el aviso diario los llaman "kilometraje" aunque ya no lo sean todos) y
+  **Fotos de obra** (mismas obras que el desplegable de `/galeria` vía `cargarObrasDisponibles`, ficha creada
+  al vuelo con `abrirOCrearFichaGaleria`, categoría antes/durante/después/detalle, mismo bucket público
+  `galeria`, máximo 20 por obra). Atajo de icono nuevo "Foto de ticket" en el manifest.
