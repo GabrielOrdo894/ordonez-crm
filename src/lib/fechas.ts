@@ -1,48 +1,12 @@
 const DIAS_LARGO = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MESES_LARGO = [
-  'enero',
-  'febrero',
-  'marzo',
-  'abril',
-  'mayo',
-  'junio',
-  'julio',
-  'agosto',
-  'septiembre',
-  'octubre',
-  'noviembre',
-  'diciembre',
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
 const DIAS_CORTO = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
-const MESES_CORTO = [
-  'ene',
-  'feb',
-  'mar',
-  'abr',
-  'may',
-  'jun',
-  'jul',
-  'ago',
-  'sep',
-  'oct',
-  'nov',
-  'dic',
-];
+const MESES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 const DIAS_CORTO_FR = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
-const MESES_CORTO_FR = [
-  'janv',
-  'févr',
-  'mars',
-  'avr',
-  'mai',
-  'juin',
-  'juil',
-  'août',
-  'sept',
-  'oct',
-  'nov',
-  'déc',
-];
+const MESES_CORTO_FR = ['janv', 'févr', 'mars', 'avr', 'mai', 'juin', 'juil', 'août', 'sept', 'oct', 'nov', 'déc'];
 
 /** "lunes 6 de abril a las 18:00" — para fichas y detalle de visita. */
 export function fechaVisitaLarga(fecha: string | null | undefined, hora?: string | null): string {
@@ -69,10 +33,7 @@ export function fechaCorta(fecha: string | null | undefined): string {
 
 /** "2026-ago-14 (vie)" / "2026-août-14 (ven)" — fechas de fases y cronograma en el planning de
  * obra: se ordena igual que el ISO plano pero de un vistazo se ve el día de la semana. */
-export function fechaPlanning(
-  fecha: string | null | undefined,
-  idioma: 'es' | 'fr' = 'es',
-): string {
+export function fechaPlanning(fecha: string | null | undefined, idioma: 'es' | 'fr' = 'es'): string {
   if (!fecha) return '—';
   const d = new Date(`${fecha}T00:00:00`);
   const meses = idioma === 'fr' ? MESES_CORTO_FR : MESES_CORTO;

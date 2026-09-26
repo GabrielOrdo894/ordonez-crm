@@ -86,6 +86,13 @@ type FormState = {
   vehiculo_cv: number;
 };
 
+// Todos los gastos se registran en la EURL francesa, también los pagados en España: se compran con
+// la cuenta y el nº de TVA intracomunitario de la empresa (decisión de Gabriel 2026-09-26).
+const PAIS_GASTOS = 'Francia';
+// Tipo por defecto de una compra: el normal francés (20 %). tipoIvaPorDefecto('Francia') da el 10 %
+// de las obras de renovación, que es para lo que se factura, no para lo que se compra.
+const TIPO_IVA_GASTO_POR_DEFECTO = 'TVA_20';
+
 function vacio(): FormState {
   return {
     fecha: fechaHoy(),
@@ -93,9 +100,9 @@ function vacio(): FormState {
     categoria: '',
     proveedor_id: null,
     proveedor: '',
-    pais: 'España',
+    pais: PAIS_GASTOS,
     importe_total: 0,
-    tipo_iva: 'IVA_21',
+    tipo_iva: TIPO_IVA_GASTO_POR_DEFECTO,
     cuenta_contable: '',
     num_factura_proveedor: '',
     es_kilometrico: false,
@@ -111,9 +118,9 @@ function formDesdeGasto(g: Gasto): FormState {
     categoria: g.categoria ?? '',
     proveedor_id: g.proveedor_id,
     proveedor: g.proveedor ?? '',
-    pais: g.pais ?? 'España',
+    pais: g.pais ?? PAIS_GASTOS,
     importe_total: (g.importe_base ?? 0) + (g.importe_iva ?? 0),
-    tipo_iva: g.tipo_iva ?? 'IVA_21',
+    tipo_iva: g.tipo_iva ?? ((g.pais ?? PAIS_GASTOS) === PAIS_GASTOS ? TIPO_IVA_GASTO_POR_DEFECTO : 'IVA_21'),
     cuenta_contable: g.cuenta_contable ?? '',
     num_factura_proveedor: g.num_factura_proveedor ?? '',
     es_kilometrico: g.km != null,
@@ -137,7 +144,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => {
     if (gasto) return formDesdeGasto(gasto);
-    if (duplicarDesde) return { ...formDesdeGasto(duplicarDesde), fecha: fechaHoy(), num_factura_proveedor: '' };
+    if (duplicarDesde) {
+      const copia = formDesdeGasto(duplicarDesde);
+      // Un duplicado de un gasto antiguo registrado como España nace ya en Francia, con un tipo francés.
+      const tipoIva = copia.pais === PAIS_GASTOS ? copia.tipo_iva : TIPO_IVA_GASTO_POR_DEFECTO;
+      return { ...copia, pais: PAIS_GASTOS, tipo_iva: tipoIva, fecha: fechaHoy(), num_factura_proveedor: '' };
+    }
     if (prefill) {
       return {
         ...vacio(),
@@ -217,12 +229,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
       ...f,
       proveedor_id: valor || null,
       proveedor: proveedor?.razon_social ?? '',
-      pais: proveedor?.pais ?? f.pais,
     }));
   };
 
   const handleProveedorCreado = (proveedor: Proveedor) => {
-    setForm((f) => ({ ...f, proveedor_id: proveedor.id, proveedor: proveedor.razon_social ?? '', pais: proveedor.pais ?? f.pais }));
+    setForm((f) => ({ ...f, proveedor_id: proveedor.id, proveedor: proveedor.razon_social ?? '' }));
     setCreandoProveedor(false);
   };
 
@@ -569,12 +580,15 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                   value={form.num_factura_proveedor}
                   onChange={(e) => setForm((f) => ({ ...f, num_factura_proveedor: e.target.value }))}
                 />
-                <Select
-                  label="País del gasto"
-                  options={[{ value: 'España', label: 'España' }, { value: 'Francia', label: 'Francia' }]}
-                  value={form.pais}
-                  onChange={(e) => setForm((f) => ({ ...f, pais: e.target.value }))}
-                />
+                {/* Sin selector de país: todo gasto va a la EURL francesa. Los 2 gastos antiguos que
+                    quedaron como España conservan su país al editarlos (no se cambia la contabilidad
+                    en silencio). */}
+                <div>
+                  <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">País del gasto</p>
+                  <p className="text-sm text-gray-700 py-1.5">
+                    {form.pais === PAIS_GASTOS ? 'Francia — EURL' : `${form.pais} (registro anterior)`}
+                  </p>
+                </div>
               </div>
             </Seccion>
 
@@ -670,6 +684,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                     )}
                   </div>
 
+                  {form.pais === PAIS_GASTOS && !esIntracomunitario && !esImportacion && !esAmortizacion && (
+                    <p className="text-xs text-gray-400 mb-3">
+                      Ticket o factura de España con IVA español (21 %, 10 %…): ese IVA no se deduce en la
+                      declaración de TVA francesa — elige «Exento» e introduce el total pagado. Si el proveedor
+                      facturó sin IVA con el nº de TVA intracomunitario de la EURL, marca «Intracomunitaria».
+                    </p>
+                  )}
                   {esAmortizacion && (
                     <p className="text-xs text-gray-400 mb-3">
                       Las dotaciones a amortizaciones son un apunte contable interno, no una factura de proveedor — no llevan
@@ -687,7 +708,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                       <button
                         type="button"
                         disabled={esAmortizacion}
-                        onClick={() => setForm((f) => ({ ...f, tipo_iva: tipoIvaPorDefecto(f.pais) }))}
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            tipo_iva: f.pais === PAIS_GASTOS ? TIPO_IVA_GASTO_POR_DEFECTO : tipoIvaPorDefecto(f.pais),
+                          }))
+                        }
                         className={`px-2.5 py-1 ${!esIntracomunitario && !esImportacion ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
                       >
                         Nacional

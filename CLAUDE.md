@@ -1000,3 +1000,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   "Sincronizar ahora" reenvía IP/navegador (`presente: true`) porque algunos bancos exigen al titular
   presente. **Sin probar contra la API real** (no hay cuenta): la primera sincronización tras activarlo
   hay que revisarla.
+- **Todos los gastos van a Francia** (2026-09-26, Gabriel: los registra siempre con la cuenta y el nº de TVA
+  intracomunitario de la EURL, aunque el gasto sea en España). `GastoForm.tsx` ya no tiene selector de país
+  (fijo "Francia — EURL", tipo por defecto TVA 20 %), el proveedor ya no cambia el país, un duplicado nace en
+  Francia y la foto de ticket de `/rapido` también. Los gastos antiguos registrados como España conservan su
+  país al editarse (no se cambia la contabilidad en silencio). Nota en el formulario: el IVA español de un
+  ticket de España no es deducible en la CA3 francesa → «Exento» con el total pagado, o «Intracomunitaria»
+  si el proveedor facturó sin IVA con el nº de TVA intra de la EURL. Los gastos automáticos (kilometraje,
+  banco) ya se creaban en Francia.

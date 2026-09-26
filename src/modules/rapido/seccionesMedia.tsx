@@ -54,7 +54,7 @@ export function SeccionTicket() {
         importe_base: 0,
         tipo_iva: null,
         importe_iva: 0,
-        pais: null,
+        pais: 'Francia', // todos los gastos van a la EURL francesa (decisión de Gabriel 2026-09-26)
         cuenta_contable: null,
         visita_id: null,
         adjunto_url: path,
