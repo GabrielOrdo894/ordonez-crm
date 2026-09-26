@@ -89,8 +89,9 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
     enabled: tipo === 'seguimiento',
   });
 
+  // queryKey propia: ['empresa_config'] la comparten el Sidebar y Configuración con select('*').
   const { data: empresaConfig } = useQuery({
-    queryKey: ['empresa_config'],
+    queryKey: ['empresa_config', 'ia-presupuesto-mensual'],
     queryFn: async () => {
       const { data, error } = await supabase.from('empresa_config').select('ia_presupuesto_mensual_usd').eq('id', 1).single();
       if (error) throw error;

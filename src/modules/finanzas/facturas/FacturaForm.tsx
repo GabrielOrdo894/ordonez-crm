@@ -44,22 +44,15 @@ import {
 } from './types';
 import type { Factura, NuevaFactura, Linea, TipoFactura } from './types';
 import type { Presupuesto } from '../presupuestos/types';
+import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
+import { formatearPrecio } from '../lineas';
 
-function fechaHoy() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function sumarDias(fechaISO: string, dias: number) {
-  const d = new Date(`${fechaISO}T00:00:00`);
-  d.setDate(d.getDate() + dias);
-  return d.toISOString().slice(0, 10);
-}
-
-function diasEntre(desde: string, hasta: string): number {
-  const d1 = new Date(`${desde}T00:00:00`);
-  const d2 = new Date(`${hasta}T00:00:00`);
-  return Math.round((d2.getTime() - d1.getTime()) / 86_400_000);
-}
+// Fechas en hora local y aritmética de días sin zona horaria (src/lib/fechas.ts): la versión local
+// anterior restaba un día al vencimiento — "7 días" guardaba 6 y el selector salía vacío
+// (hallazgo real de Gabriel, auditoría 2026-09-26).
+const fechaHoy = hoyLocalIso;
+const sumarDias = sumarDiasIso;
+const diasEntre = diasEntreIso;
 
 const OPCIONES_VENCIMIENTO = [
   { value: '0', label: 'El mismo día' },
@@ -682,7 +675,7 @@ export function FacturaForm({
               <div>
                 <Select
                   label="Vencimiento"
-                  options={OPCIONES_VENCIMIENTO}
+                  options={opcionesPlazoConActual(OPCIONES_VENCIMIENTO, diasEntre(form.fecha_factura, form.fecha_vence))}
                   value={String(diasEntre(form.fecha_factura, form.fecha_vence))}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, fecha_vence: sumarDias(f.fecha_factura, Number(e.target.value)) }))
@@ -716,7 +709,7 @@ export function FacturaForm({
             </div>
             {factura?.monto_pagado != null && (
               <p className="text-xs text-gray-500 mt-3">
-                Pagado: {factura.monto_pagado.toFixed(2)} € el {factura.fecha_pago?.slice(0, 10)}
+                Pagado: {formatearPrecio(factura.monto_pagado)} el {factura.fecha_pago?.slice(0, 10)}
               </p>
             )}
             {form.pais === 'Francia' && (

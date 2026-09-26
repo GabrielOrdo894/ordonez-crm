@@ -24,6 +24,7 @@ import { usePlanningPdfData } from './usePlanningPdfData';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto } from './PlanningObraPage';
+import { formatearPrecio } from '../finanzas/lineas';
 
 const VARIANTE_ESTADO_PROYECTO: Record<
   string,
@@ -260,7 +261,7 @@ export function PlanningVistaPrevia({
               <div className="border border-gray-200 rounded-sm px-3 py-2.5">
                 <p className="text-sm font-semibold text-gray-900">{presupuesto.numero}</p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {presupuesto.fecha_emision} · {presupuestoTotal?.toFixed(2)} €
+                  {presupuesto.fecha_emision} · {presupuestoTotal != null ? formatearPrecio(presupuestoTotal) : '—'}
                 </p>
               </div>
             ) : (

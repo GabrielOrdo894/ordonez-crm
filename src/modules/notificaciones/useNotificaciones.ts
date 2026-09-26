@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
-import { estadoSeguimiento, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { estadoSeguimiento, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { normalizarTelefono } from '../clientes/types';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from '../visitas/types';
+import { isoLocal } from '../../lib/fechas';
 
 const LIMITE_HISTORIAL = 50;
 
@@ -55,13 +56,13 @@ const EMAIL_GABRIEL = 'reformasordonezeus@gmail.com';
 function isoHaceDias(dias: number) {
   const d = new Date();
   d.setDate(d.getDate() - dias);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
 }
 
 function isoHaceMeses(meses: number) {
   const d = new Date();
   d.setMonth(d.getMonth() - meses);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
 }
 
 function claveHistorial(userId: string) {
@@ -180,7 +181,9 @@ export function useNotificaciones() {
   const { data: solicitudes } = useQuery({
     queryKey: ['solicitudes'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('*').order('created_at', { ascending: false });
+      // Mismo select que Sidebar/Inicio/Solicitudes (comparten queryKey): con '*' a secas se perdía el
+      // presupuesto vinculado en la tabla de Solicitudes si esta consulta ganaba la caché.
+      const { data, error } = await supabase.from('solicitudes').select(SELECT_SOLICITUDES).order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
     },

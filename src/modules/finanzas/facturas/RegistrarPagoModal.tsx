@@ -9,15 +9,17 @@ import { registrarAsientoFacturaCobro, rectificarAsientos } from '../../../lib/a
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../hooks/useToast';
 import { useConfirmar } from '../../../hooks/useConfirm';
-import { fechaCorta } from '../../../lib/fechas';
+import { fechaCorta, hoyLocalIso } from '../../../lib/fechas';
 import { Modal } from '../../../components/ui/Modal';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
 import { totalConIvaFactura, estadoCobroDePagos } from './types';
 import type { Factura, PagoFactura } from './types';
+import { formatearPrecio } from '../lineas';
 
 function fechaHoy() {
-  return new Date().toISOString().slice(0, 10);
+  // Hora local, no UTC (auditoría 2026-09-26: de madrugada daba el día anterior).
+  return hoyLocalIso();
 }
 
 type RegistrarPagoModalProps = {
@@ -82,10 +84,10 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
       if (factura.visita_id) {
         await notaSistema(
           factura.visita_id,
-          `Pago de ${monto.toFixed(2)} € registrado en factura ${factura.numero} por ${nombreUsuarioActual}`,
+          `Pago de ${formatearPrecio(monto)} registrado en factura ${factura.numero} por ${nombreUsuarioActual}`,
         );
       }
-      await registrarEvento('factura', factura.id, `Pago registrado: ${monto.toFixed(2)} € (${estado_cobro})`);
+      await registrarEvento('factura', factura.id, `Pago registrado: ${formatearPrecio(monto)} (${estado_cobro})`);
       // "Primer acompte cobrado" / "Factura final cobrada" (2026-09-16) sustituyen al genérico
       // "Factura cobrada" — Reformas Ordoñez siempre pide un primer acompte del 50%, así que
       // merece su propio escalón en el embudo en vez de mezclarse con el de la factura que cierra
@@ -138,7 +140,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
         .update({ monto_pagado: nuevoTotalPagado > 0 ? nuevoTotalPagado : null, fecha_pago: ultimaFecha, estado_cobro })
         .eq('id', factura!.id);
       if (errorFactura) throw errorFactura;
-      await registrarEvento('factura', factura!.id, `Pago de ${pago.monto.toFixed(2)} € (${fechaCorta(pago.fecha)}) eliminado por ${nombreUsuarioActual}`);
+      await registrarEvento('factura', factura!.id, `Pago de ${formatearPrecio(pago.monto)} (${fechaCorta(pago.fecha)}) eliminado por ${nombreUsuarioActual}`);
       return pago;
     },
     onSuccess: async (pago) => {
@@ -163,7 +165,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
 
   const handleEliminarPago = async (pago: PagoFactura) => {
     const confirmado = await confirmar({
-      mensaje: `¿Eliminar el pago de ${pago.monto.toFixed(2)} € del ${fechaCorta(pago.fecha)}? Esta acción no se puede deshacer.`,
+      mensaje: `¿Eliminar el pago de ${formatearPrecio(pago.monto)} del ${fechaCorta(pago.fecha)}? Esta acción no se puede deshacer.`,
       textoConfirmar: 'Eliminar pago',
       peligroso: true,
     });
@@ -184,9 +186,9 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
     >
       <div className="space-y-4">
         <p className="text-sm text-gray-500">
-          Total: <span className="font-medium text-gray-900">{total.toFixed(2)} €</span> · Pagado:{' '}
-          <span className="font-medium text-gray-900">{totalPagado.toFixed(2)} €</span> · Pendiente:{' '}
-          <span className="font-medium text-gray-900">{pendiente.toFixed(2)} €</span>
+          Total: <span className="font-medium text-gray-900">{formatearPrecio(total)}</span> · Pagado:{' '}
+          <span className="font-medium text-gray-900">{formatearPrecio(totalPagado)}</span> · Pendiente:{' '}
+          <span className="font-medium text-gray-900">{formatearPrecio(pendiente)}</span>
         </p>
 
         {pagos && pagos.length > 0 && (
@@ -194,7 +196,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
             {pagos.map((p) => (
               <div key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
                 <span className="text-gray-700">
-                  {fechaCorta(p.fecha)} — <span className="font-medium text-gray-900">{p.monto.toFixed(2)} €</span>
+                  {fechaCorta(p.fecha)} — <span className="font-medium text-gray-900">{formatearPrecio(p.monto)}</span>
                 </span>
                 <button
                   onClick={() => handleEliminarPago(p)}
@@ -222,7 +224,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
                 monto < pendiente - 0.01
                   ? 'Menor que lo pendiente: quedará "Cobrada parcialmente".'
                   : monto > pendiente + 0.01
-                    ? `Mayor que lo pendiente (${pendiente.toFixed(2)} €) — revisa el importe antes de guardar.`
+                    ? `Mayor que lo pendiente (${formatearPrecio(pendiente)}) — revisa el importe antes de guardar.`
                     : undefined
               }
             />

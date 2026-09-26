@@ -15,7 +15,7 @@ import { BotonExportar } from '../../../components/ui/BotonExportar';
 import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import { fechaCorta } from '../../../lib/fechas';
-import { formatearPrecio } from '../lineas';
+import { formatearPrecio, formatearPrecioEntero } from '../lineas';
 import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
 import { GRUPOS_CATEGORIA } from './categorias';
 import type { Gasto } from './types';
@@ -231,9 +231,9 @@ export default function GastosPage() {
     ).length;
     return [
       { label: 'Total gastos', valor: todos.length },
-      { label: 'Total este mes', valor: `${totalEsteMes.toFixed(0)} €` },
-      { label: 'Base deducible', valor: `${totalBase.toFixed(0)} €` },
-      { label: 'IVA deducible', valor: `${totalIvaDeducible.toFixed(0)} €`, acento: true },
+      { label: 'Total este mes', valor: `${formatearPrecioEntero(totalEsteMes)}` },
+      { label: 'Base deducible', valor: `${formatearPrecioEntero(totalBase)}` },
+      { label: 'IVA deducible', valor: `${formatearPrecioEntero(totalIvaDeducible)}`, acento: true },
       { label: 'Sin categorizar', valor: sinCategorizar, acento: sinCategorizar > 0 },
       { label: 'Pendientes de revisar', valor: pendientesRevisar, acento: pendientesRevisar > 0 },
       ...(inmovilizadoSinVincular > 0

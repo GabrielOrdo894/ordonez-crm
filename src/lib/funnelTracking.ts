@@ -123,7 +123,18 @@ export async function registrarEventoFunnel(
   const idRelevante = opts.presupuestoId ?? opts.solicitudId;
   if (idRelevante) {
     const campo = opts.presupuestoId ? 'presupuesto_id' : 'solicitud_id';
-    const { data: existente } = await supabase.from('funnel_eventos').select('id').eq('etapa', etapa).eq(campo, idRelevante).limit(1);
+    const { data: existente, error: errorExistente } = await supabase
+      .from('funnel_eventos')
+      .select('id')
+      .eq('etapa', etapa)
+      .eq(campo, idRelevante)
+      .limit(1);
+    // Si no se puede comprobar, no se inserta: mejor perder un evento de analítica que duplicarlo
+    // (antes el error se ignoraba y se insertaba igualmente, auditoría 2026-09-26).
+    if (errorExistente) {
+      console.warn('No se pudo comprobar el evento de funnel existente:', errorExistente.message);
+      return;
+    }
     if (existente && existente.length > 0) return;
   }
   const { error } = await supabase.from('funnel_eventos').insert({

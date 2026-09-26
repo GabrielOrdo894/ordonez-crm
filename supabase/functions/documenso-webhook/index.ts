@@ -306,11 +306,12 @@ Deno.serve(async (req: Request) => {
   // real P-2026-0066, Rechazado pero con documenso_estado='ENVIADO' sin firmar. Se ignora el
   // webhook y se deja constancia para revisión manual en vez de sobrescribir la decisión.
   if (presupuesto.estado === 'Rechazado') {
-    await supabase.from('documento_eventos').insert({
+    const { error: errorEventoIgnorado } = await supabase.from('documento_eventos').insert({
       documento_tipo: 'presupuesto',
       documento_id: presupuesto.id,
       evento: 'Firma de Documenso recibida pero IGNORADA — el presupuesto ya estaba Rechazado. Revisar a mano si corresponde.',
     });
+    if (errorEventoIgnorado) console.error('No se pudo registrar el evento de firma ignorada:', errorEventoIgnorado.message);
     return jsonResponse({ ok: true, ignorado: 'presupuesto ya estaba Rechazado, no se sobrescribe' });
   }
 
@@ -327,19 +328,23 @@ Deno.serve(async (req: Request) => {
     .eq('id', presupuesto.id);
   if (updateError) return jsonResponse({ error: updateError.message }, 500);
 
+  // Registros secundarios: un fallo no revierte la firma ya guardada, pero ahora queda en el log de la
+  // función en vez de perderse en silencio (auditoría 2026-09-26).
   if (presupuesto.visita_id) {
-    await supabase.from('notas_cliente').insert({
+    const { error: errorNota } = await supabase.from('notas_cliente').insert({
       visita_id: presupuesto.visita_id,
       tipo: 'sistema',
       texto: `Presupuesto ${presupuesto.numero ?? ''} firmado electrónicamente con Documenso — marcado como Aceptado`,
       autor: 'Sistema',
     });
+    if (errorNota) console.error('No se pudo registrar la nota de sistema de la firma:', errorNota.message);
   }
-  await supabase.from('documento_eventos').insert({
+  const { error: errorEvento } = await supabase.from('documento_eventos').insert({
     documento_tipo: 'presupuesto',
     documento_id: presupuesto.id,
     evento: 'Firmado electrónicamente (Documenso) — marcado como Aceptado',
   });
+  if (errorEvento) console.error('No se pudo registrar el evento de firma:', errorEvento.message);
   // "Aceptado" implica que antes se envió — se registra también esa etapa si no existía todavía
   // (mismo criterio que registrarEtapaPresupuestoConBackfill del frontend, duplicado aquí porque
   // Deno no puede importar funnelTracking.ts). presupuesto_firmado ya no es una etapa del embudo
@@ -347,12 +352,16 @@ Deno.serve(async (req: Request) => {
   // quedado desactualizado y un presupuesto firmado por Documenso no contaba en ningún escalón
   // visible del embudo (hallazgo real, 2026-09-20).
   const registrarFunnelPresupuesto = async (etapa: string) => {
-    const { data: existente } = await supabase
+    const { data: existente, error: errorExistente } = await supabase
       .from('funnel_eventos')
       .select('id')
       .eq('etapa', etapa)
       .eq('presupuesto_id', presupuesto.id)
       .limit(1);
+    if (errorExistente) {
+      console.error(`No se pudo comprobar el evento de funnel ${etapa}:`, errorExistente.message);
+      return;
+    }
     if (existente && existente.length > 0) return;
     const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa, presupuesto_id: presupuesto.id });
     if (errorFunnel) console.error(`No se pudo registrar el evento de funnel ${etapa}:`, errorFunnel.message);

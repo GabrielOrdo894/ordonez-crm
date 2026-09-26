@@ -6,6 +6,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { useToast } from '../../../hooks/useToast';
 import type { Gasto } from './types';
+import { formatearPrecio } from '../lineas';
 
 function totalConIva(g: Gasto) {
   return (g.importe_base ?? 0) + (g.importe_iva ?? 0);
@@ -111,15 +112,15 @@ export function GastoResumen({ gasto, onClose, onModificar }: GastoResumenProps)
         <div className="bg-brand-light rounded-sm px-4 py-3 flex justify-between items-center">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">Base</p>
-            <p className="text-sm text-gray-900">{(gasto.importe_base ?? 0).toFixed(2)} €</p>
+            <p className="text-sm text-gray-900">{formatearPrecio((gasto.importe_base ?? 0))}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible</p>
-            <p className="text-sm text-gray-900">{(gasto.importe_iva ?? 0).toFixed(2)} €</p>
+            <p className="text-sm text-gray-900">{formatearPrecio((gasto.importe_iva ?? 0))}</p>
           </div>
           <div className="text-right">
             <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
-            <p className="text-base font-semibold text-brand">{totalConIva(gasto).toFixed(2)} €</p>
+            <p className="text-base font-semibold text-brand">{formatearPrecio(totalConIva(gasto))}</p>
           </div>
         </div>
 

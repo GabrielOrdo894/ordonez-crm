@@ -10,6 +10,7 @@ import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
+import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 type AsientoContable = {
   id: string;
@@ -69,9 +70,9 @@ export default function LibroDiarioPage() {
     const totalHaber = lista.reduce((s, a) => s + a.haber, 0);
     return [
       { label: 'Asientos', valor: lista.length },
-      { label: 'Total debe', valor: `${totalDebe.toFixed(0)} €` },
-      { label: 'Total haber', valor: `${totalHaber.toFixed(0)} €` },
-      { label: 'Descuadre', valor: `${(totalDebe - totalHaber).toFixed(2)} €`, acento: Math.abs(totalDebe - totalHaber) > 0.01 },
+      { label: 'Total debe', valor: `${formatearPrecioEntero(totalDebe)}` },
+      { label: 'Total haber', valor: `${formatearPrecioEntero(totalHaber)}` },
+      { label: 'Descuadre', valor: `${formatearPrecio((totalDebe - totalHaber))}`, acento: Math.abs(totalDebe - totalHaber) > 0.01 },
     ];
   }, [asientos]);
 
@@ -138,8 +139,8 @@ export default function LibroDiarioPage() {
             { key: 'fecha', label: 'Fecha', render: (a) => fechaVisitaCorta(a.fecha) },
             { key: 'cuenta', label: 'Cuenta', render: (a) => etiquetaCuenta(a.cuenta) },
             { key: 'concepto', label: 'Concepto' },
-            { key: 'debe', label: 'Debe', render: (a) => (a.debe > 0 ? `${a.debe.toFixed(2)} €` : '—') },
-            { key: 'haber', label: 'Haber', render: (a) => (a.haber > 0 ? `${a.haber.toFixed(2)} €` : '—') },
+            { key: 'debe', label: 'Debe', render: (a) => (a.debe > 0 ? `${formatearPrecio(a.debe)}` : '—') },
+            { key: 'haber', label: 'Haber', render: (a) => (a.haber > 0 ? `${formatearPrecio(a.haber)}` : '—') },
           ]}
         />
       </div>

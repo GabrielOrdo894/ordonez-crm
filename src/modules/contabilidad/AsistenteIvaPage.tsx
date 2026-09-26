@@ -11,6 +11,7 @@ import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { porcentajeIva } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
+import { formatearPrecio } from '../finanzas/lineas';
 
 // La sociedad empezó a operar como tal en julio de 2026 — no hay TVA que declarar antes.
 const INICIO_SOCIEDAD_MES = limitesEjercicio(2026).inicio.slice(0, 7);
@@ -88,7 +89,7 @@ function baseSinIvaDePago(p: PagoFr) {
 }
 
 function fmt(n: number) {
-  return `${n.toFixed(2)} €`;
+  return `${formatearPrecio(n)}`;
 }
 
 type Fila = { linea: string; label: string; base?: number; taxe?: number; nota?: string };

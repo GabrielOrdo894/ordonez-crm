@@ -13,6 +13,7 @@ import type { Visita } from '../visitas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Gasto } from '../finanzas/gastos/types';
+import { formatearPrecio } from '../finanzas/lineas';
 
 const PERIODOS = [
   { value: 'mes', label: 'Este mes' },
@@ -165,27 +166,27 @@ export default function DashboardGeneralPage() {
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos Francia (período)</p>
-          <p className="text-2xl font-semibold text-brand">{ingresosPorPaisPeriodo.francia.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-brand">{formatearPrecio(ingresosPorPaisPeriodo.francia)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos España (período)</p>
-          <p className="text-2xl font-semibold text-gray-900">{ingresosPorPaisPeriodo.espana.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(ingresosPorPaisPeriodo.espana)}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos históricos</p>
-          <p className="text-2xl font-semibold text-brand">{kpis.ingresos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-brand">{formatearPrecio(kpis.ingresos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos históricos</p>
-          <p className="text-2xl font-semibold text-red-600">{kpis.gastos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-red-600">{formatearPrecio(kpis.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado histórico</p>
           <p className={`text-2xl font-semibold ${kpis.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
-            {kpis.resultado.toFixed(2)} €
+            {formatearPrecio(kpis.resultado)}
           </p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">

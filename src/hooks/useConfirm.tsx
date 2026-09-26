@@ -76,7 +76,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <AlertTriangle size={18} className={`shrink-0 mt-0.5 ${estado.peligroso ?? true ? 'text-red-500' : 'text-brand'}`} />
               <div className="flex-1 min-w-0">
                 {estado.titulo && <p className="text-sm font-semibold text-gray-900 mb-1">{estado.titulo}</p>}
-                <p className="text-sm text-gray-600">{estado.mensaje}</p>
+                <p className="text-sm text-gray-600 whitespace-pre-line">{estado.mensaje}</p>
                 {estado.modo === 'motivo' && (
                   <div className="mt-3">
                     <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">

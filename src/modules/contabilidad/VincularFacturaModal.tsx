@@ -8,6 +8,7 @@ import { totalConIvaFactura } from '../finanzas/facturas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { MovimientoBanco } from './types';
 import { facturasPendientesDeCobro, vincularMovimientoAFactura } from '../../lib/conciliacionBancaria';
+import { formatearPrecio } from '../finanzas/lineas';
 
 function totalFactura(f: Factura) {
   return totalConIvaFactura(f);
@@ -71,7 +72,7 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
         <>
           <p className="text-sm text-gray-500 mb-3">
             Movimiento: <span className="font-medium text-gray-800">{movimiento.descripcion}</span> ·{' '}
-            {movimiento.fecha} · <span className="font-medium text-brand">{movimiento.importe.toFixed(2)} €</span>
+            {movimiento.fecha} · <span className="font-medium text-brand">{formatearPrecio(movimiento.importe)}</span>
           </p>
           <div className="relative mb-3">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -104,11 +105,11 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
                     <p className="text-xs text-gray-500 truncate">{f.titulo}</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-gray-900">{total.toFixed(2)} €</p>
+                    <p className="text-sm font-semibold text-gray-900">{formatearPrecio(total)}</p>
                     {diferencia < 0.01 ? (
                       <p className="text-xs text-brand">Coincide exacto</p>
                     ) : (
-                      <p className="text-xs text-gray-400">Δ {diferencia.toFixed(2)} €</p>
+                      <p className="text-xs text-gray-400">Δ {formatearPrecio(diferencia)}</p>
                     )}
                   </div>
                 </button>

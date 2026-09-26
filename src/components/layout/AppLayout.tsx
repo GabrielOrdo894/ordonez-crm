@@ -182,15 +182,21 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar
-        abiertoMobil={sidebarMobilAbierto}
-        onCerrarMobil={() => setSidebarMobilAbierto(false)}
-      />
-      <div className="flex-1 flex flex-col min-w-0">
-        <Topbar
-          onAbrirMenu={() => setSidebarMobilAbierto(true)}
-          onAbrirBusqueda={() => setBusquedaAbierta(true)}
+      {/* Menú, barra superior y buscador también protegidos: un error de render en ellos (p. ej. en
+          la campana de notificaciones) tumbaba la app entera en blanco (auditoría 2026-09-26). */}
+      <ErrorBoundary>
+        <Sidebar
+          abiertoMobil={sidebarMobilAbierto}
+          onCerrarMobil={() => setSidebarMobilAbierto(false)}
         />
+      </ErrorBoundary>
+      <div className="flex-1 flex flex-col min-w-0">
+        <ErrorBoundary>
+          <Topbar
+            onAbrirMenu={() => setSidebarMobilAbierto(true)}
+            onAbrirBusqueda={() => setBusquedaAbierta(true)}
+          />
+        </ErrorBoundary>
         <main className="flex-1 p-3 sm:p-6">
           {modalTipo ? (
             <div className="animate-[slide-fade-left_220ms_ease-out]">
@@ -221,7 +227,9 @@ export function AppLayout() {
           )}
         </main>
       </div>
-      <BuscadorGlobal abierto={busquedaAbierta} onClose={() => setBusquedaAbierta(false)} />
+      <ErrorBoundary>
+        <BuscadorGlobal abierto={busquedaAbierta} onClose={() => setBusquedaAbierta(false)} />
+      </ErrorBoundary>
     </div>
   );
 }

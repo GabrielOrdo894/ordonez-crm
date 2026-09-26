@@ -9,7 +9,7 @@ import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Table } from '../../components/ui/Table';
-import { UNIDADES, getTiposServicio, formatearUnidadTexto } from '../finanzas/lineas';
+import { UNIDADES, getTiposServicio, formatearUnidadTexto, formatearPrecio } from '../finanzas/lineas';
 import type { LineaCatalogo } from '../finanzas/lineas';
 
 type FormLinea = {
@@ -159,7 +159,7 @@ export function CatalogoLineasSection() {
           {
             key: 'precio_unit',
             label: 'Precio',
-            render: (r) => (r.precio_unit != null ? `${r.precio_unit.toFixed(2)} €` : '—'),
+            render: (r) => (r.precio_unit != null ? `${formatearPrecio(r.precio_unit)}` : '—'),
           },
         ]}
       />

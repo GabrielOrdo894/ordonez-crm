@@ -2,6 +2,12 @@
   AddType application/manifest+json .webmanifest
 </IfModule>
 <IfModule mod_headers.c>
+  # index.html sin caché: si el navegador guardaba una copia, tras un despliegue seguía cargando la
+  # versión anterior del CRM (visto en producción 2026-09-26). Los assets llevan hash en el nombre,
+  # así que esos sí pueden cachearse sin riesgo.
+  <Files "index.html">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </Files>
   <Files "sw.js">
     Header set Service-Worker-Allowed "/crm/"
     Header set Cache-Control "no-cache"

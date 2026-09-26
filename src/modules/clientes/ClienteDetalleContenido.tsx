@@ -29,7 +29,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 import { direccionEnDosLineas } from '../../lib/direcciones';
 import type { Linea } from '../finanzas/lineas';
 import { RecordatorioPagoModal } from '../finanzas/facturas/RecordatorioPagoModal';
@@ -433,7 +433,7 @@ export function ClienteDetalleContenido({
         fecha: p.fecha_emision,
         icono: FileText,
         titulo: `Presupuesto ${p.numero ?? ''} — ${p.estado}`,
-        detalle: `${calcularTotales(p.lineas).totalConIva.toFixed(2)} €`,
+        detalle: `${formatearPrecio(calcularTotales(p.lineas).totalConIva)}`,
       });
     }
     for (const f of facturasCliente) {
@@ -442,7 +442,7 @@ export function ClienteDetalleContenido({
         fecha: f.fecha_factura,
         icono: Receipt,
         titulo: `Factura ${f.numero ?? ''} — ${f.estado_cobro}`,
-        detalle: `${calcularTotales(f.lineas).totalConIva.toFixed(2)} €`,
+        detalle: `${formatearPrecio(calcularTotales(f.lineas).totalConIva)}`,
       });
     }
     for (const p of proyectos ?? []) {
@@ -665,7 +665,7 @@ export function ClienteDetalleContenido({
                       <span className="text-xs text-gray-400">Normal</span>
                     )}
                     <span className="text-gray-700">
-                      {calcularTotales(p.lineas).totalConIva.toFixed(2)} €
+                      {formatearPrecio(calcularTotales(p.lineas).totalConIva)}
                     </span>
                     <Badge variant={VARIANTE_ESTADO_PRESUPUESTO[p.estado] ?? 'default'}>
                       {p.estado}
@@ -711,7 +711,7 @@ export function ClienteDetalleContenido({
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-gray-700">
-                      {calcularTotales(f.lineas).totalConIva.toFixed(2)} €
+                      {formatearPrecio(calcularTotales(f.lineas).totalConIva)}
                     </span>
                     <Badge variant={VARIANTE_ESTADO_FACTURA[f.estado_cobro] ?? 'default'}>
                       {f.estado_cobro}
@@ -994,7 +994,7 @@ export function ClienteDetalleContenido({
           {totalFacturado > 0 && (
             <p className="text-xs text-gray-500 mb-2">
               Total facturado (facturas reales):{' '}
-              <span className="font-semibold text-gray-800">{totalFacturado.toFixed(2)} €</span>
+              <span className="font-semibold text-gray-800">{formatearPrecio(totalFacturado)}</span>
             </p>
           )}
           <div className="flex flex-col gap-2">
@@ -1015,7 +1015,7 @@ export function ClienteDetalleContenido({
                   <div className="flex items-center gap-3">
                     {importe != null && (
                       <span className="text-xs text-gray-600">
-                        {importe.total.toFixed(2)} €{importe.esOrientativo ? ' (orientativo)' : ''}
+                        {formatearPrecio(importe.total)}{importe.esOrientativo ? ' (orientativo)' : ''}
                       </span>
                     )}
                     <Badge variant={estadoToVariant(v.estado)}>{v.estado}</Badge>
@@ -1164,7 +1164,7 @@ export function ClienteDetalleContenido({
                       <span className="text-xs text-gray-400">Normal</span>
                     )}
                     <span className="text-gray-700">
-                      {calcularTotales(p.lineas).totalConIva.toFixed(2)} €
+                      {formatearPrecio(calcularTotales(p.lineas).totalConIva)}
                     </span>
                     <Badge variant={VARIANTE_ESTADO_PRESUPUESTO[p.estado] ?? 'default'}>
                       {p.estado}
@@ -1201,7 +1201,7 @@ export function ClienteDetalleContenido({
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-gray-700">
-                      {calcularTotales(f.lineas).totalConIva.toFixed(2)} €
+                      {formatearPrecio(calcularTotales(f.lineas).totalConIva)}
                     </span>
                     <Badge variant={VARIANTE_ESTADO_FACTURA[f.estado_cobro] ?? 'default'}>
                       {f.estado_cobro}

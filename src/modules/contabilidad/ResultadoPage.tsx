@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
+import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 // Mismo superconjunto de columnas que LibroIngresosPage.tsx — comparten esta queryKey y Tanstack
 // Query cachea por key, no por select (ver LibroMayorPage.tsx para el mismo patrón de bug).
@@ -134,11 +135,11 @@ export default function ResultadoPage() {
   }, [filas]);
 
   const kpis = [
-    { label: 'Ingresos totales (sin IVA)', valor: `${totales.ingresos.toFixed(0)} €` },
-    { label: 'Gastos totales (sin IVA)', valor: `${totales.gastos.toFixed(0)} €` },
+    { label: 'Ingresos totales (sin IVA)', valor: `${formatearPrecioEntero(totales.ingresos)}` },
+    { label: 'Gastos totales (sin IVA)', valor: `${formatearPrecioEntero(totales.gastos)}` },
     {
       label: 'Resultado total',
-      valor: `${totales.resultado.toFixed(0)} €`,
+      valor: `${formatearPrecioEntero(totales.resultado)}`,
       acento: totales.resultado >= 0,
     },
   ];
@@ -195,10 +196,10 @@ export default function ResultadoPage() {
                       {expandido ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </td>
                     <td className="px-3 py-2 text-gray-900">{nombreMes(f.mes)}</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{f.ingresos.toFixed(2)} €</td>
-                    <td className="px-3 py-2 text-right text-gray-700">{f.gastos.toFixed(2)} €</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{formatearPrecio(f.ingresos)}</td>
+                    <td className="px-3 py-2 text-right text-gray-700">{formatearPrecio(f.gastos)}</td>
                     <td className={`px-3 py-2 text-right font-medium ${f.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                      {f.resultado.toFixed(2)} €
+                      {formatearPrecio(f.resultado)}
                     </td>
                   </tr>
                   {expandido && (
@@ -219,7 +220,7 @@ export default function ResultadoPage() {
                                     <span className="text-gray-600 truncate">
                                       {item.etiqueta} <span className="text-gray-400">({item.n})</span>
                                     </span>
-                                    <span className="text-gray-900 font-medium shrink-0 ml-2">{item.importe.toFixed(2)} €</span>
+                                    <span className="text-gray-900 font-medium shrink-0 ml-2">{formatearPrecio(item.importe)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -238,7 +239,7 @@ export default function ResultadoPage() {
                                     <span className="text-gray-600 truncate">
                                       {item.etiqueta} <span className="text-gray-400">({item.n})</span>
                                     </span>
-                                    <span className="text-gray-900 font-medium shrink-0 ml-2">{item.importe.toFixed(2)} €</span>
+                                    <span className="text-gray-900 font-medium shrink-0 ml-2">{formatearPrecio(item.importe)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -257,10 +258,10 @@ export default function ResultadoPage() {
               <tr className="border-t-2 border-gray-200 text-sm font-semibold">
                 <td></td>
                 <td className="px-3 py-2 text-gray-900">Total</td>
-                <td className="px-3 py-2 text-right text-gray-900">{totales.ingresos.toFixed(2)} €</td>
-                <td className="px-3 py-2 text-right text-gray-900">{totales.gastos.toFixed(2)} €</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatearPrecio(totales.ingresos)}</td>
+                <td className="px-3 py-2 text-right text-gray-900">{formatearPrecio(totales.gastos)}</td>
                 <td className={`px-3 py-2 text-right ${totales.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                  {totales.resultado.toFixed(2)} €
+                  {formatearPrecio(totales.resultado)}
                 </td>
               </tr>
             </tfoot>

@@ -4,6 +4,7 @@ import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEcheances } from './useEcheances';
 import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { formatearPrecio } from '../finanzas/lineas';
 
 export type TipoAlertaFiscal = 'tramo_cerca' | 'tramo_superado' | 'tva_declarable' | 'tva_urgente' | 'echeance_urgente';
 
@@ -50,7 +51,7 @@ export function useAlertasFiscales() {
         id: 'tramo_superado',
         tipo: 'tramo_superado',
         titulo: 'Ya has superado el tramo del 15% de IS',
-        mensaje: `El beneficio neto estimado del ejercicio (${beneficioNeto.toFixed(2)} €) ya supera el plafond de ${is.plafondReducido.toFixed(2)} € — a partir de aquí, cada euro adicional de beneficio tributa al 25% en vez del 15%.`,
+        mensaje: `El beneficio neto estimado del ejercicio (${formatearPrecio(beneficioNeto)}) ya supera el plafond de ${formatearPrecio(is.plafondReducido)} — a partir de aquí, cada euro adicional de beneficio tributa al 25% en vez del 15%.`,
         buenasPracticas: [
           'Revisa con tu expert-comptable si hay gastos deducibles pendientes de registrar antes de cerrar el ejercicio (compras, subcontratas, formación, amortizaciones).',
           'Valora si conviene aumentar la rémunération del gérant este ejercicio: reduce el beneficio imposable, aunque generará más cotisations TNS — compáralo en la pestaña "Salario vs Dividendos".',
@@ -62,7 +63,7 @@ export function useAlertasFiscales() {
         id: 'tramo_cerca',
         tipo: 'tramo_cerca',
         titulo: 'Cerca de superar el tramo del 15% de IS',
-        mensaje: `El beneficio neto estimado del ejercicio (${beneficioNeto.toFixed(2)} €) ya alcanza el ${(pctPlafond * 100).toFixed(0)}% del plafond de ${is.plafondReducido.toFixed(2)} € del tramo reducido. El siguiente euro de beneficio que se genere por encima del plafond tributará al 25% en vez del 15%.`,
+        mensaje: `El beneficio neto estimado del ejercicio (${formatearPrecio(beneficioNeto)}) ya alcanza el ${(pctPlafond * 100).toFixed(0)}% del plafond de ${formatearPrecio(is.plafondReducido)} del tramo reducido. El siguiente euro de beneficio que se genere por encima del plafond tributará al 25% en vez del 15%.`,
         buenasPracticas: [
           'Anticipa gastos deducibles previstos para los próximos meses (material, herramientas, mantenimiento) si de todas formas los ibas a hacer pronto.',
           'Revisa con tu expert-comptable si conviene ajustar la rémunération del gérant antes de cerrar el ejercicio.',

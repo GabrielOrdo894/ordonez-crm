@@ -3,13 +3,17 @@ import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import { lineaVacia, calcularLinea, calcularTotales } from '../lineas';
+import { lineaVacia, calcularLinea, calcularTotales, getTiposServicio, formatearPrecio } from '../lineas';
 import type { Linea } from '../lineas';
 import { porcentajeIva } from '../iva';
 import type { Presupuesto } from './types';
+import { hoyLocalIso } from '../../../lib/fechas';
+import { supabase } from '../../../lib/supabase';
+import { useToast } from '../../../hooks/useToast';
 
 function fechaHoy() {
-  return new Date().toISOString().slice(0, 10);
+  // Hora local, no UTC (auditoría 2026-09-26: de madrugada daba el día anterior).
+  return hoyLocalIso();
 }
 
 type Modo = 'porcentaje' | 'fijo';
@@ -21,6 +25,8 @@ type CrearAcompteModalProps = {
 };
 
 export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompteModalProps) {
+  const toast = useToast();
+  const [creando, setCreando] = useState(false);
   const [modo, setModo] = useState<Modo>('porcentaje');
   const [plazoIdx, setPlazoIdx] = useState(0);
   const [importeFijo, setImporteFijo] = useState(0);
@@ -57,12 +63,31 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
 
   if (!presupuesto) return null;
 
-  const handleCrear = () => {
+  // Referencia y tipo de servicio prerellenados con el mismo criterio que Gabriel ya usaba a mano
+  // ("AC-01", "AC-02"… y "Prestations de services BIC"): antes salían vacíos y había que escribirlos
+  // cada vez, y el tipo de servicio es obligatorio en factura francesa (petición 2026-09-26).
+  const handleCrear = async () => {
+    setCreando(true);
+    const { count, error } = await supabase
+      .from('facturas')
+      .select('id', { count: 'exact', head: true })
+      .eq('presupuesto_id', presupuesto.id)
+      .eq('tipo', 'acompte')
+      .is('eliminado_en', null);
+    setCreando(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const referencia = `AC-${String((count ?? 0) + 1).padStart(2, '0')}`;
+    const tipoServicio = getTiposServicio(presupuesto.idioma === 'Français' ? 'fr' : 'es')[1];
     const precioSinIva = pct > 0 ? importeTtc / (1 + pct / 100) : importeTtc;
     const linea = calcularLinea(
       {
         ...lineaVacia(),
         designacion: `Acompte — ${modo === 'porcentaje' ? (plazoActual?.concepto ?? '') : 'Anticipo'}`,
+        referencia,
+        tipo_servicio: tipoServicio,
         descripcion,
         unidad: 'forfait',
         cantidad: 1,
@@ -85,7 +110,7 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={handleCrear} disabled={!puedeCrear}>
+          <Button onClick={handleCrear} disabled={!puedeCrear || creando}>
             Continuar
           </Button>
         </>
@@ -126,7 +151,7 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
                 onChange={(e) => setPlazoIdx(Number(e.target.value))}
                 options={presupuesto.plan_pago.map((p, i) => ({
                   value: String(i),
-                  label: `${p.concepto} · ${p.porcentaje}% · ${p.importe.toFixed(2)} €`,
+                  label: `${p.concepto} · ${p.porcentaje}% · ${formatearPrecio(p.importe)}`,
                 }))}
               />
             ) : (
@@ -138,7 +163,7 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
               type="number"
               value={importeFijo}
               onChange={(e) => setImporteFijo(Number(e.target.value))}
-              hint={totalPresupuesto > 0 ? `≈ ${porcentajeEfectivo}% del total del presupuesto (${totalPresupuesto.toFixed(2)} €)` : undefined}
+              hint={totalPresupuesto > 0 ? `≈ ${porcentajeEfectivo}% del total del presupuesto (${formatearPrecio(totalPresupuesto)})` : undefined}
             />
           )}
         </div>
@@ -164,7 +189,7 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
         </div>
 
         <p className="text-sm text-gray-500 border-t border-gray-100 pt-3">
-          Importe del anticipo: <span className="font-semibold text-gray-900">{importeTtc.toFixed(2)} €</span> (IVA incluido)
+          Importe del anticipo: <span className="font-semibold text-gray-900">{formatearPrecio(importeTtc)}</span> (IVA incluido)
         </p>
       </div>
     </Modal>

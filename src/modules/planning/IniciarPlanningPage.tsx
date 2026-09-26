@@ -9,7 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { FechaPicker } from '../../components/ui/FechaPicker';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
 import { agruparClientes, formatearTelefonoVisual, normalizarTelefono } from '../clientes/types';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
@@ -61,7 +61,7 @@ function TarjetaPresupuesto({ p, onClick }: { p: Presupuesto; onClick: () => voi
         </p>
         <p className="text-xs text-gray-500">{fechaVisitaCorta(p.fecha_emision)}</p>
       </div>
-      <span className="text-gray-700 font-medium">{calcularTotales(p.lineas).totalConIva.toFixed(2)} €</span>
+      <span className="text-gray-700 font-medium">{formatearPrecio(calcularTotales(p.lineas).totalConIva)}</span>
     </button>
   );
 }
@@ -153,7 +153,7 @@ export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCre
             <p className="text-xs text-gray-500">{presupuestoElegido.cliente_dir}</p>
           </div>
           <span className="text-sm text-gray-700 font-medium">
-            {calcularTotales(presupuestoElegido.lineas).totalConIva.toFixed(2)} €
+            {formatearPrecio(calcularTotales(presupuestoElegido.lineas).totalConIva)}
           </span>
         </div>
 

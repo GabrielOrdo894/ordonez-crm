@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 
-type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'aceptado-orientativo' | 'en-espera' | 'default';
+type Variant = 'pendiente' | 'confirmada' | 'realizada' | 'pagado' | 'cancelada' | 'vencida' | 'aceptado-orientativo' | 'en-espera' | 'default';
 
 // realizada/cancelada/default usan los tokens de marca/gris (ya reaccionan a data-modo);
 // pendiente/confirmada/vencida/aceptado-orientativo/en-espera usan variables propias definidas en globals.css.
@@ -8,6 +8,8 @@ const VARIANT_CLASSES: Record<Variant, string> = {
   pendiente: '',
   confirmada: '',
   realizada: 'bg-brand-light text-brand',
+  // Presupuesto cobrado por completo — verde de marca sólido para distinguirlo de un Aceptado sin cobrar.
+  pagado: 'bg-brand text-white',
   cancelada: 'bg-gray-50 text-gray-500',
   vencida: '',
   'aceptado-orientativo': '',

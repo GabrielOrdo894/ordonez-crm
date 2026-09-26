@@ -946,3 +946,40 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   en Facturas/Presupuestos. Ahora el orden se aplica en pantalla (no en el queryFn) en Gastos, Visitas,
   Libro diario, Inmovilizado, Proveedores y Clientes (`agruparClientes`). Regla: una tabla cuya queryKey la
   compartan otras pantallas debe ordenar en un `useMemo`, nunca fiarse del `.order()` del queryFn.
+- **Auditoría de pantallas en blanco y lote de arreglos** (2026-09-26, tras el hallazgo real de Gabriel: la
+  notificación de gastos dejaba el CRM en blanco). Cambios:
+  - Rutas: la notificación de kilometraje apuntaba a `/finanzas/gastos` (nunca existió; Gastos vive en
+    `/contabilidad/gastos`) y hay una ruta comodín `*` → Inicio en `App.tsx`. `/rapido` (fuera de `AppLayout`)
+    tiene ahora su propio `Suspense` + `ErrorBoundary`, y Sidebar/Topbar/BuscadorGlobal van envueltos en
+    `ErrorBoundary` — antes un error ahí o un fallo de carga tras un despliegue dejaba toda la app en blanco.
+    `public/.htaccess` sirve `index.html` con `Cache-Control: no-cache` (el navegador seguía usando la versión
+    anterior del CRM tras desplegar).
+  - Cachés compartidas: Dashboard usaba `['proyectos','todos']` con solo 2 columnas y rompía Planning de obra
+    ("Cannot read properties of undefined") al entrar después — ahora `['proyectos','resumen-dashboard']`.
+    Igual con `['empresa_config']` en `SolicitudDetalle.tsx` y el select de solicitudes de las notificaciones
+    (ahora `SELECT_SOLICITUDES`, con el presupuesto vinculado).
+  - Fechas: `src/lib/fechas.ts` tiene `hoyLocalIso`/`isoLocal`/`isoHaceDias`/`sumarDiasIso`/`diasEntreIso`/
+    `opcionesPlazoConActual`. `FacturaForm` restaba un día al vencimiento ("7 días" guardaba 6 y el selector
+    salía vacío; "El mismo día" guardaba el día anterior — 6 facturas antiguas con 6 días se dejaron así por
+    decisión de Gabriel). Los selectores de vencimiento/validez muestran siempre el plazo real aunque no sea
+    una de las opciones. "Hoy" en hora local (no UTC) en facturas, pagos, gastos, acomptes, asientos,
+    notificaciones, avisos, banner de cierre y KPIs de visitas.
+  - Importes: formato "12 234,23 €" en todo el CRM (`formatearPrecio`, `formatearPrecioEntero`, y
+    `formatearMiles` para ejes de gráficos) — ~145 `toFixed(2)} €` sustituidos. Regla: nunca `toFixed` + "€"
+    para mostrar un importe.
+  - Acomptes: referencia `AC-0N` (nº de acompte del presupuesto) y tipo de servicio (`Prestations de services
+    BIC` / `Prestación de servicios`) prerellenados en `CrearAcompteModal.tsx`.
+  - Estado de cobro del presupuesto (`presupuestos/estadoCobro.ts`, calculado, no guardado): Aceptado →
+    "Primer pago recibido" → "Pagado" en la lista y la vista del presupuesto, a partir de sus facturas.
+  - Documenso: Edge Function `documenso-descargar` (PDF firmado y certificado de firma vía
+    `/envelope/{id}/certificate/download`, con caché en el bucket `presupuestos-firmados`), botones en la vista
+    del presupuesto y en su menú. P-2026-0060 se firmó en la cuenta antigua de app.documenso.com y ya no se
+    puede recuperar.
+  - Visitas creadas directamente como "Realizada" generan su gasto de kilometraje; el borrado masivo de
+    visitas avisa de los documentos activos (como el individual); el importe del kilometraje en `/rapido`
+    se muestra en grande.
+  - Edge Functions: `automatizaciones-crm` interpreta la hora de la visita en Europe/Paris (antes UTC, 2 h
+    tarde en verano); comprobaciones anti-duplicados que ignoraban el error corregidas en
+    `automatizaciones-crm`, `revisar-gmail`, `documenso-webhook` y `registrarEventoFunnel`.
+  - La Supabase CLI del equipo está autenticada y enlazada: `npx supabase functions deploy <nombre>
+    --project-ref mhbicdrquinlwhasrvgo --use-api` despliega desde el fichero sin transcribirlo al MCP.

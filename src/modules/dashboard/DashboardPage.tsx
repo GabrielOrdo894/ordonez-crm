@@ -22,7 +22,7 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { exportarCSV } from '../../lib/exportarCSV';
 import { useToast } from '../../hooks/useToast';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio, formatearMiles } from '../finanzas/lineas';
 import { ETAPAS_PIPELINE } from '../clientes/types';
 import { ETAPAS_FUNNEL_SOLICITUD, ETIQUETA_ETAPA_FUNNEL, contarUnicosEnFunnel, type EtapaFunnel } from '../../lib/funnelTracking';
 import { FUENTE_LABEL } from '../solicitudes/types';
@@ -170,8 +170,10 @@ export default function DashboardPage() {
     },
   });
 
+  // queryKey propia: ['proyectos', 'todos'] la usan Pipeline y Planning con select('*') — con solo 2
+  // columnas aquí, entrar en Planning después del Dashboard rompía la pantalla (auditoría 2026-09-26).
   const { data: proyectos } = useQuery({
-    queryKey: ['proyectos', 'todos'],
+    queryKey: ['proyectos', 'resumen-dashboard'],
     queryFn: async () => {
       const { data, error } = await supabase.from('proyectos').select('presupuesto_id, estado');
       if (error) throw error;
@@ -847,9 +849,9 @@ export default function DashboardPage() {
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(160, facturacionPorZona.length * 34)}>
               <BarChart data={facturacionPorZona} layout="vertical" margin={{ left: 10 }}>
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatearMiles} />
                 <YAxis type="category" dataKey="zona" width={110} tick={{ fontSize: 11, fill: '#374151' }} />
-                <Tooltip formatter={(valor: unknown) => `${Number(valor).toFixed(2)} €`} contentStyle={TOOLTIP_STYLE} />
+                <Tooltip formatter={(valor: unknown) => `${formatearPrecio(Number(valor))}`} contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="total" name="Facturado" fill="#1a5c38" radius={[0, 2, 2, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -881,9 +883,9 @@ export default function DashboardPage() {
                 <tr key={r.tipo} className="border-t border-gray-100">
                   <td className="py-1.5 text-gray-900">{r.tipo}</td>
                   <td className="py-1.5 text-right text-gray-600">{r.nObras}</td>
-                  <td className="py-1.5 text-right text-gray-600">{r.facturacionMedia.toFixed(2)} €</td>
+                  <td className="py-1.5 text-right text-gray-600">{formatearPrecio(r.facturacionMedia)}</td>
                   <td className={`py-1.5 text-right font-medium ${r.margenMedio >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                    {r.margenMedio.toFixed(2)} €
+                    {formatearPrecio(r.margenMedio)}
                   </td>
                 </tr>
               ))}
@@ -921,15 +923,15 @@ export default function DashboardPage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
             Previsión de tesorería · próximo mes
           </p>
-          <p className="text-2xl font-semibold text-gray-900 mb-2">{tesoreria.total.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-gray-900 mb-2">{formatearPrecio(tesoreria.total)}</p>
           <div className="flex flex-col gap-1 text-xs text-gray-600">
             <div className="flex justify-between">
               <span>Facturas pendientes de cobro</span>
-              <span>{tesoreria.pendienteCobro.toFixed(2)} €</span>
+              <span>{formatearPrecio(tesoreria.pendienteCobro)}</span>
             </div>
             <div className="flex justify-between">
               <span>Obras en curso (presupuesto aceptado)</span>
-              <span>{tesoreria.obrasEnCurso.toFixed(2)} €</span>
+              <span>{formatearPrecio(tesoreria.obrasEnCurso)}</span>
             </div>
           </div>
           {tesoreria.hayVencidas && <p className="text-xs text-amber-700 font-medium mt-2">Hay facturas vencidas pendientes de cobro</p>}
@@ -944,8 +946,8 @@ export default function DashboardPage() {
           <BarChart data={comparativaAnual}>
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
-            <Tooltip formatter={(valor: unknown) => `${Number(valor).toFixed(2)} €`} contentStyle={TOOLTIP_STYLE} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} tickFormatter={formatearMiles} />
+            <Tooltip formatter={(valor: unknown) => `${formatearPrecio(Number(valor))}`} contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar dataKey={String(anioActual - 1)} name={String(anioActual - 1)} fill="#9ca3af" radius={[2, 2, 0, 0]} />
             <Bar dataKey={String(anioActual)} name={String(anioActual)} fill="#1a5c38" radius={[2, 2, 0, 0]} />

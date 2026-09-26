@@ -7,6 +7,7 @@ import { BotonExportar } from '../../components/ui/BotonExportar';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
+import { formatearPrecio } from '../finanzas/lineas';
 
 type AsientoContable = {
   cuenta: string;
@@ -144,9 +145,9 @@ export default function LibroMayorPage() {
           emptyMessage="Sin movimientos todavía (se generan al crear facturas y gastos de Francia)"
           columns={[
             { key: 'cuenta', label: 'Cuenta', render: (c) => etiquetaCuenta(c.cuenta) },
-            { key: 'totalDebe', label: 'Total debe', render: (c) => `${c.totalDebe.toFixed(2)} €` },
-            { key: 'totalHaber', label: 'Total haber', render: (c) => `${c.totalHaber.toFixed(2)} €` },
-            { key: 'saldo', label: 'Saldo', render: (c) => `${c.saldo.toFixed(2)} €` },
+            { key: 'totalDebe', label: 'Total debe', render: (c) => `${formatearPrecio(c.totalDebe)}` },
+            { key: 'totalHaber', label: 'Total haber', render: (c) => `${formatearPrecio(c.totalHaber)}` },
+            { key: 'saldo', label: 'Saldo', render: (c) => `${formatearPrecio(c.saldo)}` },
           ]}
         />
       </div>

@@ -17,7 +17,7 @@ import { AlertTriangle, CalendarClock, Landmark, PiggyBank, Wallet } from 'lucid
 import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearMiles } from '../finanzas/lineas';
 import { porcentajeIva } from '../finanzas/iva';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
@@ -270,7 +270,7 @@ export function DashboardFiscal() {
           <BarChart data={evolucionAnual}>
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} tickFormatter={formatearMiles} />
             <Tooltip formatter={(valor: unknown) => fmt(Number(valor))} contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar dataKey="ingresos" name="CA HT" fill="#1a5c38" radius={[2, 2, 0, 0]} />
@@ -292,7 +292,7 @@ export function DashboardFiscal() {
           <AreaChart data={evolucionAcumulada}>
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} tickFormatter={formatearMiles} />
             <Tooltip formatter={(valor: unknown) => fmt(Number(valor))} contentStyle={TOOLTIP_STYLE} />
             <Area
               type="monotone"

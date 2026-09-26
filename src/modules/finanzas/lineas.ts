@@ -75,6 +75,16 @@ export function formatearPrecio(valor: number): string {
   return `${agruparMiles(entero)},${decimales} €`;
 }
 
+// "18000" -> "18 000" — ejes de gráficos de importes (sin símbolo para no ensanchar el eje).
+export function formatearMiles(valor: number): string {
+  return agruparMiles(Math.round(Number(valor)).toFixed(0));
+}
+
+// "12234.4" -> "12 234 €" — mismo formato sin decimales, para KPIs y ejes de gráficos redondeados.
+export function formatearPrecioEntero(valor: number): string {
+  return `${agruparMiles(Math.round(valor).toFixed(0))} €`;
+}
+
 // "1234.5, 1600" -> "1 234,50 – 1 600,00 €" — para presupuestos orientativos (precio en rango).
 export function formatearRangoPrecio(min: number, max: number): string {
   const [minEntero, minDec] = min.toFixed(2).split('.');

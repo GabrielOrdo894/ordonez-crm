@@ -9,6 +9,7 @@ import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
 import { CV_VEHICULO_DEFECTO, insertarGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { calcularIndemnizacionKm } from '../finanzas/gastos/baremoKilometrico';
+import { formatearPrecio } from '../finanzas/lineas';
 import { SeccionFotosObra, SeccionTicket } from './seccionesMedia';
 import { MapsAutocomplete, type LugarSeleccionado } from '../google/MapsAutocomplete';
 import { formatearTelefonoVisual } from '../clientes/types';
@@ -487,7 +488,11 @@ function SeccionKilometraje() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      toast.success('Kilometraje registrado — queda pendiente de revisar en Gastos');
+      toast.success(
+        importe != null
+          ? `Kilometraje registrado: ${formatearPrecio(importe)} — pendiente de revisar en Gastos`
+          : 'Kilometraje registrado — queda pendiente de revisar en Gastos',
+      );
       setPropuesta(null);
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'No se pudo registrar el gasto'),
@@ -546,11 +551,18 @@ function SeccionKilometraje() {
               className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm focus:border-brand focus:outline-none"
             />
           </label>
-          <p className="text-xs text-gray-500">
-            {importe != null
-              ? `Barème ${CV_VEHICULO_DEFECTO} CV: ${importe.toFixed(2)} € — se guarda pendiente de revisar en Gastos, sin asiento contable hasta confirmarlo.`
-              : 'Puedes guardarlo sin km y completarlos después desde Gastos.'}
-          </p>
+          {/* Importe en grande (petición de Gabriel 2026-09-26: en letra pequeña no se veía claro). */}
+          {importe != null ? (
+            <div className="rounded-sm border border-brand/30 bg-brand-light px-3 py-3 text-center">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand">Importe del kilometraje</p>
+              <p className="text-3xl font-bold text-gray-900 mt-1">{formatearPrecio(importe)}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {kmNumero} km × barème {CV_VEHICULO_DEFECTO} CV — queda pendiente de revisar en Gastos
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500">Puedes guardarlo sin km y completarlos después desde Gastos.</p>
+          )}
           <button
             type="button"
             onClick={() => guardarMutation.mutate()}

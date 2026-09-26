@@ -615,6 +615,17 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         );
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       }
+      // Una visita que se registra ya como Realizada (p. ej. las de Ricardo apuntadas a posteriori)
+      // nunca generaba su gasto de kilometraje: solo lo hacían la edición a Realizada y el
+      // autocompletado (auditoría 2026-09-26, 5 visitas afectadas desde el 17/08).
+      if (data.estado === 'Realizada') {
+        try {
+          await crearGastoKilometricoPendiente(data);
+          queryClient.invalidateQueries({ queryKey: ['gastos'] });
+        } catch (error) {
+          toast.warning(`No se pudo generar el gasto de kilometraje: ${(error as Error).message}`);
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita registrada correctamente');
       onClose();

@@ -9,7 +9,7 @@ import { agruparClientes, formatearTelefonoVisual, normalizarTelefono, ETAPAS_PI
 import type { Cliente } from '../clientes/types';
 import type { Visita } from '../visitas/types';
 import { ClienteFicha } from '../clientes/ClienteFicha';
-import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto } from '../planning/PlanningObraPage';
 import { fechaVisitaCorta } from '../../lib/fechas';
@@ -247,7 +247,7 @@ export default function PipelinePage() {
                         {!info?.proyecto && info?.presupuesto && (
                           <p className="flex items-center gap-1 text-[10px] text-gray-500 mt-1">
                             <FileText size={10} className="shrink-0" />
-                            {info.presupuesto.numero} · {calcularTotales(info.presupuesto.lineas).totalConIva.toFixed(0)} €
+                            {info.presupuesto.numero} · {formatearPrecioEntero(calcularTotales(info.presupuesto.lineas).totalConIva)}
                             {' · '}
                             {info.presupuesto.estado}
                           </p>

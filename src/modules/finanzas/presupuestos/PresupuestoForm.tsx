@@ -9,7 +9,7 @@ import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { vincularSolicitudPorContacto } from '../../../lib/funnelTracking';
 import { generarPdfPresupuesto } from '../../../lib/generarPdfPresupuesto';
-import { enviarPresupuestoAFirmar } from '../../../lib/documenso';
+import { enviarPresupuestoAFirmar, descargarDocumentoFirmado } from '../../../lib/documenso';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
 import { cargarEntidad, cargarConfigCompleta, FOTO_PORTADA_DEFECTO } from '../../../lib/pdfEmpresa';
@@ -39,28 +39,19 @@ import {
   validarLineas,
 } from './types';
 import type { Presupuesto, NuevoPresupuesto, Linea, PlazoPago, TipoPresupuesto, FormatoPresupuesto } from './types';
+import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
+import { formatearPrecio } from '../lineas';
 
 const NOTA_ORIENTATIVO: Record<'es' | 'fr', string> = {
   es: 'Presupuesto orientativo — los precios son estimados y pueden variar tras la visita técnica.',
   fr: 'Devis indicatif — les prix sont estimés et peuvent varier après la visite technique.',
 };
 
-function fechaHoy() {
-  const ahora = new Date();
-  return `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
-}
-
-function sumarDias(fechaISO: string, dias: number) {
-  const d = new Date(`${fechaISO}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + dias);
-  return d.toISOString().slice(0, 10);
-}
-
-function diasEntre(desde: string, hasta: string): number {
-  const d1 = new Date(`${desde}T00:00:00Z`);
-  const d2 = new Date(`${hasta}T00:00:00Z`);
-  return Math.round((d2.getTime() - d1.getTime()) / 86_400_000);
-}
+// Mismas funciones compartidas que FacturaForm (src/lib/fechas.ts) — antes cada formulario tenía
+// su propia copia y solo la de facturas restaba un día.
+const fechaHoy = hoyLocalIso;
+const sumarDias = sumarDiasIso;
+const diasEntre = diasEntreIso;
 
 const OPCIONES_VALIDEZ = [
   { value: '1', label: '1 día' },
@@ -555,16 +546,15 @@ export function PresupuestoForm({
   // El PDF firmado (con firma + audit trail) lo descarga documenso-webhook al bucket privado
   // 'presupuestos-firmados' al firmarse — igual que los justificantes de gastos, se sirve con un
   // signed URL en vez de una URL pública.
+  // Misma vía que la vista y el menú del presupuesto (Edge Function documenso-descargar): recupera
+  // también el PDF si el webhook no llegó a guardarlo.
   const handleDescargarPdfFirmado = async () => {
-    if (!presupuesto?.documenso_pdf_firmado_path) return;
-    const { data, error } = await supabase.storage
-      .from('presupuestos-firmados')
-      .createSignedUrl(presupuesto.documenso_pdf_firmado_path, 3600);
-    if (error) {
-      toast.error(error.message);
-      return;
+    if (!presupuesto) return;
+    try {
+      await descargarDocumentoFirmado(presupuesto.id, 'firmado');
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo descargar el PDF firmado'));
     }
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleDescargarPdf = async () => {
@@ -916,7 +906,7 @@ export function PresupuestoForm({
                   <Star size={14} className="shrink-0" />
                   <span>
                     Cliente fidelizado — {clienteFidelizado.visitas.length} obras registradas. Descuento propuesto:{' '}
-                    {descuentoImporte.toFixed(2)} €
+                    {formatearPrecio(descuentoImporte)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -939,7 +929,7 @@ export function PresupuestoForm({
                   <Gift size={14} className="shrink-0" />
                   <span>
                     Referido por {visitaVinculada?.referido_por} — descuento de bienvenida propuesto:{' '}
-                    {descuentoReferidoImporte.toFixed(2)} €
+                    {formatearPrecio(descuentoReferidoImporte)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -989,7 +979,7 @@ export function PresupuestoForm({
               <div>
                 <Select
                   label="Válido hasta"
-                  options={OPCIONES_VALIDEZ}
+                  options={opcionesPlazoConActual(OPCIONES_VALIDEZ, diasEntre(form.fecha_emision, form.fecha_validez))}
                   value={String(diasEntre(form.fecha_emision, form.fecha_validez))}
                   onChange={(e) =>
                     setForm((f) => ({ ...f, fecha_validez: sumarDias(f.fecha_emision, Number(e.target.value)) }))
@@ -1129,7 +1119,7 @@ export function PresupuestoForm({
                       />
                       <span className="text-sm text-gray-500">%</span>
                     </div>
-                    <span className="text-sm text-gray-600 w-24 text-right shrink-0">{plazo.importe.toFixed(2)} €</span>
+                    <span className="text-sm text-gray-600 w-24 text-right shrink-0">{formatearPrecio(plazo.importe)}</span>
                     <button onClick={() => handleEliminarPlazo(i)} className="text-gray-300 hover:text-red-600 shrink-0">
                       <Trash2 size={14} />
                     </button>
@@ -1185,7 +1175,7 @@ export function PresupuestoForm({
                     Firmado {presupuesto.firma_metodo === 'documenso' ? 'electrónicamente (Documenso) ' : ''}
                     por {presupuesto.firma_nombre} el {presupuesto.firma_fecha?.slice(0, 10)}
                   </p>
-                  {presupuesto.documenso_pdf_firmado_path && (
+                  {presupuesto.documenso_envelope_id && (
                     <Button size="sm" variant="secondary" onClick={handleDescargarPdfFirmado} className="self-start">
                       <span className="flex items-center gap-1.5">
                         <Download size={13} />

@@ -16,6 +16,7 @@ import { ConexionBancoPanel } from './ConexionBancoPanel';
 import type { MovimientoBanco } from './types';
 import { rectificarAsientos } from '../../lib/asientosContables';
 import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
+import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 const FILTROS = ['Todos', 'Pendiente', 'Vinculado', 'Ignorado'] as const;
 type Filtro = (typeof FILTROS)[number];
@@ -166,8 +167,8 @@ export default function BancoPage() {
     return [
       { label: 'Movimientos importados', valor: movimientos?.length ?? 0 },
       { label: 'Pendientes de revisar', valor: pendientes.length },
-      { label: 'Ingresos pendientes', valor: `${pendientesCredito.toFixed(0)} €` },
-      { label: 'Gastos pendientes', valor: `${Math.abs(pendientesDebito).toFixed(0)} €`, acento: true },
+      { label: 'Ingresos pendientes', valor: `${formatearPrecioEntero(pendientesCredito)}` },
+      { label: 'Gastos pendientes', valor: `${formatearPrecioEntero(Math.abs(pendientesDebito))}`, acento: true },
     ];
   })();
 
@@ -244,7 +245,7 @@ export default function BancoPage() {
               label: 'Importe',
               render: (m) => (
                 <span className={m.importe >= 0 ? 'text-brand font-medium' : 'text-gray-900'}>
-                  {m.importe.toFixed(2)} €
+                  {formatearPrecio(m.importe)}
                 </span>
               ),
             },

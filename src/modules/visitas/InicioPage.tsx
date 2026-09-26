@@ -39,7 +39,7 @@ import { useToast } from '../../hooks/useToast';
 import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio, formatearPrecioEntero, formatearMiles } from '../finanzas/lineas';
 import { porcentajeIva } from '../finanzas/iva';
 import { useFiscalConfig } from '../fiscalidad/useFiscalConfig';
 import { useEcheances } from '../fiscalidad/useEcheances';
@@ -734,8 +734,8 @@ export default function InicioPage() {
           <ComposedChart data={datosGraficoVisible} barGap={8} barCategoryGap="4%">
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
-            <Tooltip formatter={(valor) => `${Number(valor).toFixed(2)} €`} contentStyle={TOOLTIP_STYLE} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} tickFormatter={formatearMiles} />
+            <Tooltip formatter={(valor) => `${formatearPrecio(Number(valor))}`} contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ display: 'none' }} />
             {vistaPais === 'todos' ? (
               <>
@@ -761,7 +761,7 @@ export default function InicioPage() {
                 stroke="#dc2626"
                 strokeWidth={1.5}
                 strokeDasharray="4 4"
-                label={{ value: `Límite tramo 15% IS (${plafondTramo15.toFixed(0)} €)`, position: 'insideTopRight', fill: '#dc2626', fontSize: 11 }}
+                label={{ value: `Límite tramo 15% IS (${formatearPrecioEntero(plafondTramo15)})`, position: 'insideTopRight', fill: '#dc2626', fontSize: 11 }}
               />
             )}
           </ComposedChart>
@@ -843,7 +843,7 @@ export default function InicioPage() {
                   {f.numero} · {f.cliente_nombre}
                 </p>
                 <p className="text-gray-500">
-                  Vence {f.fecha_vence ?? '—'} · {calcularTotales(f.lineas).totalConIva.toFixed(2)} €
+                  Vence {f.fecha_vence ?? '—'} · {formatearPrecio(calcularTotales(f.lineas).totalConIva)}
                 </p>
               </div>
             ))}
@@ -876,16 +876,16 @@ export default function InicioPage() {
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Repercutido</span>
-              <span className="text-gray-900">{resumenIva.repercutido.toFixed(2)} €</span>
+              <span className="text-gray-900">{formatearPrecio(resumenIva.repercutido)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Deducible</span>
-              <span className="text-gray-900">{resumenIva.deducible.toFixed(2)} €</span>
+              <span className="text-gray-900">{formatearPrecio(resumenIva.deducible)}</span>
             </div>
             <div className="flex justify-between border-t border-gray-100 pt-1.5 font-semibold">
               <span className="text-gray-700">{resumenIva.saldo >= 0 ? 'A pagar' : 'A favor'}</span>
               <span className={resumenIva.saldo >= 0 ? 'text-red-600' : 'text-brand'}>
-                {Math.abs(resumenIva.saldo).toFixed(2)} €
+                {formatearPrecio(Math.abs(resumenIva.saldo))}
               </span>
             </div>
           </div>
@@ -897,13 +897,13 @@ export default function InicioPage() {
             <div className="flex justify-between">
               <span className="text-gray-500">Sin IVA</span>
               <span className={`font-semibold ${resultadoTotal.sinIva >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                {resultadoTotal.sinIva.toFixed(2)} €
+                {formatearPrecio(resultadoTotal.sinIva)}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Con IVA</span>
               <span className={`font-semibold ${resultadoTotal.conIva >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                {resultadoTotal.conIva.toFixed(2)} €
+                {formatearPrecio(resultadoTotal.conIva)}
               </span>
             </div>
           </div>
@@ -1007,10 +1007,10 @@ export default function InicioPage() {
       >
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <TarjetaHeader icon={TrendingUp} badge="bg-brand-light text-brand" titulo="Ingresos del mes" to="/contabilidad/ingresos" />
-          <p className="text-2xl font-semibold text-brand">{contabilidadMes.ingresos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-brand">{formatearPrecio(contabilidadMes.ingresos)}</p>
           {vistaPais === 'todos' && (
             <p className="text-xs text-gray-500 mb-1">
-              🇪🇸 España: {contabilidadMes.ingresosEs.toFixed(2)} € · 🇫🇷 Francia: {contabilidadMes.ingresosFr.toFixed(2)} €
+              🇪🇸 España: {formatearPrecio(contabilidadMes.ingresosEs)} · 🇫🇷 Francia: {formatearPrecio(contabilidadMes.ingresosFr)}
             </p>
           )}
           {contabilidadMes.deltaIngresos != null && (
@@ -1030,7 +1030,7 @@ export default function InicioPage() {
 
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <TarjetaHeader icon={TrendingDown} badge="bg-rose-50 text-rose-500" titulo="Gastos del mes" to="/contabilidad/gastos" />
-          <p className="text-2xl font-semibold text-rose-500">{contabilidadMes.gastos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-rose-500">{formatearPrecio(contabilidadMes.gastos)}</p>
           {contabilidadMes.deltaGastos != null && (
             <p className={`text-xs mb-1 ${contabilidadMes.deltaGastos <= 0 ? 'text-brand' : 'text-rose-500'}`}>
               {contabilidadMes.deltaGastos >= 0 ? '+' : ''}
@@ -1049,11 +1049,11 @@ export default function InicioPage() {
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <TarjetaHeader icon={Wallet} badge="bg-blue-50 text-blue-600" titulo="Resultado del mes" to="/contabilidad/resultado" />
           <p className={`text-2xl font-semibold ${contabilidadMes.resultado >= 0 ? 'text-brand' : 'text-rose-500'}`}>
-            {contabilidadMes.resultado.toFixed(2)} €
+            {formatearPrecio(contabilidadMes.resultado)}
           </p>
           {vistaPais === 'todos' && (
             <p className="text-xs text-gray-500 mb-1">
-              🇪🇸 España: {contabilidadMes.resultadoEs.toFixed(2)} € · 🇫🇷 Francia: {contabilidadMes.resultadoFr.toFixed(2)} €
+              🇪🇸 España: {formatearPrecio(contabilidadMes.resultadoEs)} · 🇫🇷 Francia: {formatearPrecio(contabilidadMes.resultadoFr)}
             </p>
           )}
           {contabilidadMes.margen != null && (
@@ -1073,16 +1073,16 @@ export default function InicioPage() {
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Repercutido</span>
-              <span className="text-gray-900">{resumenIva.repercutido.toFixed(2)} €</span>
+              <span className="text-gray-900">{formatearPrecio(resumenIva.repercutido)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Deducible</span>
-              <span className="text-gray-900">{resumenIva.deducible.toFixed(2)} €</span>
+              <span className="text-gray-900">{formatearPrecio(resumenIva.deducible)}</span>
             </div>
             <div className="flex justify-between border-t border-gray-100 pt-1.5 font-semibold">
               <span className="text-gray-700">{resumenIva.saldo >= 0 ? 'A pagar' : 'A favor'}</span>
               <span className={resumenIva.saldo >= 0 ? 'text-red-600' : 'text-brand'}>
-                {Math.abs(resumenIva.saldo).toFixed(2)} €
+                {formatearPrecio(Math.abs(resumenIva.saldo))}
               </span>
             </div>
           </div>

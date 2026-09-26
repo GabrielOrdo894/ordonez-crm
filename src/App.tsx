@@ -1,10 +1,11 @@
-import { lazy, useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import LoginPage from './modules/auth/LoginPage';
 import NuevaContrasenaPage from './modules/auth/NuevaContrasenaPage';
 import { AppLayout } from './components/layout/AppLayout';
+import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import { useEsMobil } from './hooks/useEsMobil';
 import { quiereCrmCompletoEnMovil } from './lib/crmCompletoMovil';
 
@@ -101,7 +102,18 @@ export default function App() {
       <Routes>
         {/* Fuera de AppLayout a propósito: en el móvil es la pantalla principal, sin menú lateral ni
             barra superior del CRM — solo sus acciones y un botón para ir al CRM completo. */}
-        <Route path="/rapido" element={<RapidoPage />} />
+        {/* Suspense + ErrorBoundary propios: al estar fuera de AppLayout no tenía ninguno, y un fallo
+            al cargar su código (típico justo después de un despliegue) dejaba el móvil en blanco. */}
+        <Route
+          path="/rapido"
+          element={
+            <ErrorBoundary>
+              <Suspense fallback={<div className="min-h-screen bg-[#f4f4f2]" />}>
+                <RapidoPage />
+              </Suspense>
+            </ErrorBoundary>
+          }
+        />
         <Route element={<AppLayout />}>
           <Route path="/" element={<InicioSegunDispositivo />} />
           <Route path="/visitas" element={<VisitasPage />} />

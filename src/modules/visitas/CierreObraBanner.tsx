@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from './types';
+import { isoLocal } from '../../lib/fechas';
 
 type ConfigResenas = { activo: boolean; diasEspera: number; enlace: string };
 type ConfigReferidos = { activo: boolean; descuentoReferente: number; descuentoReferido: number };
@@ -85,13 +86,13 @@ export function CierreObraBanner() {
   const fechaLimiteCierre = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - configResenas.diasEspera);
-    return d.toISOString().slice(0, 10);
+    return isoLocal(d);
   }, [configResenas.diasEspera]);
 
   const fechaLimiteCortesia = useMemo(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 6);
-    return d.toISOString().slice(0, 10);
+    return isoLocal(d);
   }, []);
 
   // Elegibles para el mensaje de cierre de obra (reseña + referidos): factura normal cobrada, con

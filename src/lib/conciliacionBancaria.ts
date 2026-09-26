@@ -5,6 +5,7 @@ import { registrarAsientoFacturaCobro } from './asientosContables';
 import { totalConIvaFactura, estadoCobroDePagos } from '../modules/finanzas/facturas/types';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import type { MovimientoBanco } from '../modules/contabilidad/types';
+import { formatearPrecio } from '../modules/finanzas/lineas';
 
 /** Llama a la Edge Function `banco-sync` (Enable Banking) y devuelve su respuesta, o lanza el
  * mensaje de error real que devolvió la función en vez del genérico de supabase-js. */
@@ -107,8 +108,8 @@ export async function vincularMovimientoAFactura(
     'factura',
     factura.id,
     origen === 'manual'
-      ? `Pago de ${movimiento.importe.toFixed(2)} € vinculado desde un movimiento bancario`
-      : `Pago de ${movimiento.importe.toFixed(2)} € conciliado automáticamente con el movimiento bancario del ${movimiento.fecha}`,
+      ? `Pago de ${formatearPrecio(movimiento.importe)} vinculado desde un movimiento bancario`
+      : `Pago de ${formatearPrecio(movimiento.importe)} conciliado automáticamente con el movimiento bancario del ${movimiento.fecha}`,
   );
 
   let avisoAsiento: string | null = null;

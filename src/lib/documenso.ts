@@ -79,3 +79,19 @@ export async function enviarPresupuestoAFirmar(p: Presupuesto, opts: { regenerar
 
   return { signingUrl: data.signingUrl, envelopeId: data.envelopeId };
 }
+
+/** Descarga el PDF firmado o el certificado de firma ("attestation") de Documenso de un presupuesto
+ * firmado. La Edge Function `documenso-descargar` los guarda en Storage la primera vez y devuelve
+ * un enlace temporal que ya lleva el nombre de fichero (Content-Disposition). */
+export async function descargarDocumentoFirmado(presupuestoId: string, tipo: 'firmado' | 'certificado'): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('documenso-descargar', { body: { presupuestoId, tipo } });
+  if (error) throw new Error(await mensajeError(error));
+  if (data?.error) throw new Error(data.error);
+  const enlace = document.createElement('a');
+  enlace.href = data.url;
+  enlace.download = data.nombre ?? '';
+  enlace.rel = 'noopener';
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+}

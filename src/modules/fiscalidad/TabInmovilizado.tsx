@@ -22,6 +22,7 @@ import {
 } from '../../lib/inmovilizado';
 import { registrarAsientoBajaInmovilizado } from '../../lib/asientosContables';
 import { ResumenTitular } from './ResumenTitular';
+import { formatearPrecio } from '../finanzas/lineas';
 
 const CUENTAS_INMOVILIZADO = CUENTAS_FR.filter((c) => c.value.startsWith('20') || c.value.startsWith('21') || c.value === '231');
 
@@ -246,7 +247,7 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
           <>
             <strong className="text-brand">{filas.length}</strong> activo{filas.length === 1 ? '' : 's'} registrado
             {filas.length === 1 ? '' : 's'}, con un valor neto contable total de{' '}
-            <strong className="text-brand">{totales.vnc.toFixed(2)} €</strong>.
+            <strong className="text-brand">{formatearPrecio(totales.vnc)}</strong>.
           </>
         )}
       </ResumenTitular>
@@ -276,9 +277,9 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
             { key: 'descripcion', label: 'Descripción' },
             { key: 'cuenta_pcg', label: 'Cuenta', render: (a) => cuentaLabel(a.cuenta_pcg) },
             { key: 'fecha_adquisicion', label: 'Adquisición' },
-            { key: 'valor_adquisicion', label: 'Valor bruto', render: (a) => `${a.valor_adquisicion.toFixed(2)} €` },
-            { key: 'acumulada', label: `Amort. acum. ${anioActual}`, render: (a) => `${a.acumulada.toFixed(2)} €` },
-            { key: 'vnc', label: 'Valor neto contable', render: (a) => `${a.vnc.toFixed(2)} €` },
+            { key: 'valor_adquisicion', label: 'Valor bruto', render: (a) => `${formatearPrecio(a.valor_adquisicion)}` },
+            { key: 'acumulada', label: `Amort. acum. ${anioActual}`, render: (a) => `${formatearPrecio(a.acumulada)}` },
+            { key: 'vnc', label: 'Valor neto contable', render: (a) => `${formatearPrecio(a.vnc)}` },
             { key: 'baja', label: 'Baja', render: (a) => a.dado_de_baja_en ?? '—' },
             {
               key: 'acciones',
@@ -311,15 +312,15 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
         <div className="bg-brand-light rounded-sm px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">Valor bruto total</p>
-            <p className="text-sm text-gray-900">{totales.valorBruto.toFixed(2)} €</p>
+            <p className="text-sm text-gray-900">{formatearPrecio(totales.valorBruto)}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">Amortización acumulada</p>
-            <p className="text-sm text-gray-900">{totales.acumulada.toFixed(2)} €</p>
+            <p className="text-sm text-gray-900">{formatearPrecio(totales.acumulada)}</p>
           </div>
           <div className="text-right">
             <p className="text-xs uppercase tracking-wide text-gray-500">Valor neto contable</p>
-            <p className="text-base font-semibold text-brand">{totales.vnc.toFixed(2)} €</p>
+            <p className="text-base font-semibold text-brand">{formatearPrecio(totales.vnc)}</p>
           </div>
         </div>
       )}

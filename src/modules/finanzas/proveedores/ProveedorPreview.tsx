@@ -5,6 +5,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { fechaCorta } from '../../../lib/fechas';
 import type { Proveedor } from './types';
+import { formatearPrecio } from '../lineas';
 
 type Campo = { icono: typeof Hash; label: string; valor: string };
 
@@ -85,7 +86,7 @@ export function ProveedorPreview({ proveedor, onVolver, onEditar }: ProveedorPre
                   <p className="text-gray-900 truncate">{g.descripcion || 'Sin descripción'}</p>
                   <p className="text-xs text-gray-400">{fechaCorta(g.fecha)}</p>
                 </div>
-                <p className="text-gray-700 shrink-0 ml-3">{((g.importe_base ?? 0) + (g.importe_iva ?? 0)).toFixed(2)} €</p>
+                <p className="text-gray-700 shrink-0 ml-3">{formatearPrecio(((g.importe_base ?? 0) + (g.importe_iva ?? 0)))}</p>
               </div>
             ))}
           </div>

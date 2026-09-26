@@ -3,6 +3,7 @@ import { calcularTotales } from '../modules/finanzas/lineas';
 import type { Linea } from '../modules/finanzas/lineas';
 import { cuentaLabel } from '../modules/finanzas/gastos/categorias';
 import { porcentajeIva } from '../modules/finanzas/iva';
+import { hoyLocalIso } from './fechas';
 
 // Cuentas del libro diario que no están en CUENTAS_FR (gastos/types.ts) porque no son cuentas de
 // gasto — son las de cliente/banco/venta/TVA/espera que usan las funciones de este fichero.
@@ -87,7 +88,7 @@ export function construirAsientosGasto(gasto: {
   // GastoForm.tsx. Solo estos dos valores disparan la autoliquidación de más abajo.
   tipo_iva?: string | null;
 }): NuevoAsiento[] {
-  const fecha = gasto.fecha ?? new Date().toISOString().slice(0, 10);
+  const fecha = gasto.fecha ?? hoyLocalIso();
   const cuenta = gasto.cuenta_contable ?? CUENTA_SIN_CLASIFICAR;
   const base = gasto.importe_base ?? 0;
   const iva = gasto.importe_iva ?? 0;
@@ -192,7 +193,7 @@ export function construirAsientosFacturaEmision(factura: {
   fecha_factura: string | null;
   lineas: Linea[];
 }): NuevoAsiento[] {
-  const fecha = factura.fecha_factura ?? new Date().toISOString().slice(0, 10);
+  const fecha = factura.fecha_factura ?? hoyLocalIso();
   const { totalSinIva, totalConIva } = calcularTotales(factura.lineas);
   const iva = totalConIva - totalSinIva;
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Factura';

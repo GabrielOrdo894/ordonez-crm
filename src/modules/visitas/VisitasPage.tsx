@@ -22,7 +22,7 @@ import { KpiRow } from '../../components/ui/Kpi';
 import { BulkActionsBar } from '../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../components/ui/AccionesFila';
 import { VisitaResumenModal } from './VisitaResumenModal';
-import { fechaVisitaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, hoyLocalIso, isoLocal } from '../../lib/fechas';
 import { useCatalogosVisitas } from './useCatalogosVisitas';
 import type { EstadoVisita, Visita } from './types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
@@ -237,13 +237,13 @@ export default function VisitasPage() {
 
   const kpis = useMemo(() => {
     const todas = (visitas ?? []).filter((v) => v.fecha_visita);
-    const hoyISO = new Date().toISOString().slice(0, 10);
+    const hoyISO = hoyLocalIso();
     const inicioSemana = new Date();
     inicioSemana.setDate(inicioSemana.getDate() - ((inicioSemana.getDay() + 6) % 7));
-    const inicioSemanaISO = inicioSemana.toISOString().slice(0, 10);
+    const inicioSemanaISO = isoLocal(inicioSemana);
     const finSemana = new Date(inicioSemana);
     finSemana.setDate(finSemana.getDate() + 6);
-    const finSemanaISO = finSemana.toISOString().slice(0, 10);
+    const finSemanaISO = isoLocal(finSemana);
 
     const hoy = todas.filter((v) => v.fecha_visita === hoyISO).length;
     const confirmadas = todas.filter((v) => v.estado === 'Realizada').length;
@@ -327,12 +327,22 @@ export default function VisitasPage() {
             label: 'Eliminar',
             variant: 'danger',
             onClick: async () => {
+              // Mismo aviso de documentos activos que el borrado individual — el masivo no lo daba y así
+              // acabó en la papelera la visita de un cliente con presupuesto aceptado y acomptes
+              // cobrados (caso real 2026-09-20, auditoría 2026-09-26).
+              const ids = Array.from(seleccion) as string[];
+              const avisos = await Promise.all(ids.map((id) => avisoDocumentosActivosDeVisita(id)));
+              const conDocumentos = ids
+                .map((id, i) => ({ v: (visitas ?? []).find((x) => x.id === id), aviso: avisos[i] }))
+                .filter((x) => x.aviso)
+                .map((x) => `• ${x.v ? `${x.v.nombre} ${x.v.apellidos}`.trim() : 'Visita'}:${x.aviso}`);
               const confirmado = await confirmar({
                 titulo: `¿Eliminar ${seleccion.size} visita(s)?`,
                 mensaje:
                   'Se moverán a la Papelera (podrás restaurarlas desde allí). Mientras estén en la papelera ' +
                   'dejarán de aparecer en los listados y los presupuestos, facturas, proyectos, solicitudes y ' +
-                  'fotos de galería vinculados quedarán sin visita asociada.',
+                  'fotos de galería vinculados quedarán sin visita asociada.' +
+                  (conDocumentos.length > 0 ? `\n\nAtención — con documentos activos:\n${conDocumentos.join('\n')}` : ''),
                 textoConfirmar: 'Eliminar',
               });
               if (!confirmado) return;

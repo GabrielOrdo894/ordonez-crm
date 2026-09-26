@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { cargarEntidad } from '../../../lib/pdfEmpresa';
-import { calcularTotales } from '../lineas';
+import { calcularTotales, formatearPrecio } from '../lineas';
 import { paisDesdeTipoIva, type Factura } from './types';
 
 type RecordatorioPagoModalProps = {
@@ -80,7 +80,7 @@ export function RecordatorioPagoModal({ factura, onClose }: RecordatorioPagoModa
               {factura.numero} · {factura.cliente_nombre}
             </p>
             <p className="text-xs text-gray-500">
-              Pendiente: {pendiente.toFixed(2)} € · Vence: {factura.fecha_vence ?? '—'}
+              Pendiente: {formatearPrecio(pendiente)} · Vence: {factura.fecha_vence ?? '—'}
             </p>
           </div>
 

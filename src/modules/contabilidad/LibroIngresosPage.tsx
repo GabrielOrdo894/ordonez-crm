@@ -7,6 +7,7 @@ import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
 import { fechaVisitaCorta } from '../../lib/fechas';
+import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 // Un pago real (pagos_factura) con los datos de su factura embebidos — un ingreso real es un PAGO,
 // no una factura: antes esta pantalla mostraba una fila por factura cobrada usando su único
@@ -76,9 +77,9 @@ export default function LibroIngresosPage() {
     const totalConIva = ingresos.reduce((s, i) => s + i.conIva, 0);
     return [
       { label: 'Total ingresos', valor: ingresos.length },
-      { label: 'Este mes', valor: `${esteMes.reduce((s, i) => s + i.conIva, 0).toFixed(0)} €` },
-      { label: 'Ingresos sin IVA', valor: `${totalSinIva.toFixed(0)} €` },
-      { label: 'Ingresos con IVA', valor: `${totalConIva.toFixed(0)} €`, acento: true },
+      { label: 'Este mes', valor: `${formatearPrecioEntero(esteMes.reduce((s, i) => s + i.conIva, 0))}` },
+      { label: 'Ingresos sin IVA', valor: `${formatearPrecioEntero(totalSinIva)}` },
+      { label: 'Ingresos con IVA', valor: `${formatearPrecioEntero(totalConIva)}`, acento: true },
     ];
   }, [ingresos]);
 
@@ -117,8 +118,8 @@ export default function LibroIngresosPage() {
           columns={[
             { key: 'fecha', label: 'Fecha de cobro', render: (i) => fechaVisitaCorta(i.fecha) },
             { key: 'titulo', label: 'Título' },
-            { key: 'sinIva', label: 'Ingresos sin IVA', render: (i) => `${i.sinIva.toFixed(2)} €` },
-            { key: 'conIva', label: 'Ingresos con IVA', render: (i) => `${i.conIva.toFixed(2)} €` },
+            { key: 'sinIva', label: 'Ingresos sin IVA', render: (i) => `${formatearPrecio(i.sinIva)}` },
+            { key: 'conIva', label: 'Ingresos con IVA', render: (i) => `${formatearPrecio(i.conIva)}` },
           ]}
         />
       </div>

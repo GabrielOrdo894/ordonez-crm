@@ -5,6 +5,7 @@ import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
 import { normalizarNombre, normalizarTelefono } from '../clientes/types';
 import { ETIQUETA_ESTADO_SOLICITUD, type EstadoSolicitud } from './types';
+import { isoLocal } from '../../lib/fechas';
 
 // Mismo criterio de umbral que useNotificaciones.ts / alerta-diaria (2026-08-30): un borrador
 // (orientativo o normal) que lleva 2+ días sin marcarse como enviado se considera "olvidado".
@@ -13,7 +14,7 @@ const LIMITE_DIAS_BORRADOR = 2;
 function isoHaceDias(dias: number) {
   const d = new Date();
   d.setDate(d.getDate() - dias);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
 }
 
 function fecha(f: string | null) {
@@ -159,7 +160,7 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
   const limite7d = (() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 10);
+    return isoLocal(d);
   })();
   const presupuestosPorCerrar = (presupuestos ?? []).filter(
     (p) => p.estado === 'Pendiente' && p.fecha_validez && p.fecha_validez <= limite7d,

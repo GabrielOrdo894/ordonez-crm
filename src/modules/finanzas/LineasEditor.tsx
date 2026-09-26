@@ -7,17 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
-import {
-  UNIDADES,
-  getTiposServicio,
-  lineaVacia,
-  calcularLinea,
-  calcularTotales,
-  calcularTotalesRango,
-  totalLineaMax,
-  formatearUnidadTexto,
-  lineaInvalida,
-} from './lineas';
+import { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, calcularTotalesRango, totalLineaMax, formatearUnidadTexto, lineaInvalida, formatearPrecio } from './lineas';
 import type { Linea, LineaCatalogo } from './lineas';
 
 type LineasEditorProps = {
@@ -99,7 +89,7 @@ function DesignacionCombobox({
               <p className="text-gray-900 truncate">{item.designacion}</p>
               {(item.referencia || item.precio_unit != null) && (
                 <p className="text-xs text-gray-400 truncate">
-                  {[item.referencia, item.precio_unit != null ? `${item.precio_unit.toFixed(2)} €` : null]
+                  {[item.referencia, item.precio_unit != null ? `${formatearPrecio(item.precio_unit)}` : null]
                     .filter(Boolean)
                     .join(' · ')}
                 </p>
@@ -319,15 +309,15 @@ export function LineasEditor({
                   <span className="text-sm text-gray-700">Incluido</span>
                 ) : rango ? (
                   <span className="text-sm text-gray-900 font-semibold">
-                    {linea.total_con_iva.toFixed(2)} – {max.conIva.toFixed(2)} €{' '}
+                    {linea.total_con_iva.toFixed(2)} – {formatearPrecio(max.conIva)}{' '}
                     <span className="text-xs text-gray-400 font-normal">
-                      (s/IVA {linea.total_sin_iva.toFixed(2)} – {max.sinIva.toFixed(2)} €)
+                      (s/IVA {linea.total_sin_iva.toFixed(2)} – {formatearPrecio(max.sinIva)})
                     </span>
                   </span>
                 ) : (
                   <span className="text-sm text-gray-900 font-semibold">
-                    {linea.total_con_iva.toFixed(2)} €{' '}
-                    <span className="text-xs text-gray-400 font-normal">(s/IVA {linea.total_sin_iva.toFixed(2)} €)</span>
+                    {formatearPrecio(linea.total_con_iva)}{' '}
+                    <span className="text-xs text-gray-400 font-normal">(s/IVA {formatearPrecio(linea.total_sin_iva)})</span>
                   </span>
                 )}
               </div>
@@ -348,19 +338,19 @@ export function LineasEditor({
       {rangoTotales ? (
         <div className="flex justify-end gap-6 mt-4 pt-3 border-t border-gray-200 text-sm">
           <p className="text-gray-500">
-            Base: {rangoTotales.totalSinIvaMin.toFixed(2)} – {rangoTotales.totalSinIvaMax.toFixed(2)} €
+            Base: {rangoTotales.totalSinIvaMin.toFixed(2)} – {formatearPrecio(rangoTotales.totalSinIvaMax)}
           </p>
           <p className="text-gray-900 font-semibold">
-            TOTAL: {rangoTotales.totalConIvaMin.toFixed(2)} – {rangoTotales.totalConIvaMax.toFixed(2)} €
+            TOTAL: {rangoTotales.totalConIvaMin.toFixed(2)} – {formatearPrecio(rangoTotales.totalConIvaMax)}
           </p>
         </div>
       ) : (
         <div className="flex justify-end gap-6 mt-4 pt-3 border-t border-gray-200 text-sm">
-          <p className="text-gray-500">Base: {totalSinIva.toFixed(2)} €</p>
+          <p className="text-gray-500">Base: {formatearPrecio(totalSinIva)}</p>
           <p className="text-gray-500">
-            IVA ({porcentajeIva}%): {(totalConIva - totalSinIva).toFixed(2)} €
+            IVA ({porcentajeIva}%): {formatearPrecio((totalConIva - totalSinIva))}
           </p>
-          <p className="text-gray-900 font-semibold">TOTAL: {totalConIva.toFixed(2)} €</p>
+          <p className="text-gray-900 font-semibold">TOTAL: {formatearPrecio(totalConIva)}</p>
         </div>
       )}
     </div>

@@ -24,6 +24,7 @@ import { usePlanningPdfData } from './usePlanningPdfData';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Proyecto, FaseObra } from './PlanningObraPage';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
+import { formatearPrecio } from '../finanzas/lineas';
 
 const ESTADOS_PROYECTO = ['Planificado', 'En curso', 'Pausado', 'Finalizado'];
 
@@ -317,7 +318,7 @@ export function PlanningObraDetalle({
                 <>
                   <p className="text-sm font-medium text-gray-900">{presupuesto.numero}</p>
                   <p className="text-xs text-gray-500">
-                    {presupuesto.fecha_emision} · {presupuestoTotal?.toFixed(2)} €
+                    {presupuesto.fecha_emision} · {presupuestoTotal != null ? formatearPrecio(presupuestoTotal) : '—'}
                   </p>
                 </>
               ) : (

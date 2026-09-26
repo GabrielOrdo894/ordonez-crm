@@ -627,13 +627,15 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
     // la acción manual "Marcar como Enviada" en SolicitudesPage.tsx) — confirmado con duplicados
     // reales en producción, auditoría 2026-08-18. Mismo criterio que registrarEventoFunnel en
     // src/lib/funnelTracking.ts, duplicado aquí porque esta función Deno no puede importarlo.
-    const { data: yaRegistrado } = await supabase
+    const { data: yaRegistrado, error: errorYaRegistrado } = await supabase
       .from('funnel_eventos')
       .select('id')
       .eq('etapa', 'solicitud_respondida')
       .eq('solicitud_id', s.id)
       .limit(1);
-    if (!yaRegistrado || yaRegistrado.length === 0) {
+    if (errorYaRegistrado) {
+      log.push(`No se pudo comprobar el evento de funnel de la solicitud ${s.id}: ${errorYaRegistrado.message}`);
+    } else if (!yaRegistrado || yaRegistrado.length === 0) {
       const { error: errorFunnel } = await supabase
         .from('funnel_eventos')
         .insert({ etapa: 'solicitud_respondida', solicitud_id: s.id, fuente: s.fuente });
@@ -939,25 +941,35 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
     // florent.courally@yahoo.fr y rosarito.olabe@gmail.com aparecían dos veces en Solicitudes).
     // Solo se compara por email — es el único dato fiable que da esta función en este punto (el
     // teléfono no siempre aparece en la cabecera del email).
-    const { data: presupuestoExistente } = await supabase
+    const { data: presupuestoExistente, error: errorPresupuestoExistente } = await supabase
       .from('presupuestos')
       .select('id')
       .ilike('cliente_email', deUltimo)
       .is('eliminado_en', null)
       .limit(1);
+    // Si la comprobación falla no se puede saber si es un duplicado: se deja el hilo para la
+    // siguiente pasada en vez de crear una solicitud repetida (auditoría 2026-09-26).
+    if (errorPresupuestoExistente) {
+      log.push(`No se pudo comprobar si ${deUltimo} ya tiene presupuesto (${errorPresupuestoExistente.message}) — se reintentará.`);
+      continue;
+    }
     if (presupuestoExistente && presupuestoExistente.length > 0) {
       hilosYaTracked.add(threadId);
       log.push(`Conversación directa de ${deUltimo} (hilo ${threadId}) ya tiene un presupuesto en curso — no se crea solicitud duplicada.`);
       continue;
     }
 
-    const { data: solicitudExistente } = await supabase
+    const { data: solicitudExistente, error: errorSolicitudExistente } = await supabase
       .from('solicitudes')
       .select('id, nombre, estado, ultima_respuesta_cliente_fecha, tipo_solicitud')
       .ilike('email', deUltimo)
       .not('estado', 'in', '(No concretada,Rechazada,Eliminada)')
       .order('created_at', { ascending: false })
       .limit(1);
+    if (errorSolicitudExistente) {
+      log.push(`No se pudo comprobar si ${deUltimo} ya tiene solicitud (${errorSolicitudExistente.message}) — se reintentará.`);
+      continue;
+    }
     if (solicitudExistente && solicitudExistente.length > 0) {
       const existente = solicitudExistente[0];
       const esMasReciente = !existente.ultima_respuesta_cliente_fecha || fechaUltimo > existente.ultima_respuesta_cliente_fecha;
@@ -1039,12 +1051,16 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
 // CRM aparte de mandar el correo. Solo detecta envíos por email (WhatsApp sigue siendo manual) y
 // solo si el nombre del adjunto no se ha cambiado antes de mandarlo. Petición de Gabriel 2026-09-09.
 async function detectarPresupuestosEnviadosPorEmail(token: string, supabase: SupabaseClient, log: string[]) {
-  const { data: borradores } = await supabase
+  const { data: borradores, error: errorBorradores } = await supabase
     .from('presupuestos')
     .select('id, numero')
     .eq('estado', 'Borrador')
     .is('eliminado_en', null)
     .not('numero', 'is', null);
+  if (errorBorradores) {
+    log.push(`Error leyendo presupuestos en Borrador: ${errorBorradores.message}`);
+    return 0;
+  }
   if (!borradores || borradores.length === 0) {
     log.push('Envíos de presupuestos: sin presupuestos en Borrador, no hace falta revisar Enviados.');
     return 0;
@@ -1088,13 +1104,15 @@ async function detectarPresupuestosEnviadosPorEmail(token: string, supabase: Sup
         log.push(`Error marcando presupuesto ${numero} como Pendiente: ${errorUpdate.message}`);
         continue;
       }
-      const { data: yaRegistrado } = await supabase
+      const { data: yaRegistrado, error: errorYaRegistrado } = await supabase
         .from('funnel_eventos')
         .select('id')
         .eq('etapa', 'presupuesto_enviado')
         .eq('presupuesto_id', presupuestoId)
         .limit(1);
-      if (!yaRegistrado || yaRegistrado.length === 0) {
+      if (errorYaRegistrado) {
+        log.push(`No se pudo comprobar el evento de funnel del presupuesto ${numero}: ${errorYaRegistrado.message}`);
+      } else if (!yaRegistrado || yaRegistrado.length === 0) {
         const { error: errorFunnel } = await supabase
           .from('funnel_eventos')
           .insert({ etapa: 'presupuesto_enviado', presupuesto_id: presupuestoId, fuente: 'email_directo' });

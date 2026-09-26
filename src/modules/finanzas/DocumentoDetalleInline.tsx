@@ -18,7 +18,7 @@ import { notaSistema } from '../../lib/notaSistema';
 import { vaciarPagosFactura, rectificarAsientosFacturaSiHaceFalta } from '../../lib/pagosFactura';
 import { generarPdfPresupuesto, generarPdfPresupuestoTraducido, verPdfPresupuestoTraducido } from '../../lib/generarPdfPresupuesto';
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
-import { enviarPresupuestoAFirmar } from '../../lib/documenso';
+import { enviarPresupuestoAFirmar, descargarDocumentoFirmado } from '../../lib/documenso';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { agruparClientes, normalizarTelefono } from '../clientes/types';
@@ -33,6 +33,7 @@ import { FacturaPreview } from './facturas/FacturaPreview';
 import { FacturaForm } from './facturas/FacturaForm';
 import { RegistrarPagoModal } from './facturas/RegistrarPagoModal';
 import type { Factura } from './facturas/types';
+import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './presupuestos/estadoCobro';
 
 export type TipoDocumento = 'presupuesto' | 'factura';
 
@@ -90,6 +91,24 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   });
 
   const doc = tipo === 'presupuesto' ? presupuesto : factura;
+
+  const { data: facturasCobro } = useQuery({
+    queryKey: ['facturas', 'cobro-por-presupuesto', id],
+    enabled: tipo === 'presupuesto' && presupuesto?.estado === 'Aceptado' && presupuesto?.tipo !== 'orientativo',
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select(SELECT_FACTURAS_COBRO)
+        .is('eliminado_en', null)
+        .eq('presupuesto_id', id);
+      if (error) throw error;
+      return data as FacturaParaCobro[];
+    },
+  });
+  const cobroPresupuesto =
+    tipo === 'presupuesto' && presupuesto && presupuesto.tipo !== 'orientativo'
+      ? estadoCobroPresupuesto(presupuesto, facturasCobro ?? [])
+      : null;
 
   const { data: eventos } = useQuery({
     queryKey: ['documento_eventos', tipo, id],
@@ -331,6 +350,18 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     toast.success('Enlace copiado');
   };
 
+  const [descargandoFirmado, setDescargandoFirmado] = useState<'firmado' | 'certificado' | null>(null);
+  const handleDescargarFirmado = async (clase: 'firmado' | 'certificado') => {
+    setDescargandoFirmado(clase);
+    try {
+      await descargarDocumentoFirmado(id, clase);
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo descargar el documento firmado'));
+    } finally {
+      setDescargandoFirmado(null);
+    }
+  };
+
   const handleDescargarPdf = async () => {
     try {
       if (tipo === 'presupuesto' && presupuesto) await conAvisoDescarga(() => generarPdfPresupuesto(presupuesto), toast);
@@ -439,15 +470,21 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             {titulo && <span className="font-normal text-gray-500"> · {titulo}</span>}
           </h1>
           <div className="flex items-center gap-2 mt-1.5">
-            <Badge
-              variant={
-                tipo === 'presupuesto' && estado === 'Aceptado' && presupuesto?.tipo === 'orientativo'
-                  ? 'aceptado-orientativo'
-                  : (VARIANTE_ESTADO[estado] ?? 'default')
-              }
-            >
-              {estado}
-            </Badge>
+            {cobroPresupuesto === 'Pagado' ? (
+              <Badge variant="pagado">Pagado</Badge>
+            ) : cobroPresupuesto === 'Primer pago recibido' ? (
+              <Badge variant="confirmada">Primer pago recibido</Badge>
+            ) : (
+              <Badge
+                variant={
+                  tipo === 'presupuesto' && estado === 'Aceptado' && presupuesto?.tipo === 'orientativo'
+                    ? 'aceptado-orientativo'
+                    : (VARIANTE_ESTADO[estado] ?? 'default')
+                }
+              >
+                {estado}
+              </Badge>
+            )}
             <span className="text-xs text-gray-400">{fechas}</span>
           </div>
         </div>
@@ -458,6 +495,24 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               Descargar PDF
             </span>
           </Button>
+          {/* PDF firmado y certificado de firma de Documenso a la vista, no escondidos en el paso 7
+              del formulario de edición (petición de Gabriel 2026-09-26). */}
+          {tipo === 'presupuesto' && presupuesto?.firmado && (
+            <Button variant="secondary" onClick={() => handleDescargarFirmado('firmado')} disabled={descargandoFirmado !== null}>
+              <span className="flex items-center gap-1.5">
+                <Download size={14} />
+                {descargandoFirmado === 'firmado' ? 'Descargando…' : 'PDF firmado'}
+              </span>
+            </Button>
+          )}
+          {tipo === 'presupuesto' && presupuesto?.firmado && presupuesto.documenso_envelope_id && (
+            <Button variant="secondary" onClick={() => handleDescargarFirmado('certificado')} disabled={descargandoFirmado !== null}>
+              <span className="flex items-center gap-1.5">
+                <FileSignature size={14} />
+                {descargandoFirmado === 'certificado' ? 'Descargando…' : 'Certificado de firma'}
+              </span>
+            </Button>
+          )}
           <Button variant="primary" onClick={() => setEditando(true)}>
             <span className="flex items-center gap-1.5">
               <Pencil size={14} />

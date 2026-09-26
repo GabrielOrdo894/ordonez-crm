@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
-import { calcularTotales } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio, formatearMiles } from '../finanzas/lineas';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { normalizarTelefono } from '../clientes/types';
 import { useComptaFrancia } from '../fiscalidad/useComptaFrancia';
@@ -300,21 +300,21 @@ export default function DashboardContablePage() {
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2 flex items-center gap-1.5">
             <Wallet size={13} className="text-brand" /> Trésorerie (libro diario)
           </p>
-          <p className="text-2xl font-semibold text-gray-900">{bilanActivo.tresoreria.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(bilanActivo.tresoreria)}</p>
           <p className="text-xs text-gray-400 mt-1">cuenta 512, solo Francia contabilizada</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos del período</p>
-          <p className="text-2xl font-semibold text-brand">{kpis.ingresos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-brand">{formatearPrecio(kpis.ingresos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos del período</p>
-          <p className="text-2xl font-semibold text-red-600">{kpis.gastos.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-red-600">{formatearPrecio(kpis.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado del período</p>
           <p className={`text-2xl font-semibold ${kpis.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
-            {kpis.resultado.toFixed(2)} €
+            {formatearPrecio(kpis.resultado)}
           </p>
           {kpis.margen != null && <p className="text-xs text-gray-400 mt-1">Margen: {kpis.margen.toFixed(0)}%</p>}
         </div>
@@ -325,13 +325,13 @@ export default function DashboardContablePage() {
           <div className="flex items-baseline justify-between">
             <span className="text-xs text-gray-500">España</span>
             <span className={`text-base font-semibold ${kpis.ivaEspana.saldo >= 0 ? 'text-red-600' : 'text-brand'}`}>
-              {Math.abs(kpis.ivaEspana.saldo).toFixed(2)} € {kpis.ivaEspana.saldo >= 0 ? 'a pagar' : 'a favor'}
+              {formatearPrecio(Math.abs(kpis.ivaEspana.saldo))} {kpis.ivaEspana.saldo >= 0 ? 'a pagar' : 'a favor'}
             </span>
           </div>
           <div className="flex items-baseline justify-between mt-1">
             <span className="text-xs text-gray-500">Francia</span>
             <span className={`text-base font-semibold ${kpis.ivaFrancia.saldo >= 0 ? 'text-red-600' : 'text-brand'}`}>
-              {Math.abs(kpis.ivaFrancia.saldo).toFixed(2)} € {kpis.ivaFrancia.saldo >= 0 ? 'a pagar' : 'a favor'}
+              {formatearPrecio(Math.abs(kpis.ivaFrancia.saldo))} {kpis.ivaFrancia.saldo >= 0 ? 'a pagar' : 'a favor'}
             </span>
           </div>
         </div>
@@ -340,19 +340,19 @@ export default function DashboardContablePage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos Francia (período)</p>
-          <p className="text-2xl font-semibold text-brand">{porPais.ingresosFr.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-brand">{formatearPrecio(porPais.ingresosFr)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos España (período)</p>
-          <p className="text-2xl font-semibold text-gray-900">{porPais.ingresosEs.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(porPais.ingresosEs)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos Francia (período)</p>
-          <p className="text-2xl font-semibold text-red-600">{porPais.gastosFr.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-red-600">{formatearPrecio(porPais.gastosFr)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos España (período)</p>
-          <p className="text-2xl font-semibold text-red-600">{porPais.gastosEs.toFixed(2)} €</p>
+          <p className="text-2xl font-semibold text-red-600">{formatearPrecio(porPais.gastosEs)}</p>
         </div>
       </div>
 
@@ -364,8 +364,8 @@ export default function DashboardContablePage() {
           <ComposedChart data={evolucionMensual}>
             <CartesianGrid stroke="#e5e7eb" vertical={false} />
             <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={{ stroke: '#e5e7eb' }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} />
-            <Tooltip formatter={(valor: unknown) => `${Number(valor).toFixed(2)} €`} contentStyle={TOOLTIP_STYLE} />
+            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} width={55} tickFormatter={formatearMiles} />
+            <Tooltip formatter={(valor: unknown) => `${formatearPrecio(Number(valor))}`} contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Bar dataKey="ingresos" name="Ingresos" fill="#1a5c38" radius={[2, 2, 0, 0]} />
             <Bar dataKey="gastos" name="Gastos" fill="#b91c1c" radius={[2, 2, 0, 0]} />
@@ -384,9 +384,9 @@ export default function DashboardContablePage() {
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(160, gastosPorCategoria.length * 32)}>
               <BarChart data={gastosPorCategoria} layout="vertical" margin={{ left: 10 }}>
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={formatearMiles} />
                 <YAxis type="category" dataKey="categoria" width={150} tick={{ fontSize: 11, fill: '#374151' }} />
-                <Tooltip formatter={(valor: unknown) => `${Number(valor).toFixed(2)} €`} contentStyle={TOOLTIP_STYLE} />
+                <Tooltip formatter={(valor: unknown) => `${formatearPrecio(Number(valor))}`} contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="total" fill="#1a5c38" radius={[0, 2, 2, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -407,7 +407,7 @@ export default function DashboardContablePage() {
               {topProveedores.map((p) => (
                 <tr key={p.proveedor} className="border-t border-gray-100">
                   <td className="py-1.5 text-gray-900">{p.proveedor}</td>
-                  <td className="py-1.5 text-right text-gray-700">{p.total.toFixed(2)} €</td>
+                  <td className="py-1.5 text-right text-gray-700">{formatearPrecio(p.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -432,7 +432,7 @@ export default function DashboardContablePage() {
                   <td className="py-1.5 text-gray-900">
                     {factura.numero} · {factura.cliente_nombre}
                   </td>
-                  <td className="py-1.5 text-right text-gray-700">{total.toFixed(2)} €</td>
+                  <td className="py-1.5 text-right text-gray-700">{formatearPrecio(total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -453,7 +453,7 @@ export default function DashboardContablePage() {
               {topClientes.map((c) => (
                 <tr key={c.nombre} className="border-t border-gray-100">
                   <td className="py-1.5 text-gray-900">{c.nombre}</td>
-                  <td className="py-1.5 text-right text-gray-700">{c.total.toFixed(2)} €</td>
+                  <td className="py-1.5 text-right text-gray-700">{formatearPrecio(c.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -470,13 +470,13 @@ export default function DashboardContablePage() {
             <div>
               <p className="text-xs text-gray-400">Resultado Francia</p>
               <p className={`font-medium ${porPais.ingresosFr - porPais.gastosFr >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                {(porPais.ingresosFr - porPais.gastosFr).toFixed(2)} €
+                {formatearPrecio((porPais.ingresosFr - porPais.gastosFr))}
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-400">Resultado España</p>
               <p className={`font-medium ${porPais.ingresosEs - porPais.gastosEs >= 0 ? 'text-brand' : 'text-red-600'}`}>
-                {(porPais.ingresosEs - porPais.gastosEs).toFixed(2)} €
+                {formatearPrecio((porPais.ingresosEs - porPais.gastosEs))}
               </p>
             </div>
           </div>
@@ -489,11 +489,11 @@ export default function DashboardContablePage() {
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Pendientes ({facturasEstado.pendientes.count})</span>
-              <span className="text-amber-600 font-medium">{facturasEstado.pendientes.monto.toFixed(2)} €</span>
+              <span className="text-amber-600 font-medium">{formatearPrecio(facturasEstado.pendientes.monto)}</span>
             </div>
             <div className="flex justify-between border-t border-gray-100 pt-1.5">
               <span className="text-gray-500">Vencidas ({facturasEstado.vencidas.count})</span>
-              <span className="text-red-600 font-medium">{facturasEstado.vencidas.monto.toFixed(2)} €</span>
+              <span className="text-red-600 font-medium">{formatearPrecio(facturasEstado.vencidas.monto)}</span>
             </div>
           </div>
         </div>
@@ -506,11 +506,11 @@ export default function DashboardContablePage() {
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <p className="text-xs text-gray-400">Pendientes de respuesta ({presupuestosResumen.pendientes.count})</p>
-            <p className="text-gray-900 font-medium">{presupuestosResumen.pendientes.monto.toFixed(2)} €</p>
+            <p className="text-gray-900 font-medium">{formatearPrecio(presupuestosResumen.pendientes.monto)}</p>
           </div>
           <div>
             <p className="text-xs text-gray-400">Aceptados sin facturar ({presupuestosResumen.aceptadosSinFacturar.count})</p>
-            <p className="text-gray-900 font-medium">{presupuestosResumen.aceptadosSinFacturar.monto.toFixed(2)} €</p>
+            <p className="text-gray-900 font-medium">{formatearPrecio(presupuestosResumen.aceptadosSinFacturar.monto)}</p>
           </div>
         </div>
       </div>

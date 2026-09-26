@@ -66,6 +66,16 @@ async function liberarLock(supabase: SupabaseClient): Promise<void> {
 
 const UNA_HORA_MS = 60 * 60 * 1000;
 
+// fecha_visita/hora_visita están en hora de Francia/España. Deno corre en UTC, así que
+// `new Date('2026-09-26T18:00:00')` se leía como 18:00 UTC = 20:00 en París y la visita se
+// autocompletaba 2 horas tarde en verano (1 en invierno) — auditoría 2026-09-26.
+function instanteEnParis(fecha: string, hora: string): number {
+  const comoUtc = Date.parse(`${fecha}T${hora}:00Z`);
+  const enParis = new Date(comoUtc).toLocaleString('sv-SE', { timeZone: 'Europe/Paris' }).replace(' ', 'T');
+  const desfase = Date.parse(`${enParis}Z`) - comoUtc;
+  return comoUtc - desfase;
+}
+
 type Oficina = { lat: number; lng: number };
 // El kilometraje siempre se calcula desde el taller de Hendaye, sea España o Francia la visita —
 // misma regla que ya usa el cálculo manual (src/lib/calcularKmIdaYVuelta.ts, un único origen fijo)
@@ -130,7 +140,7 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
   const ahora = Date.now();
   const pasadas = (visitas ?? []).filter((v: { fecha_visita: string; hora_visita: string | null }) => {
     const hora = (v.hora_visita ?? '00:00').slice(0, 5);
-    return new Date(`${v.fecha_visita}T${hora}:00`).getTime() + UNA_HORA_MS < ahora;
+    return instanteEnParis(v.fecha_visita, hora) + UNA_HORA_MS < ahora;
   }) as (VisitaPendiente & { hora_visita: string | null })[];
 
   if (pasadas.length === 0) return { completadas: 0, gastosCreados: 0 };
@@ -151,7 +161,12 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
     // Se aplica a España y Francia por igual (confirmado 2026-08-17) — el barème kilométrique es
     // la deducción de la EURL francesa, existe sea cual sea el país de la visita, por eso el
     // gasto se guarda siempre con pais:'Francia' más abajo, no con v.pais.
-    const { data: existente } = await supabase.from('gastos').select('id').eq('visita_id', v.id).limit(1);
+    const { data: existente, error: errorExistente } = await supabase.from('gastos').select('id').eq('visita_id', v.id).limit(1);
+    // Si no se puede comprobar, no se crea: un fallo aquí creaba un gasto duplicado (auditoría 2026-09-26).
+    if (errorExistente) {
+      console.error(`autocompletarVisitas: no se pudo comprobar el gasto existente de ${v.id}:`, errorExistente.message);
+      continue;
+    }
     if (existente && existente.length > 0) continue;
 
     const km = v.lat != null && v.lng != null ? await calcularKmIdaYVuelta(v.lat, v.lng) : null;

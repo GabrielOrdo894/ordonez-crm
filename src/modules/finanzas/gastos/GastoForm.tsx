@@ -21,6 +21,8 @@ import { calcularIndemnizacionKm, tarifaPorCv, CV_OPCIONES } from './baremoKilom
 import { calcularKmIdaYVuelta } from '../../../lib/calcularKmIdaYVuelta';
 import { MapsAutocomplete } from '../../google/MapsAutocomplete';
 import type { LugarSeleccionado } from '../../google/MapsAutocomplete';
+import { hoyLocalIso } from '../../../lib/fechas';
+import { formatearPrecio } from '../lineas';
 
 // Cuentas del grupo "Immobilisations" — comprar un activo así se enlaza automáticamente con la
 // tabla `inmovilizado` al guardar (ver guardarMutation), en vez de dejarlo como un paso manual
@@ -49,7 +51,8 @@ const PLANTILLAS_RAPIDAS = [
 ];
 
 function fechaHoy() {
-  return new Date().toISOString().slice(0, 10);
+  // Hora local, no UTC (auditoría 2026-09-26: de madrugada daba el día anterior).
+  return hoyLocalIso();
 }
 
 function Seccion({ numero, titulo, icono: Icono, children }: { numero: number; titulo: string; icono: typeof Receipt; children: ReactNode }) {
@@ -606,7 +609,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                     <p className="text-xs text-gray-600">
                       Barème kilométrique 2026: {form.km} km × {tarifaPorCv(form.vehiculo_cv)} €/km
                     </p>
-                    <p className="text-base font-semibold text-brand">{importeTotalEfectivo.toFixed(2)} €</p>
+                    <p className="text-base font-semibold text-brand">{formatearPrecio(importeTotalEfectivo)}</p>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">
                     Indemnité kilométrique por uso profesional puntual de un vehículo personal — sin IVA (no es una compra,
@@ -717,15 +720,15 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
                   <div className="bg-brand-light rounded-sm px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-wide text-gray-500">Base</p>
-                      <p className="text-sm text-gray-900">{importeBase.toFixed(2)} €</p>
+                      <p className="text-sm text-gray-900">{formatearPrecio(importeBase)}</p>
                     </div>
                     <div>
                       <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible ({porcentaje}%)</p>
-                      <p className="text-sm text-gray-900">{importeIvaDeducible.toFixed(2)} €</p>
+                      <p className="text-sm text-gray-900">{formatearPrecio(importeIvaDeducible)}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
-                      <p className="text-base font-semibold text-brand">{importeTotalEfectivo.toFixed(2)} €</p>
+                      <p className="text-base font-semibold text-brand">{formatearPrecio(importeTotalEfectivo)}</p>
                     </div>
                   </div>
                 </>

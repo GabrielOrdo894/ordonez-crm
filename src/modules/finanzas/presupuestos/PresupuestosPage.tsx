@@ -38,6 +38,8 @@ import { CrearAcompteModal } from './CrearAcompteModal';
 import { IniciarPresupuestoPage } from './IniciarPresupuestoPage';
 import type { InicioPresupuesto } from './IniciarPresupuestoPage';
 import { FacturaForm } from '../facturas/FacturaForm';
+import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './estadoCobro';
+import { descargarDocumentoFirmado } from '../../../lib/documenso';
 
 const ESTADOS_FILTRO = ['Todos', ...ESTADOS_PRESUPUESTO];
 const TIPOS_FILTRO = [{ value: 'Todos', label: 'Todos' }, ...TIPOS_PRESUPUESTO];
@@ -141,6 +143,21 @@ export default function PresupuestosPage() {
   // llega primero y cachea ese resultado para el resto, así que el orden no puede depender de este
   // queryFn (bug real corregido 2026-08-31: entrar antes a otra pantalla dejaba esta tabla
   // desordenada hasta el siguiente refetch). Se ordena aparte, en el propio componente.
+  // Cobros de las facturas de cada presupuesto → "Primer pago recibido" / "Pagado" en la columna
+  // Estado (petición 2026-09-26). queryKey propia: solo 4 columnas.
+  const { data: facturasCobro } = useQuery({
+    queryKey: ['facturas', 'cobro-por-presupuesto'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select(SELECT_FACTURAS_COBRO)
+        .is('eliminado_en', null)
+        .not('presupuesto_id', 'is', null);
+      if (error) throw error;
+      return data as FacturaParaCobro[];
+    },
+  });
+
   const { data: presupuestosSinOrdenar, isLoading } = useQuery({
     queryKey: ['presupuestos'],
     queryFn: async () => {
@@ -307,6 +324,14 @@ export default function PresupuestosPage() {
         : '';
     if (!(await confirmar(`¿Eliminar el presupuesto ${p.numero ?? ''}? Se moverá a la Papelera.${avisoFirma}`))) return;
     eliminarMutation.mutate(p.id);
+  };
+
+  const handleDescargarFirmado = async (p: Presupuesto, clase: 'firmado' | 'certificado') => {
+    try {
+      await descargarDocumentoFirmado(p.id, clase);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo descargar el documento firmado');
+    }
   };
 
   const handleDescargarPdf = async (p: Presupuesto) => {
@@ -560,15 +585,20 @@ export default function PresupuestosPage() {
             {
               key: 'estado',
               label: 'Estado',
-              render: (p) => (
-                <Badge
-                  variant={
-                    p.estado === 'Aceptado' && p.tipo === 'orientativo' ? 'aceptado-orientativo' : (VARIANTE_ESTADO[p.estado] ?? 'default')
-                  }
-                >
-                  {p.estado}
-                </Badge>
-              ),
+              render: (p) => {
+                const cobro = p.tipo === 'orientativo' ? null : estadoCobroPresupuesto(p, facturasCobro ?? []);
+                if (cobro === 'Pagado') return <Badge variant="pagado">Pagado</Badge>;
+                if (cobro === 'Primer pago recibido') return <Badge variant="confirmada">Primer pago recibido</Badge>;
+                return (
+                  <Badge
+                    variant={
+                      p.estado === 'Aceptado' && p.tipo === 'orientativo' ? 'aceptado-orientativo' : (VARIANTE_ESTADO[p.estado] ?? 'default')
+                    }
+                  >
+                    {p.estado}
+                  </Badge>
+                );
+              },
             },
             {
               key: 'acciones',
@@ -583,6 +613,12 @@ export default function PresupuestosPage() {
                 const menu: AccionMenu[] = [
                   { label: 'Editar / Firmar', onClick: () => setPresupuestoSeleccionado(p) },
                   { label: 'Descargar PDF', onClick: () => handleDescargarPdf(p) },
+                  { label: 'Descargar PDF firmado', onClick: () => handleDescargarFirmado(p, 'firmado'), oculto: !p.firmado },
+                  {
+                    label: 'Descargar certificado de firma',
+                    onClick: () => handleDescargarFirmado(p, 'certificado'),
+                    oculto: !p.firmado || !p.documenso_envelope_id,
+                  },
                   {
                     label: 'Descargar PDF traducido (uso interno)',
                     onClick: () => handleDescargarPdfTraducido(p),
