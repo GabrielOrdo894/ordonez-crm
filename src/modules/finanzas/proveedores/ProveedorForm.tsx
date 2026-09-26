@@ -9,6 +9,7 @@ import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import type { Proveedor, NuevoProveedor } from './types';
 import { buscarEmpresasFrancia, type EmpresaFrancia } from './empresasFrancia';
+import { MapsAutocomplete } from '../../google/MapsAutocomplete';
 
 type FormState = {
   pais: string;
@@ -234,7 +235,14 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
         />
       )}
       <div className="col-span-2">
-        <Input label="Dirección" value={form.direccion} onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))} />
+        {/* Sugerencias de Google Maps (petición de Gabriel 2026-09-26): si se elige una, se guarda la
+            dirección completa de Google; si no, se queda exactamente lo escrito. Sin Maps, campo normal. */}
+        <MapsAutocomplete
+          label="Dirección"
+          value={form.direccion}
+          onChange={(direccion) => setForm((f) => ({ ...f, direccion }))}
+          onSelect={(lugar) => setForm((f) => ({ ...f, direccion: lugar.direccion }))}
+        />
       </div>
       <Input label="Teléfono" value={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
       <Input label="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
