@@ -1005,6 +1005,8 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (fijo "Francia — EURL", tipo por defecto TVA 20 %), el proveedor ya no cambia el país, un duplicado nace en
   Francia y la foto de ticket de `/rapido` también. Los gastos antiguos registrados como España conservan su
   país al editarse (no se cambia la contabilidad en silencio). Nota en el formulario: el IVA español de un
-  ticket de España no es deducible en la CA3 francesa → «Exento» con el total pagado, o «Intracomunitaria»
-  si el proveedor facturó sin IVA con el nº de TVA intra de la EURL. Los gastos automáticos (kilometraje,
+  ticket de España (p. ej. gasolineras, que lo cobran siempre aunque se dé el nº de TVA intra — confirmado
+  por Gabriel) sí se paga pero no es deducible en la CA3 francesa: se registra «Exento» con el total pagado
+  (en gastos «Exento» significa «sin TVA francesa deducible»; el IVA pagado queda como mayor coste), o
+  «Intracomunitaria» solo si el proveedor facturó sin IVA con el nº de TVA intra de la EURL. Los gastos automáticos (kilometraje,
   banco) ya se creaban en Francia.

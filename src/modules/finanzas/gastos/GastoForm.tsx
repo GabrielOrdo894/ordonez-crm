@@ -686,9 +686,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
 
                   {form.pais === PAIS_GASTOS && !esIntracomunitario && !esImportacion && !esAmortizacion && (
                     <p className="text-xs text-gray-400 mb-3">
-                      Ticket o factura de España con IVA español (21 %, 10 %…): ese IVA no se deduce en la
-                      declaración de TVA francesa — elige «Exento» e introduce el total pagado. Si el proveedor
-                      facturó sin IVA con el nº de TVA intracomunitario de la EURL, marca «Intracomunitaria».
+                      Ticket de España con IVA español (gasolina, material…): el IVA sí se paga, pero no se
+                      puede restar en la declaración de TVA francesa, así que forma parte del coste. Elige
+                      «Exento» (aquí significa «sin TVA francesa deducible», no que no te cobraran IVA) e
+                      introduce el total pagado. Solo si el proveedor facturó sin IVA con el nº de TVA
+                      intracomunitario de la EURL, marca «Intracomunitaria».
                     </p>
                   )}
                   {esAmortizacion && (
