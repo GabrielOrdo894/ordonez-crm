@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Landmark, RefreshCw, Unplug, Search } from 'lucide-react';
+import { Landmark, RefreshCw, Unplug, Search, ExternalLink } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
@@ -11,6 +11,7 @@ import { conciliarCobrosAutomaticos, invocarBancoSync } from '../../lib/concilia
 import type { ConexionBanco } from './types';
 
 const CLAVE_STATE = 'banco-sync-state';
+const WEB_OPEN_BANKING_IO = 'https://open-banking.io/fr';
 
 type ResumenSync = {
   nuevos: number;
@@ -32,8 +33,9 @@ function fechaHora(iso: string | null) {
   });
 }
 
-/** Conexión automática con el banco vía Enable Banking (Edge Function banco-sync): conectar,
- * sincronizar a mano, desconectar, y recoger la vuelta del banco (?code=&state=) tras autorizar. */
+/** Conexión automática con el banco (Edge Function banco-sync). Dos proveedores: open-banking.io
+ * (el elegido para la cuenta de la EURL — la cuenta se conecta y renueva en su web, aquí solo se
+ * sincroniza) y Enable Banking (conexión desde aquí, con la vuelta ?code=&state= tras autorizar). */
 export function ConexionBancoPanel() {
   const toast = useToast();
   const confirmar = useConfirmar();
@@ -45,7 +47,13 @@ export function ConexionBancoPanel() {
 
   const { data: configuracion } = useQuery({
     queryKey: ['banco-sync', 'estado'],
-    queryFn: () => invocarBancoSync<{ configurado: boolean }>({ accion: 'estado' }),
+    queryFn: () =>
+      invocarBancoSync<{
+        configurado: boolean;
+        proveedor: 'openbanking_io' | 'enablebanking' | null;
+      }>({
+        accion: 'estado',
+      }),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -108,7 +116,9 @@ export function ConexionBancoPanel() {
 
   const sincronizarMutation = useMutation({
     mutationFn: async () => {
-      const r = await invocarBancoSync<ResumenSync>({ accion: 'sincronizar' });
+      // presente: algunos bancos solo comparten datos si el titular está delante (open-banking.io
+      // reenvía entonces la IP y el navegador de quien pulsa el botón; el cron nunca lo hace).
+      const r = await invocarBancoSync<ResumenSync>({ accion: 'sincronizar', presente: true });
       return { r, conciliados: await conciliar() };
     },
     onSuccess: ({ r, conciliados }) => {
@@ -197,6 +207,7 @@ export function ConexionBancoPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  const esObio = configuracion?.proveedor === 'openbanking_io';
   const activa = (conexiones ?? []).find((c) => c.estado === 'activa');
   const caducada = !activa ? (conexiones ?? []).find((c) => c.estado === 'caducada') : undefined;
   const ocupado =
@@ -214,9 +225,10 @@ export function ConexionBancoPanel() {
             <p className="text-xs text-gray-400 mt-0.5">Cargando...</p>
           ) : configuracion && !configuracion.configurado ? (
             <p className="text-xs text-gray-500 mt-0.5">
-              Falta configurar Enable Banking: añade los secretos ENABLEBANKING_APP_ID y
-              ENABLEBANKING_PRIVATE_KEY en Supabase (Edge Functions → Secrets). Mientras tanto sigue
-              disponible la importación manual OFX.
+              Sin activar. Para activarla con open-banking.io (3 €/mes): crear la cuenta en su web,
+              conectar allí la cuenta del banco, exportar el fichero credentials.json y guardar su
+              contenido como secreto OPENBANKING_IO_CREDENTIALS en Supabase (Edge Functions →
+              Secrets). Mientras tanto sigue disponible la importación manual OFX.
             </p>
           ) : activa ? (
             <p className="text-xs text-gray-500 mt-0.5">
@@ -231,8 +243,16 @@ export function ConexionBancoPanel() {
             </p>
           ) : caducada ? (
             <p className="text-xs text-red-600 mt-0.5">
-              La autorización de {caducada.aspsp_nombre} ha caducado. Vuelve a conectar la cuenta
-              para seguir recibiendo movimientos.
+              La autorización de {caducada.aspsp_nombre} ha caducado.{' '}
+              {esObio
+                ? 'Renuévala en open-banking.io y pulsa "Sincronizar ahora".'
+                : 'Vuelve a conectar la cuenta para seguir recibiendo movimientos.'}
+            </p>
+          ) : esObio ? (
+            <p className="text-xs text-gray-500 mt-0.5">
+              open-banking.io configurado. Conecta la cuenta del banco en su web y pulsa
+              "Sincronizar ahora" para traer los movimientos; después se descargan solos cada
+              mañana.
             </p>
           ) : (
             <p className="text-xs text-gray-500 mt-0.5">
@@ -243,7 +263,23 @@ export function ConexionBancoPanel() {
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          {activa ? (
+          {esObio ? (
+            <>
+              <Button size="sm" onClick={() => sincronizarMutation.mutate()} disabled={ocupado}>
+                <RefreshCw size={13} className="mr-1" />
+                {sincronizarMutation.isPending ? 'Sincronizando...' : 'Sincronizar ahora'}
+              </Button>
+              <a
+                href={WEB_OPEN_BANKING_IO}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-sm text-sm hover:border-brand"
+              >
+                <ExternalLink size={13} className="mr-1" />
+                Abrir open-banking.io
+              </a>
+            </>
+          ) : activa ? (
             <>
               <Button size="sm" onClick={() => sincronizarMutation.mutate()} disabled={ocupado}>
                 <RefreshCw size={13} className="mr-1" />

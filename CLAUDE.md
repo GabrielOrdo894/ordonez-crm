@@ -983,3 +983,20 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     `automatizaciones-crm`, `revisar-gmail`, `documenso-webhook` y `registrarEventoFunnel`.
   - La Supabase CLI del equipo está autenticada y enlazada: `npx supabase functions deploy <nombre>
     --project-ref mhbicdrquinlwhasrvgo --use-api` despliega desde el fichero sin transcribirlo al MCP.
+- **Sincronización bancaria con open-banking.io — preparada, SIN activar** (2026-09-26, decisión de
+  Gabriel: "prepara todo pero de momento no lo haremos"). El modo gratuito de Enable Banking excluye cuentas
+  de empresa (la cuenta de Crédit Agricole está a nombre de la EURL, aunque sea una cuenta "normal"), así
+  que el proveedor elegido es open-banking.io (Tatic ApS, Dinamarca, revendedor de Enable Banking, 3 €/mes,
+  admite empresas y lista "Crédit Agricole Pyrénées Gascogne" en beta). `banco-sync` tiene los dos
+  proveedores: usa open-banking.io si existe el secreto `OPENBANKING_IO_CREDENTIALS` (el contenido entero
+  del `credentials.json` exportado desde su app: `apiBaseUrl`, `apiKey`, `encryptionKey.privateKey`), si no
+  Enable Banking, y si no ninguno (estado actual: `configurado:false`, el cron no hace nada). Con
+  open-banking.io la cuenta se conecta y se renueva (~90 días) en su web; el CRM solo sincroniza:
+  `POST /api/sync` (uid de cada cuenta descifrado en local) + `GET /api/accounts` y
+  `/api/accounts/{id}/transactions`. Todos los datos llegan cifrados (ECDH P-256 → HKDF-SHA256 →
+  AES-256-GCM, versión 0x01, info `bank.core.ci/zk/v1`, salt de 32 ceros) — `descifrarObio` verificado
+  con una prueba de ida y vuelta contra la especificación de su cliente oficial
+  (github.com/open-banking-io/clients). fitid `obio:<id>`; conexiones con `proveedor='openbanking_io'`.
+  "Sincronizar ahora" reenvía IP/navegador (`presente: true`) porque algunos bancos exigen al titular
+  presente. **Sin probar contra la API real** (no hay cuenta): la primera sincronización tras activarlo
+  hay que revisarla.

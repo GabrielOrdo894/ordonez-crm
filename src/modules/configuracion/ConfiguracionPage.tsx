@@ -1313,18 +1313,16 @@ export default function ConfiguracionPage() {
           </Button>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          La cuenta se conecta vía <span className="font-medium text-gray-600">Enable Banking</span> (modo restringido
-          gratuito, solo cuentas propias) desde{' '}
+          Proveedor elegido: <span className="font-medium text-gray-600">open-banking.io</span> (3 €/mes; el modo
+          gratuito de Enable Banking no admite cuentas de empresa). Preparado pero sin activar. Para activarlo:
+          crear la cuenta en open-banking.io, conectar allí la cuenta de Crédit Agricole Pyrénées Gascogne,
+          exportar el fichero credentials.json desde su app y pegar su contenido completo como secreto
+          OPENBANKING_IO_CREDENTIALS en Supabase → Edge Functions → Secrets. Después, en{' '}
           <NavLink to="/contabilidad/banco" className="text-brand underline">
             Contabilidad → Movimientos bancarios
           </NavLink>
-          . Puesta en marcha, una sola vez: crear la aplicación en enablebanking.com (Control Panel → Applications,
-          entorno de producción), añadir{' '}
-          <span className="font-mono text-gray-600">https://ordonezrenov.com/crm/contabilidad/banco</span> como
-          redirect URL, vincular la cuenta propia para activar el modo restringido y guardar el application ID y la
-          clave privada (.pem) como secretos ENABLEBANKING_APP_ID y ENABLEBANKING_PRIVATE_KEY en Supabase → Edge
-          Functions → Secrets. La autorización del banco caduca como máximo a los 180 días: cuando pase, la pantalla de
-          Movimientos bancarios pide reconectar.
+          , pulsar "Sincronizar ahora"; a partir de ahí se descarga solo cada mañana. La autorización del banco
+          se renueva cada ~90 días en la web de open-banking.io (avisan por email).
         </p>
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
           <span className={`w-2 h-2 rounded-full ${bancoConectado ? 'bg-brand' : 'bg-gray-300'}`} />

@@ -1,5 +1,8 @@
 // Edge Function: banco-sync
 //
+// Dos proveedores (2026-09-26): open-banking.io si existe el secreto OPENBANKING_IO_CREDENTIALS (el
+// elegido para la cuenta de la EURL, ver el bloque "Proveedor open-banking.io"), y si no Enable Banking.
+//
 // Sincronización automática de la cuenta bancaria de la EURL con Enable Banking (agregador PSD2,
 // modo restringido gratuito para conectar solo las cuentas propias — ver Configuración →
 // Sincronización bancaria). Acciones (body.accion):
@@ -381,7 +384,7 @@ async function sincronizarConexion(supabase: SupabaseClient, banco: ClienteBanco
   // Solo movimientos contabilizados (BOOK): los pendientes (PDNG) pueden cambiar o desaparecer.
   const contabilizados = transacciones.filter((t) => !t.status || t.status === 'BOOK');
   const repeticiones = new Map<string, number>();
-  const filas = [];
+  const filas: FilaMovimiento[] = [];
   for (const t of contabilizados) {
     const fecha = t.booking_date ?? t.value_date ?? t.transaction_date;
     if (!fecha) continue;
@@ -414,6 +417,24 @@ async function sincronizarConexion(supabase: SupabaseClient, banco: ClienteBanco
     });
   }
 
+  return guardarMovimientos(supabase, filas);
+}
+
+type FilaMovimiento = {
+  fitid: string;
+  fecha: string;
+  importe: number;
+  tipo: 'Credito' | 'Debito';
+  descripcion: string;
+  contraparte: string | null;
+  origen: 'sincronizacion';
+  conexion_id: string;
+  archivo_origen: null;
+};
+
+/** Común a los dos proveedores: inserta los movimientos nuevos (deduplicados por fitid) y registra
+ * cada pago nuevo como gasto (procesarPago). Los cobros se concilian después en el frontend. */
+async function guardarMovimientos(supabase: SupabaseClient, filas: FilaMovimiento[]) {
   let insertados: MovimientoInsertado[] = [];
   if (filas.length > 0) {
     const { data, error } = await supabase
@@ -495,6 +516,342 @@ async function sincronizarTodo(supabase: SupabaseClient) {
   return total;
 }
 
+// ── Proveedor open-banking.io (Tatic ApS, sobre Enable Banking) ─────────────────────────────────
+//
+// Elegido 2026-09-26 porque el modo gratuito de Enable Banking excluye cuentas de empresa y la
+// alternativa legal más barata para la cuenta de la EURL es este revendedor: 3 €/mes. Se activa solo
+// con el secreto OPENBANKING_IO_CREDENTIALS (el contenido completo de credentials.json exportado desde
+// su app); mientras no exista, la función sigue usando Enable Banking o avisa de que falta configurar.
+//
+// La cuenta se conecta y renueva (cada ~90 días) en la propia web de open-banking.io, no desde el CRM.
+// Aquí solo se lee: POST /api/sync para pedir datos frescos al banco y GET de cuentas/movimientos.
+// Cada dato sensible llega cifrado ("zero-knowledge"): ECDH P-256 efímero → HKDF-SHA256 →
+// AES-256-GCM, mismo esquema que su cliente oficial (github.com/open-banking-io/clients,
+// node/src/envelope.ts). Formato: versión(1)=0x01 | clave pública efímera(65) | nonce(12) |
+// tag(16) | ciphertext.
+
+type CredencialesObio = {
+  apiBaseUrl: string;
+  apiKey: string;
+  encryptionKey: { privateKey: string };
+};
+
+type CuentaObio = {
+  id: string;
+  aspspName: string;
+  aspspCountry: string;
+  currency: string;
+  needsReconnect: boolean;
+  enc?: string | null;
+  uidEnc?: string | null;
+};
+
+type MovimientoObio = {
+  id: string;
+  currency: string;
+  creditDebitIndicator: string;
+  status?: string | null;
+  bookingDate?: string | null;
+  valueDate?: string | null;
+  transactionDate?: string | null;
+  enc?: string | null;
+};
+
+type MovimientoObioDescifrado = {
+  amount?: string | null;
+  creditorName?: string | null;
+  debtorName?: string | null;
+  remittanceInformation?: string | null;
+  note?: string | null;
+};
+
+type ConexionObio = { validUntil: string; isLive?: boolean; accountIds?: string[] };
+
+type FalloObio = { accountId: string; reason: string };
+
+const OBIO_HKDF_INFO = new TextEncoder().encode('bank.core.ci/zk/v1');
+const OBIO_HKDF_SALT = new Uint8Array(32);
+
+function credencialesObio(): CredencialesObio | null {
+  const raw = Deno.env.get('OPENBANKING_IO_CREDENTIALS');
+  if (!raw) return null;
+  let c: CredencialesObio;
+  try {
+    c = JSON.parse(raw);
+  } catch {
+    throw new ErrorBanco(
+      500,
+      'OPENBANKING_IO_CREDENTIALS no es un JSON válido (pega el contenido completo de credentials.json).',
+    );
+  }
+  if (!c?.apiBaseUrl || !c?.apiKey || !c?.encryptionKey?.privateKey) {
+    throw new ErrorBanco(
+      500,
+      'OPENBANKING_IO_CREDENTIALS no tiene apiBaseUrl, apiKey y encryptionKey.privateKey.',
+    );
+  }
+  return c;
+}
+
+function base64ABytes(b64: string): Uint8Array {
+  return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+}
+
+/** Descifra un sobre de open-banking.io y devuelve su JSON (null si el campo viene vacío). */
+export async function descifrarObio<T>(
+  clave: CryptoKey,
+  sobre: string | null | undefined,
+): Promise<T | null> {
+  if (sobre == null) return null;
+  const bytes = base64ABytes(sobre);
+  if (bytes.length < 1 + 65 + 12 + 16 || bytes[0] !== 0x01)
+    throw new Error('Sobre cifrado de open-banking.io no válido');
+  const efimera = bytes.subarray(1, 66);
+  const nonce = bytes.subarray(66, 78);
+  const tag = bytes.subarray(78, 94);
+  const cifrado = bytes.subarray(94);
+  const claveEfimera = await crypto.subtle.importKey(
+    'raw',
+    efimera,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    [],
+  );
+  const compartido = new Uint8Array(
+    await crypto.subtle.deriveBits({ name: 'ECDH', public: claveEfimera }, clave, 256),
+  );
+  const hkdf = await crypto.subtle.importKey('raw', compartido, 'HKDF', false, ['deriveKey']);
+  const aes = await crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: OBIO_HKDF_SALT, info: OBIO_HKDF_INFO },
+    hkdf,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt'],
+  );
+  const conTag = new Uint8Array(cifrado.length + tag.length);
+  conTag.set(cifrado, 0);
+  conTag.set(tag, cifrado.length);
+  const claro = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce, tagLength: 128 },
+    aes,
+    conTag,
+  );
+  return JSON.parse(new TextDecoder().decode(claro)) as T;
+}
+
+export async function importarClaveObio(pkcs8Base64: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    'pkcs8',
+    base64ABytes(pkcs8Base64),
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    ['deriveBits'],
+  );
+}
+
+async function clienteObio(c: CredencialesObio) {
+  const clave = await importarClaveObio(c.encryptionKey.privateKey);
+  const base = c.apiBaseUrl.replace(/\/+$/, '');
+  const pedir = async <T>(
+    ruta: string,
+    opciones: { method?: string; body?: unknown; cabeceras?: Record<string, string> } = {},
+  ): Promise<T> => {
+    const res = await fetch(`${base}${ruta}`, {
+      method: opciones.method ?? 'GET',
+      headers: {
+        ...(opciones.cabeceras ?? {}),
+        'X-Api-Key': c.apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: opciones.body !== undefined ? JSON.stringify(opciones.body) : undefined,
+    });
+    if (!res.ok) {
+      const texto = await res.text().catch(() => '');
+      let motivo = texto;
+      try {
+        motivo = (JSON.parse(texto) as { reason?: string }).reason ?? texto;
+      } catch {
+        // cuerpo no JSON
+      }
+      throw new ErrorBanco(res.status, `open-banking.io (${res.status}): ${motivo.slice(0, 200)}`);
+    }
+    return (await res.json()) as T;
+  };
+  return { clave, pedir };
+}
+
+const MENSAJES_FALLO_OBIO: Record<string, string> = {
+  reconnect_needed: 'La autorización del banco ha caducado — renuévala en open-banking.io.',
+  psu_present_required:
+    'El banco solo comparte datos con el titular presente: pulsa "Sincronizar ahora" en el CRM.',
+};
+
+/** Sincroniza todas las cuentas de open-banking.io. `psu` (IP y navegador de quien pulsa
+ * "Sincronizar ahora") solo se envía en una llamada manual: algunos bancos lo exigen. */
+async function sincronizarObio(
+  supabase: SupabaseClient,
+  c: CredencialesObio,
+  psu: Record<string, string>,
+) {
+  const { clave, pedir } = await clienteObio(c);
+  const total = {
+    conexiones: 0,
+    nuevos: 0,
+    gastosCreados: 0,
+    gastosVinculados: 0,
+    pagosAmbiguos: 0,
+    errores: [] as string[],
+  };
+
+  // 1) Pedir datos frescos al banco (uid de cada cuenta descifrado en local; un uid renovado se
+  //    reintenta una vez, igual que el cliente oficial).
+  const fallos: FalloObio[] = [];
+  for (let intento = 0; intento < 2; intento++) {
+    const cuentas = await pedir<CuentaObio[]>('/api/accounts');
+    const items: { accountId: string; uid: string }[] = [];
+    for (const a of cuentas) {
+      if (a.needsReconnect) {
+        if (intento === 0) fallos.push({ accountId: a.id, reason: 'reconnect_needed' });
+        continue;
+      }
+      const uid = (await descifrarObio<{ uid?: string | null }>(clave, a.uidEnc))?.uid;
+      if (uid) items.push({ accountId: a.id, uid });
+    }
+    if (items.length === 0) break;
+    try {
+      const r = await pedir<{ failures?: FalloObio[] }>('/api/sync', {
+        method: 'POST',
+        body: { items },
+        cabeceras: psu,
+      });
+      const desfasados = (r.failures ?? []).filter((f) => f.reason === 'uid_outdated');
+      fallos.push(...(r.failures ?? []).filter((f) => f.reason !== 'uid_outdated'));
+      if (desfasados.length === 0 || intento === 1) break;
+    } catch (err) {
+      // Sin sync online se siguen leyendo los movimientos ya guardados en open-banking.io.
+      total.errores.push(err instanceof Error ? err.message : String(err));
+      break;
+    }
+  }
+
+  // 2) Cuentas → banco_conexiones (una fila por cuenta, reutilizada entre ejecuciones).
+  const cuentas = await pedir<CuentaObio[]>('/api/accounts');
+  const conexionesObio = await pedir<ConexionObio[]>('/api/connections').catch(
+    () => [] as ConexionObio[],
+  );
+  total.conexiones = cuentas.length;
+
+  for (const a of cuentas) {
+    const datos = await descifrarObio<{ iban?: string | null }>(clave, a.enc);
+    const validez = conexionesObio.find((x) => x.accountIds?.includes(a.id))?.validUntil ?? null;
+    const fallo = fallos.find((f) => f.accountId === a.id);
+    const ultimoError = fallo
+      ? (MENSAJES_FALLO_OBIO[fallo.reason] ?? `open-banking.io: ${fallo.reason}`)
+      : null;
+
+    const { data: existentes, error: errorBuscar } = await supabase
+      .from('banco_conexiones')
+      .select('id, ultima_sincronizacion')
+      .eq('proveedor', 'openbanking_io')
+      .eq('account_uid', a.id)
+      .limit(1);
+    if (errorBuscar) throw new Error(`banco_conexiones: ${errorBuscar.message}`);
+    const datosConexion = {
+      proveedor: 'openbanking_io',
+      aspsp_nombre: a.aspspName,
+      aspsp_pais: a.aspspCountry,
+      session_id: 'openbanking_io',
+      account_uid: a.id,
+      iban: datos?.iban ?? null,
+      valido_hasta: validez,
+      estado: a.needsReconnect ? 'caducada' : 'activa',
+      ultimo_error: ultimoError,
+    };
+    let conexionId: string;
+    let ultimaSync: string | null = null;
+    if (existentes && existentes.length > 0) {
+      conexionId = existentes[0].id;
+      ultimaSync = existentes[0].ultima_sincronizacion;
+      const { error } = await supabase
+        .from('banco_conexiones')
+        .update(datosConexion)
+        .eq('id', conexionId);
+      if (error) throw new Error(`banco_conexiones: ${error.message}`);
+    } else {
+      const { data, error } = await supabase
+        .from('banco_conexiones')
+        .insert(datosConexion)
+        .select('id')
+        .single();
+      if (error) throw new Error(`banco_conexiones: ${error.message}`);
+      conexionId = data.id as string;
+    }
+    if (ultimoError) total.errores.push(`${a.aspspName}: ${ultimoError}`);
+
+    // 3) Movimientos de la cuenta desde la última sincronización (con solape) o los últimos 90 días.
+    const desde = ultimaSync
+      ? sumarDias(ultimaSync, -DIAS_SOLAPE)
+      : sumarDias(new Date().toISOString(), -DIAS_PRIMERA_SINCRONIZACION);
+    const filas: FilaMovimiento[] = [];
+    const limite = 200;
+    for (let offset = 0; offset < 10_000; offset += limite) {
+      const pagina = await pedir<{ items?: MovimientoObio[]; total?: number }>(
+        `/api/accounts/${encodeURIComponent(a.id)}/transactions?from=${desde}&limit=${limite}&offset=${offset}`,
+      );
+      const items = pagina.items ?? [];
+      for (const t of items) {
+        if (t.status && t.status !== 'BOOK') continue; // solo contabilizados, igual que con Enable Banking
+        const fecha = t.bookingDate ?? t.valueDate ?? t.transactionDate;
+        if (!fecha) continue;
+        const d = await descifrarObio<MovimientoObioDescifrado>(clave, t.enc);
+        const esCobro = t.creditDebitIndicator === 'CRDT';
+        // El importe llega como texto decimal; el signo se toma del indicador CRDT/DBIT.
+        const importe =
+          (Math.round(Math.abs(parseFloat(d?.amount ?? '0')) * 100) / 100) * (esCobro ? 1 : -1);
+        const contraparte = (esCobro ? d?.debtorName : d?.creditorName) ?? null;
+        filas.push({
+          fitid: `obio:${t.id}`,
+          fecha: fecha.slice(0, 10),
+          importe,
+          tipo: esCobro ? 'Credito' : 'Debito',
+          descripcion:
+            (d?.remittanceInformation ?? d?.note ?? '').trim() ||
+            contraparte ||
+            'Movimiento bancario',
+          contraparte,
+          origen: 'sincronizacion',
+          conexion_id: conexionId,
+          archivo_origen: null,
+        });
+      }
+      if (items.length < limite) break;
+    }
+
+    const r = await guardarMovimientos(supabase, filas);
+    total.nuevos += r.nuevos;
+    total.gastosCreados += r.gastosCreados;
+    total.gastosVinculados += r.gastosVinculados;
+    total.pagosAmbiguos += r.pagosAmbiguos;
+    const { error: errorFecha } = await supabase
+      .from('banco_conexiones')
+      .update({ ultima_sincronizacion: new Date().toISOString() })
+      .eq('id', conexionId);
+    if (errorFecha) total.errores.push(errorFecha.message);
+  }
+  return total;
+}
+
+/** Cabeceras X-Psu-* de quien pulsa "Sincronizar ahora" (nunca desde el cron). */
+function cabecerasPsu(req: Request): Record<string, string> {
+  const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim();
+  const agente = req.headers.get('user-agent') ?? '';
+  if (!ip || !agente) return {};
+  const cabeceras: Record<string, string> = { 'X-Psu-Ip-Address': ip, 'X-Psu-User-Agent': agente };
+  const idioma = req.headers.get('accept-language');
+  if (idioma) cabeceras['X-Psu-Accept-Language'] = idioma;
+  return cabeceras;
+}
+
 async function desconectar(supabase: SupabaseClient, conexionId: string) {
   const { data: c, error } = await supabase
     .from('banco_conexiones')
@@ -536,13 +893,46 @@ Deno.serve(async (req: Request) => {
   const accion = String(body.accion ?? 'sincronizar');
 
   try {
+    // open-banking.io tiene prioridad si su secreto está puesto; si no, Enable Banking (si lo está).
+    const obio = credencialesObio();
+    const hayEnableBanking =
+      !!Deno.env.get('ENABLEBANKING_APP_ID') && !!Deno.env.get('ENABLEBANKING_PRIVATE_KEY');
+    const proveedor = obio ? 'openbanking_io' : hayEnableBanking ? 'enablebanking' : null;
+
+    if (accion === 'estado') {
+      return jsonResponse({ ok: true, configurado: proveedor !== null, proveedor });
+    }
+    if (obio) {
+      switch (accion) {
+        case 'sincronizar':
+          return jsonResponse({
+            ok: true,
+            ...(await sincronizarObio(
+              supabase,
+              obio,
+              body.presente === true ? cabecerasPsu(req) : {},
+            )),
+          });
+        case 'desconectar': {
+          // La cuenta se desconecta en open-banking.io; aquí solo se deja de mostrar como activa.
+          const { error } = await supabase
+            .from('banco_conexiones')
+            .update({ estado: 'desconectada' })
+            .eq('id', String(body.conexion_id ?? ''));
+          if (error) throw new Error(`banco_conexiones: ${error.message}`);
+          return jsonResponse({ ok: true });
+        }
+        default:
+          return jsonResponse(
+            {
+              error:
+                'Con open-banking.io la cuenta se conecta y renueva desde su propia web, no desde el CRM.',
+            },
+            400,
+          );
+      }
+    }
     switch (accion) {
-      case 'estado':
-        return jsonResponse({
-          ok: true,
-          configurado:
-            !!Deno.env.get('ENABLEBANKING_APP_ID') && !!Deno.env.get('ENABLEBANKING_PRIVATE_KEY'),
-        });
       case 'bancos':
         return jsonResponse({
           ok: true,
