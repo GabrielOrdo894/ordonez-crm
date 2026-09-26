@@ -312,7 +312,7 @@ export function useNotificaciones() {
         categoria: 'gasto',
         titulo: 'Gasto de kilometraje pendiente de revisar',
         resumen: g.descripcion || 'Generado al completar una visita — regístralo como pagado o recházalo si no corresponde.',
-        to: '/finanzas/gastos',
+        to: '/contabilidad/gastos',
       });
     }
 

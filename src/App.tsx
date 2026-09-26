@@ -138,6 +138,9 @@ export default function App() {
           <Route path="/perfil" element={<PerfilPage />} />
           <Route path="/perfil/avatares" element={<AvatarGaleriaPage />} />
           <Route path="/mensajeria" element={<MensajeriaPage />} />
+          {/* Red de seguridad: una ruta que no existe dejaba la pantalla entera en blanco (caso real
+              2026-09-26: la notificación de gastos apuntaba a /finanzas/gastos, que nunca existió). */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </BrowserRouter>
