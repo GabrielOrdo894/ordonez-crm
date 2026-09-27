@@ -18,7 +18,7 @@ const LIMITE_HISTORIAL = 50;
 export function filtrarVisitasSinPresupuesto<V extends Pick<Visita, 'id' | 'estado' | 'email' | 'telefono'>>(
   visitas: V[] | undefined,
   presupuestos: { visita_id: string | null; estado: string }[] | undefined,
-  solicitudes: Pick<Solicitud, 'estado' | 'email' | 'telefono'>[] | undefined,
+  solicitudes: Pick<Solicitud, 'estado' | 'email' | 'telefono' | 'visita_id'>[] | undefined,
 ): V[] {
   const visitaIdsConPresupuestoEnviado = new Set(
     (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
@@ -40,8 +40,16 @@ export function filtrarVisitasSinPresupuesto<V extends Pick<Visita, 'id' | 'esta
       .map((s) => (s.telefono ? normalizarTelefono(s.telefono) : ''))
       .filter((t) => t.length > 0),
   );
+  // Solicitud cerrada enlazada directamente a la visita (p. ej. cerrada desde Avisos aunque su
+  // contacto no coincida con el de la visita).
+  const visitaIdsDescartadas = new Set(
+    (solicitudes ?? [])
+      .filter((s) => (s.estado === 'No concretada' || s.estado === 'Rechazada') && s.visita_id)
+      .map((s) => s.visita_id as string),
+  );
   return (visitas ?? []).filter((v) => {
     if (v.estado !== 'Realizada' || visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+    if (visitaIdsDescartadas.has(v.id)) return false;
     if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
     if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
     return true;

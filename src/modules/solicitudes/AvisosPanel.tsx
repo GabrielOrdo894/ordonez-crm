@@ -1,7 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { registrarEventoFunnel } from '../../lib/funnelTracking';
+import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { Table } from '../../components/ui/Table';
+import { Button } from '../../components/ui/Button';
 import { KpiRow } from '../../components/ui/Kpi';
 import { normalizarNombre, normalizarTelefono } from '../clientes/types';
 import { ETIQUETA_ESTADO_SOLICITUD, type EstadoSolicitud } from './types';
@@ -29,6 +33,16 @@ type VisitaRealizada = {
   fecha_visita: string | null;
   email: string | null;
   telefono: string | null;
+  idioma: string | null;
+  contacto: string | null;
+};
+type SolicitudContacto = {
+  id: string;
+  nombre: string | null;
+  email: string | null;
+  telefono: string | null;
+  visita_id: string | null;
+  fuente: string;
 };
 type PresupuestoAviso = {
   id: string;
@@ -50,15 +64,26 @@ type SolicitudDescartada = {
   estado: string;
 };
 
+// Solicitud creada al cerrar desde Avisos una visita que no tenía ninguna — mismo vocabulario de
+// fuente que EntradaManualPanel.tsx, deducido de cómo llegó el cliente según la visita.
+function fuenteDesdeContacto(contacto: string | null) {
+  if (contacto === 'WhatsApp') return 'whatsapp';
+  if (contacto === 'Email') return 'email_directo';
+  return 'manual';
+}
+
 export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: string) => void }) {
   const navigate = useNavigate();
+  const toast = useToast();
+  const confirmar = useConfirmar();
+  const queryClient = useQueryClient();
 
   const { data: visitas, isLoading: cargandoVisitas } = useQuery({
     queryKey: ['visitas', 'realizadas', 'avisos'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('visitas')
-        .select('id, nombre, apellidos, fecha_visita, email, telefono')
+        .select('id, nombre, apellidos, fecha_visita, email, telefono, idioma, contacto')
         .eq('estado', 'Realizada')
         .is('eliminado_en', null);
       if (error) throw error;
@@ -88,6 +113,83 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
       return data as SolicitudDescartada[];
     },
   });
+
+  // Solicitudes aún abiertas — para cerrar desde la tabla de visitas sin presupuesto la solicitud
+  // de ese cliente (petición de Gabriel 2026-09-27), sin tener que buscarla en la pestaña Solicitud.
+  const { data: solicitudesAbiertas } = useQuery({
+    queryKey: ['solicitudes', 'abiertas-contacto'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .select('id, nombre, email, telefono, visita_id, fuente')
+        .in('estado', ['Nueva', 'Enviada', 'Aceptada']);
+      if (error) throw error;
+      return data as SolicitudContacto[];
+    },
+  });
+
+  // Mismo cruce que el resto del panel: visita_id enlazado primero, luego teléfono, email y nombre
+  // (este último solo si identifica una única solicitud).
+  const solicitudDeVisita = (v: VisitaRealizada) => {
+    const candidatas = solicitudesAbiertas ?? [];
+    const porVisita = candidatas.find((s) => s.visita_id === v.id);
+    if (porVisita) return porVisita;
+    const telefono = v.telefono ? normalizarTelefono(v.telefono) : '';
+    const porTelefono = telefono ? candidatas.find((s) => s.telefono && normalizarTelefono(s.telefono) === telefono) : undefined;
+    if (porTelefono) return porTelefono;
+    const email = v.email?.trim().toLowerCase();
+    const porEmail = email ? candidatas.find((s) => s.email?.trim().toLowerCase() === email) : undefined;
+    if (porEmail) return porEmail;
+    const nombre = normalizarNombre(`${v.nombre} ${v.apellidos}`);
+    const porNombre = nombre ? candidatas.filter((s) => normalizarNombre(s.nombre ?? '') === nombre) : [];
+    return porNombre.length === 1 ? porNombre[0] : undefined;
+  };
+
+  const cerrarVisitaMutation = useMutation({
+    mutationFn: async ({ visita, estado }: { visita: VisitaRealizada; estado: 'No concretada' | 'Rechazada' }) => {
+      const existente = solicitudDeVisita(visita);
+      if (existente) {
+        const patch: Record<string, unknown> = { estado };
+        if (!existente.visita_id) patch.visita_id = visita.id;
+        const { error } = await supabase.from('solicitudes').update(patch).eq('id', existente.id);
+        if (error) throw error;
+        // Mismo criterio que SolicitudesPage/SolicitudDetalle: solo "No concretada" es una etapa del embudo.
+        if (estado === 'No concretada') {
+          await registrarEventoFunnel('solicitud_descartada', { solicitudId: existente.id, fuente: existente.fuente });
+        }
+        return;
+      }
+      // Visita sin solicitud (WhatsApp, llamada, visita registrada a mano…): se crea una ya cerrada
+      // y enlazada, para dejar rastro de la decisión (decisión de Gabriel 2026-09-27). Sin eventos de
+      // embudo a propósito: no es una entrada real, es el registro a posteriori de un cierre.
+      const { error } = await supabase.from('solicitudes').insert({
+        fuente: fuenteDesdeContacto(visita.contacto),
+        idioma: visita.idioma === 'Français' ? 'fr' : 'es',
+        nombre: `${visita.nombre} ${visita.apellidos}`.trim() || null,
+        email: visita.email,
+        telefono: visita.telefono,
+        estado,
+        visita_id: visita.id,
+        ultima_respuesta_revisada: true,
+        notas: 'Creada desde Avisos para registrar el cierre de una visita que no tenía solicitud.',
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, { estado }) => {
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
+      toast.success(`Marcada como ${ETIQUETA_ESTADO_SOLICITUD[estado]}`);
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const cerrarVisita = async (visita: VisitaRealizada, estado: 'No concretada' | 'Rechazada') => {
+    const nombre = `${visita.nombre} ${visita.apellidos}`.trim();
+    const texto =
+      estado === 'No concretada'
+        ? `¿Marcar la solicitud de ${nombre} como No concretada? Dejará de aparecer en este aviso.`
+        : `¿Marcar la solicitud de ${nombre} como Rechazada (tras visita)? Dejará de aparecer en este aviso.`;
+    if (await confirmar(texto)) cerrarVisitaMutation.mutate({ visita, estado });
+  };
 
   const { data: presupuestos, isLoading: cargandoPresupuestos } = useQuery({
     queryKey: ['presupuestos', 'avisos'],
@@ -135,8 +237,12 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
         (n, _indice, nombres) => n.length > 0 && nombres.filter((otro) => otro === n).length === 1,
       ),
   );
+  const visitaIdsDescartadas = new Set(
+    (solicitudesDescartadas ?? []).map((s) => s.visita_id).filter((id): id is string => !!id),
+  );
   const visitasSinPresupuesto = (visitas ?? []).filter((v) => {
     if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+    if (visitaIdsDescartadas.has(v.id)) return false;
     if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
     if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
     if (nombresDescartados.has(normalizarNombre(`${v.nombre} ${v.apellidos}`))) return false;
@@ -248,6 +354,30 @@ export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: strin
               columns={[
                 { key: 'nombre', label: 'Cliente', render: (v) => `${v.nombre} ${v.apellidos}` },
                 { key: 'fecha_visita', label: 'Fecha de la visita', render: (v) => fecha(v.fecha_visita) },
+                {
+                  key: 'acciones',
+                  label: 'Cerrar solicitud',
+                  render: (v) => (
+                    <span className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={cerrarVisitaMutation.isPending}
+                        onClick={() => cerrarVisita(v, 'No concretada')}
+                      >
+                        No concretada
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={cerrarVisitaMutation.isPending}
+                        onClick={() => cerrarVisita(v, 'Rechazada')}
+                      >
+                        Rechazada
+                      </Button>
+                    </span>
+                  ),
+                },
               ]}
             />
           </div>

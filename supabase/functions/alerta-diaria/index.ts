@@ -71,7 +71,7 @@ type VisitaRealizada = {
   email: string | null;
   telefono: string | null;
 };
-type SolicitudDescartada = { email: string | null; telefono: string | null };
+type SolicitudDescartada = { email: string | null; telefono: string | null; visita_id: string | null };
 
 // Duplicado de normalizarTelefono (src/modules/clientes/types.ts) — un Edge Function no puede
 // importar código del frontend (mismo patrón que esLlamadaAutorizada de arriba).
@@ -287,7 +287,7 @@ Deno.serve(async (req: Request) => {
       // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
       // borrado definitivo, no una decisión de no presupuestar — incluirla ocultaba visitas
       // reales del email diario solo por coincidir de contacto con una solicitud ya eliminada.
-      supabase.from('solicitudes').select('email, telefono').in('estado', ['No concretada', 'Rechazada']),
+      supabase.from('solicitudes').select('email, telefono, visita_id').in('estado', ['No concretada', 'Rechazada']),
     ]);
 
     for (const [nombre, res] of Object.entries({
@@ -335,8 +335,13 @@ Deno.serve(async (req: Request) => {
     const telefonosDescartados = new Set(
       solicitudesDescartadas.map((s) => (s.telefono ? normalizarTelefono(s.telefono) : '')).filter((t) => t.length > 0),
     );
+    // Solicitud cerrada enlazada directamente a la visita (p. ej. cerrada desde Avisos del CRM).
+    const visitaIdsDescartadas = new Set(
+      solicitudesDescartadas.map((s) => s.visita_id).filter((id): id is string => !!id),
+    );
     const visitasSinPresupuesto = ((visitasRealizadasRes.data ?? []) as VisitaRealizada[]).filter((v) => {
       if (visitaIdsConPresupuestoEnviado.has(v.id)) return false;
+      if (visitaIdsDescartadas.has(v.id)) return false;
       if (v.email && emailsDescartados.has(v.email.trim().toLowerCase())) return false;
       if (v.telefono && telefonosDescartados.has(normalizarTelefono(v.telefono))) return false;
       return true;

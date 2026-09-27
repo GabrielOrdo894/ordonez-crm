@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { ArrowLeft, Sparkles, Copy, Check, X, Link2, Gauge, CalendarPlus } from 'lucide-react';
+import { ArrowLeft, Sparkles, Copy, Check, X, Link2, Gauge, CalendarPlus, Phone, Mail, Languages, MessageSquareText } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
@@ -335,6 +335,17 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' && !respuestaSinRevisar : !!presupuesto?.mensaje_seguimiento_enviado;
   const cerrada = tipo === 'solicitud' && (solicitud?.estado === 'No concretada' || solicitud?.estado === 'Rechazada');
 
+  // Cambiar el estado desde la cabecera — los cierres (No concretada/Rechazada) piden confirmación
+  // porque dejan de generar mensajes y sacan la solicitud de los avisos.
+  const elegirEstado = async (nuevo: EstadoSolicitud) => {
+    if (!solicitud || nuevo === solicitud.estado) return;
+    if (nuevo === 'No concretada' && !(await confirmar('¿Marcar como No concretada? Indica que no se llegó a acordar una visita.'))) return;
+    if (nuevo === 'Rechazada' && !(await confirmar('¿Marcar como Rechazada? Indica que se decidió no seguir después de la visita.'))) return;
+    cambiarEstadoMutation.mutate(nuevo);
+  };
+
+  const telefono = formatearTelefonoVisual(solicitud?.telefono ?? null);
+
   return (
     <div>
       <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 mb-4">
@@ -343,12 +354,16 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
       </button>
 
       <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
-        <div>
-          <h1 className="text-lg font-semibold text-gray-900">
-            {tipo === 'solicitud' ? 'Solicitud entrante' : `Respuesta a ${presupuesto?.numero}`}
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold text-gray-900 truncate">
+            {tipo === 'solicitud'
+              ? solicitud?.nombre || solicitud?.email || '(sin nombre)'
+              : `Respuesta a ${presupuesto?.numero}`}
           </h1>
           <p className="text-sm text-gray-500">
-            {tipo === 'solicitud' ? solicitud?.nombre || solicitud?.email || '(sin nombre)' : presupuesto?.cliente_nombre}
+            {tipo === 'solicitud' && solicitud
+              ? `Solicitud recibida el ${fecha(solicitud.created_at)} · ${FUENTE_LABEL[solicitud.fuente] ?? solicitud.fuente}`
+              : presupuesto?.cliente_nombre}
           </p>
         </div>
         <span className="flex items-center gap-1.5 shrink-0">
@@ -361,326 +376,345 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         </span>
       </div>
 
-      <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 text-sm text-gray-700 space-y-1.5">
-        {tipo === 'solicitud' && solicitud && (
-          <>
-            <p>
-              <span className="text-gray-400">Fuente:</span> {FUENTE_LABEL[solicitud.fuente] ?? solicitud.fuente} ·{' '}
-              <span className="text-gray-400">Recibida:</span> {fecha(solicitud.created_at)}
-            </p>
-            <p>
-              <span className="text-gray-400">Nombre:</span> {solicitud.nombre || '(no indicado)'}
-            </p>
-            <p>
-              <span className="text-gray-400">Email:</span> {solicitud.email || '—'} ·{' '}
-              <span className="text-gray-400">Teléfono:</span> {formatearTelefonoVisual(solicitud.telefono) || '—'}
-            </p>
-            <p>
-              <span className="text-gray-400">Tipo de reforma:</span> {solicitud.tipo_reforma || '—'}
-            </p>
-            <p className="whitespace-pre-wrap pt-1 border-t border-gray-100 mt-2">
-              {solicitud.comentario_cliente || '(sin comentario)'}
-            </p>
-          </>
-        )}
-        {tipo === 'solicitud' && solicitud?.ultima_respuesta_cliente_resumen && (
-          <div className="border-t border-gray-100 mt-2 pt-2">
-            <p className="text-xs text-brand font-semibold uppercase tracking-wide mb-1">
-              Respuesta del cliente · {fecha(solicitud.ultima_respuesta_cliente_fecha)}
-            </p>
-            <p className="whitespace-pre-wrap">{solicitud.ultima_respuesta_cliente_resumen}</p>
-          </div>
-        )}
-        {tipo === 'seguimiento' && presupuesto && (
-          <>
-            <p>
-              <span className="text-gray-400">Cliente:</span> {presupuesto.cliente_nombre || '—'} ({presupuesto.cliente_email || '—'})
-            </p>
-            <p>
-              <span className="text-gray-400">Respondió:</span> {fecha(presupuesto.ultima_respuesta_cliente_fecha)}
-            </p>
-            {presupuesto.conversacion && presupuesto.conversacion.length > 0 ? (
-              <div className="border-t border-gray-100 mt-3 pt-3 flex flex-col gap-2.5">
-                <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
-                  Conversación completa ({presupuesto.conversacion.length} mensaje{presupuesto.conversacion.length > 1 ? 's' : ''})
-                </p>
-                {presupuesto.conversacion.map((m, i) => {
-                  const esCliente = m.de === (presupuesto.cliente_email ?? '').toLowerCase();
-                  return (
-                    <div key={i} className={`flex ${esCliente ? 'justify-start' : 'justify-end'}`}>
-                      <div
-                        className={`max-w-[85%] rounded-sm px-3 py-2 text-sm ${
-                          esCliente ? 'bg-brand-light' : 'bg-gray-100'
-                        }`}
-                      >
-                        <p className="text-[11px] font-semibold text-gray-500 mb-1">
-                          {esCliente ? presupuesto.cliente_nombre || m.de : 'Nosotros'}
-                          <span className="font-normal text-gray-400"> · {fecha(m.fecha)}</span>
-                        </p>
-                        <p className="whitespace-pre-wrap leading-relaxed text-gray-800">{m.texto}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="whitespace-pre-wrap pt-1 border-t border-gray-100 mt-2">
-                {presupuesto.ultima_respuesta_cliente_resumen || '—'}
-              </p>
-            )}
-          </>
-        )}
-      </div>
-
-      {tipo === 'seguimiento' && presupuesto && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
-          {presupuesto.seguimiento_concluido ? (
-            <Button variant="secondary" onClick={() => concluidoMutation.mutate(false)} disabled={concluidoMutation.isPending}>
-              Reabrir conversación
-            </Button>
-          ) : (
-            <Button onClick={() => concluidoMutation.mutate(true)} disabled={concluidoMutation.isPending}>
-              <span className="flex items-center gap-1.5">
-                <Check size={14} />
-                Marcar como Aceptada (cerrar seguimiento)
-              </span>
-            </Button>
-          )}
-          <span className="text-xs text-gray-400">
-            Cierre definitivo — deja de vigilarse por email (presupuesto definitivo, ajustes, facturas van aparte),
-            independiente de si el presupuesto en sí queda Pendiente, Aceptado o Rechazado.
-          </span>
-        </div>
-      )}
-
-      {tipo === 'solicitud' && solicitud && !cerrada && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-3 flex-wrap">
-          <Button
-            variant="secondary"
-            onClick={() =>
-              abrirNuevaVisita({
-                nombre: solicitud.nombre ?? undefined,
-                telefono: solicitud.telefono ?? undefined,
-                email: solicitud.email ?? undefined,
-                idioma: solicitud.idioma,
-                contacto: 'Formulario',
-                tipo: solicitud.tipo_reforma ?? undefined,
-                descripcion: solicitud.comentario_cliente ?? undefined,
-                solicitudId: solicitud.id,
-              })
-            }
-          >
-            <span className="flex items-center gap-1.5">
-              <CalendarPlus size={14} />
-              Crear visita desde esta solicitud
-            </span>
-          </Button>
-          <span className="text-xs text-gray-400">Abre "Nueva visita" con los datos de contacto ya rellenados.</span>
-        </div>
-      )}
-
       {tipo === 'solicitud' && solicitud && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
-          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Estado</span>
-          <div className="w-56">
-            <Select
-              options={ESTADOS_SOLICITUD.filter((estado) => estado !== 'Eliminada').map((estado) => ({
-                value: estado,
-                label: estado === 'Rechazada' ? 'Rechazada (tras visita)' : ETIQUETA_ESTADO_SOLICITUD[estado],
-              }))}
-              value={solicitud.estado}
-              disabled={cambiarEstadoMutation.isPending}
-              onChange={(e) => cambiarEstadoMutation.mutate(e.target.value as EstadoSolicitud)}
-            />
+        <div className="bg-surface border border-gray-200 rounded-sm p-3 mb-5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold mr-1">Estado</span>
+            {ESTADOS_SOLICITUD.filter((e) => e !== 'Eliminada').map((e) => (
+              <button
+                key={e}
+                onClick={() => elegirEstado(e)}
+                disabled={cambiarEstadoMutation.isPending}
+                className={`px-3 py-1.5 rounded-sm text-xs font-semibold border transition-colors ${
+                  solicitud.estado === e
+                    ? 'bg-brand text-white border-brand'
+                    : 'bg-surface border-gray-200 text-gray-600 hover:border-brand hover:text-brand'
+                }`}
+              >
+                {e === 'Rechazada' ? 'Rechazada (tras visita)' : ETIQUETA_ESTADO_SOLICITUD[e]}
+              </button>
+            ))}
           </div>
-          <span className="text-xs text-gray-400">
+          <p className="text-xs text-gray-400 mt-2">
             No concretada: no se llegó a acordar visita. Rechazada: decisión tomada después de la visita.
-          </span>
+          </p>
         </div>
       )}
 
-      {tipo === 'solicitud' && solicitud && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
-          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Solicita</span>
-          <div className="w-56">
-            <Select
-              options={OPCIONES_TIPO_SOLICITUD}
-              value={solicitud.tipo_solicitud ?? ''}
-              disabled={tipoSolicitudMutation.isPending}
-              onChange={(e) => tipoSolicitudMutation.mutate((e.target.value || null) as TipoSolicitud | null)}
-            />
-          </div>
-          <span className="text-xs text-gray-400">Se autodetecta por el asunto en conversaciones directas; corrígelo si hace falta.</span>
-        </div>
-      )}
-
-      {tipo === 'solicitud' && solicitud && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
-          <Link2 size={14} className="text-gray-400 shrink-0" />
-          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Vincular a presupuesto</span>
-          <div className="w-72">
-            <Select
-              options={[{ value: '', label: 'Sin vincular' }, ...(presupuestosDisponibles ?? []).map((p) => ({
-                value: p.id,
-                label: `${p.numero ?? '(sin número)'} — ${p.cliente_nombre ?? ''}`,
-              }))]}
-              value={solicitud.presupuesto_vinculado_id ?? ''}
-              // Deshabilitado mientras está pendiente — si no, cambiar de presupuesto vinculado dos
-              // veces seguidas antes de que la primera mutación complete lee presupuesto_vinculado_id
-              // desactualizado (aún null) en ambas y puede registrar el evento de funnel dos veces,
-              // apuntando al presupuesto ya sobrescrito (hallazgo real, revisión 2026-08-12).
-              disabled={vincularMutation.isPending}
-              onChange={(e) => vincularMutation.mutate(e.target.value || null)}
-            />
-          </div>
-          {solicitud.presupuesto_vinculado_id && (
-            <Button
-              variant="secondary"
-              onClick={() =>
-                navigate('/finanzas/presupuestos', {
-                  state: { verDocId: solicitud.presupuesto_vinculado_id, verDocTipo: 'presupuesto' },
-                })
-              }
-            >
-              Ver presupuesto
-            </Button>
-          )}
-          <span className="text-xs text-gray-400">Para poder analizar más adelante qué solicitudes se convierten en negocio real.</span>
-        </div>
-      )}
-
-      {tipo === 'solicitud' && solicitud && (
-        <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4 flex items-center gap-2 flex-wrap">
-          <CalendarPlus size={14} className="text-gray-400 shrink-0" />
-          <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold shrink-0">Vincular a visita</span>
-          <div className="w-72">
-            <Select
-              options={[
-                { value: '', label: 'Sin vincular' },
-                ...(visitasDisponibles ?? []).map((v) => ({
-                  value: v.id,
-                  label: `${[v.nombre, v.apellidos].filter(Boolean).join(' ') || '(sin nombre)'} — ${fecha(v.fecha_visita)}${v.direccion ? ` · ${v.direccion}` : ''}`,
-                })),
-              ]}
-              value={solicitud.visita_id ?? ''}
-              disabled={vincularVisitaMutation.isPending}
-              onChange={(e) => vincularVisitaMutation.mutate(e.target.value || null)}
-            />
-          </div>
-          <span className="text-xs text-gray-400">
-            Para cuando la visita se creó buscando al cliente directamente y el cruce automático por teléfono/email no la
-            encontró (p. ej. una solicitud ya Rechazada con una visita real hecha después).
-          </span>
-        </div>
-      )}
-
-      {cerrada ? (
-        <div className="bg-gray-50 border border-gray-200 rounded-sm p-4 text-sm text-gray-500">
-          Esta solicitud está cerrada. No se generará ningún mensaje mientras conserve este estado.
-        </div>
-      ) : (
-        <>
-          {!mensaje && (
-            <div className="bg-surface border border-gray-200 rounded-sm p-4 mb-4">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="w-56">
-                  <Select label="Modelo de IA" options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
-                </div>
-                <Button onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending} className="mt-4">
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles size={14} />
-                    {generarMutation.isPending ? 'Generando…' : 'Generar mensaje de respuesta'}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 items-start">
+        <div className="flex flex-col gap-4 min-w-0">
+          {tipo === 'solicitud' && solicitud && (
+            <div className="bg-surface border border-gray-200 rounded-sm p-4">
+              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1.5">
+                  <MessageSquareText size={13} />
+                  Lo que pide el cliente
+                </p>
+                {solicitud.tipo_reforma && (
+                  <span className="text-xs bg-brand-light text-brand font-medium px-2 py-0.5 rounded-full">
+                    {solicitud.tipo_reforma}
                   </span>
-                </Button>
+                )}
               </div>
-              <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
-                <Gauge size={12} className={porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-gray-400'} />
-                Uso de IA este mes: ${(usoIaMes ?? 0).toFixed(2)} de ${presupuestoMensual.toFixed(2)} ({porcentajeUso}%)
+              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed border-l-2 border-brand pl-3">
+                {solicitud.comentario_cliente || '(sin comentario)'}
               </p>
-            </div>
-          )}
-
-          {mensaje && (
-            <div className="border border-gray-200 rounded-sm mb-4">
-              <div className="bg-brand-light px-3 py-2 flex items-center justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Asunto</p>
-                  <p className="text-sm font-medium text-gray-900 truncate">{mensaje.asunto}</p>
-                </div>
-                <Button size="sm" variant="secondary" onClick={() => copiar(mensaje.asunto, 'Asunto')}>
-                  <Copy size={12} />
-                </Button>
-              </div>
-              <div className="p-3">
-                <p className="text-sm text-gray-900 whitespace-pre-wrap">{mensaje.cuerpo}</p>
-                <Button size="sm" variant="secondary" className="mt-2" onClick={() => copiar(mensaje.cuerpo, 'Mensaje')}>
-                  <span className="flex items-center gap-1.5">
-                    <Copy size={12} />
-                    Copiar mensaje
-                  </span>
-                </Button>
-              </div>
-              {!!mensaje.avisos?.length && (
-                <div className="border-t border-gray-200 px-3 py-2 bg-amber-50">
-                  <p className="text-xs font-medium text-amber-800 mb-1">Avisos</p>
-                  <ul className="text-xs text-amber-800 list-disc pl-4 space-y-0.5">
-                    {mensaje.avisos.map((a, i) => (
-                      <li key={i}>{a}</li>
-                    ))}
-                  </ul>
+              {solicitud.ultima_respuesta_cliente_resumen && (
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  <p className="text-xs text-brand font-semibold uppercase tracking-wide mb-1.5">
+                    Respuesta del cliente · {fecha(solicitud.ultima_respuesta_cliente_fecha)}
+                  </p>
+                  <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed bg-brand-light rounded-sm px-3 py-2">
+                    {solicitud.ultima_respuesta_cliente_resumen}
+                  </p>
                 </div>
               )}
             </div>
           )}
 
-          {mensaje && !enviado && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="w-56">
-                <Select options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+          {tipo === 'seguimiento' && presupuesto && (
+            <div className="bg-surface border border-gray-200 rounded-sm p-4 text-sm text-gray-700 space-y-1.5">
+              <p>
+                <span className="text-gray-400">Cliente:</span> {presupuesto.cliente_nombre || '—'} ({presupuesto.cliente_email || '—'})
+              </p>
+              <p>
+                <span className="text-gray-400">Respondió:</span> {fecha(presupuesto.ultima_respuesta_cliente_fecha)}
+              </p>
+              {presupuesto.conversacion && presupuesto.conversacion.length > 0 ? (
+                <div className="border-t border-gray-100 mt-3 pt-3 flex flex-col gap-2.5">
+                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                    Conversación completa ({presupuesto.conversacion.length} mensaje{presupuesto.conversacion.length > 1 ? 's' : ''})
+                  </p>
+                  {presupuesto.conversacion.map((m, i) => {
+                    const esCliente = m.de === (presupuesto.cliente_email ?? '').toLowerCase();
+                    return (
+                      <div key={i} className={`flex ${esCliente ? 'justify-start' : 'justify-end'}`}>
+                        <div className={`max-w-[85%] rounded-sm px-3 py-2 text-sm ${esCliente ? 'bg-brand-light' : 'bg-gray-100'}`}>
+                          <p className="text-[11px] font-semibold text-gray-500 mb-1">
+                            {esCliente ? presupuesto.cliente_nombre || m.de : 'Nosotros'}
+                            <span className="font-normal text-gray-400"> · {fecha(m.fecha)}</span>
+                          </p>
+                          <p className="whitespace-pre-wrap leading-relaxed text-gray-800">{m.texto}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap pt-1 border-t border-gray-100 mt-2">
+                  {presupuesto.ultima_respuesta_cliente_resumen || '—'}
+                </p>
+              )}
+            </div>
+          )}
+
+          {cerrada ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-sm p-4 text-sm text-gray-500">
+              Esta solicitud está cerrada. No se generará ningún mensaje mientras conserve este estado.
+            </div>
+          ) : (
+            <>
+              {!mensaje && (
+                <div className="bg-surface border border-gray-200 rounded-sm p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3 flex items-center gap-1.5">
+                    <Sparkles size={13} />
+                    Mensaje de respuesta
+                  </p>
+                  <div className="flex items-end gap-3 flex-wrap">
+                    <div className="w-56">
+                      <Select label="Modelo de IA" options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+                    </div>
+                    <Button onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending}>
+                      <span className="flex items-center gap-1.5">
+                        <Sparkles size={14} />
+                        {generarMutation.isPending ? 'Generando…' : 'Generar mensaje de respuesta'}
+                      </span>
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                    <Gauge size={12} className={porcentajeUso >= 90 ? 'text-red-600' : porcentajeUso >= 60 ? 'text-amber-600' : 'text-gray-400'} />
+                    Uso de IA este mes: ${(usoIaMes ?? 0).toFixed(2)} de ${presupuestoMensual.toFixed(2)} ({porcentajeUso}%)
+                  </p>
+                </div>
+              )}
+
+              {mensaje && (
+                <div className="border border-gray-200 rounded-sm">
+                  <div className="bg-brand-light px-3 py-2 flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500">Asunto</p>
+                      <p className="text-sm font-medium text-gray-900 truncate">{mensaje.asunto}</p>
+                    </div>
+                    <Button size="sm" variant="secondary" onClick={() => copiar(mensaje.asunto, 'Asunto')}>
+                      <Copy size={12} />
+                    </Button>
+                  </div>
+                  <div className="p-3">
+                    <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">{mensaje.cuerpo}</p>
+                    <Button size="sm" variant="secondary" className="mt-2" onClick={() => copiar(mensaje.cuerpo, 'Mensaje')}>
+                      <span className="flex items-center gap-1.5">
+                        <Copy size={12} />
+                        Copiar mensaje
+                      </span>
+                    </Button>
+                  </div>
+                  {!!mensaje.avisos?.length && (
+                    <div className="border-t border-gray-200 px-3 py-2 bg-amber-50">
+                      <p className="text-xs font-medium text-amber-800 mb-1">Avisos</p>
+                      <ul className="text-xs text-amber-800 list-disc pl-4 space-y-0.5">
+                        {mensaje.avisos.map((a, i) => (
+                          <li key={i}>{a}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {mensaje && !enviado && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="w-56">
+                    <Select options={MODELOS_IA} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+                  </div>
+                  <Button variant="secondary" onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending}>
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles size={14} />
+                      {generarMutation.isPending ? 'Generando…' : 'Volver a generar'}
+                    </span>
+                  </Button>
+                  <Button onClick={() => marcarEnviadoMutation.mutate()} disabled={marcarEnviadoMutation.isPending}>
+                    <span className="flex items-center gap-1.5">
+                      <Check size={14} />
+                      {/* Para seguimiento este botón solo marca la respuesta como revisada — no cambia
+                          presupuestos.estado a Aceptado (eso solo pasa desde las acciones masivas de
+                          SolicitudesPage). Etiqueta distinta para no dar a entender que ya se aceptó
+                          el presupuesto (hallazgo real, revisión 2026-08-12). */}
+                      {tipo === 'solicitud' ? 'Aceptado y enviado' : 'Marcar respuesta como revisada'}
+                    </span>
+                  </Button>
+                  {tipo === 'solicitud' && (
+                    <Button variant="secondary" onClick={() => elegirEstado('No concretada')} disabled={cambiarEstadoMutation.isPending}>
+                      <span className="flex items-center gap-1.5">
+                        <X size={14} />
+                        Marcar como no concretada
+                      </span>
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {mensaje && enviado && (
+                <p className="text-sm text-brand flex items-center gap-1.5">
+                  <Check size={15} />
+                  Marcado como enviado{tipo === 'solicitud' ? ` el ${fecha(solicitud?.mensaje_enviado_en ?? null)}` : ''}.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {tipo === 'solicitud' && solicitud && (
+            <div className="bg-surface border border-gray-200 rounded-sm p-4 text-sm text-gray-700">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Contacto</p>
+              <p className="font-medium text-gray-900 mb-2">{solicitud.nombre || '(nombre no indicado)'}</p>
+              <div className="space-y-1.5">
+                <p className="flex items-center gap-2">
+                  <Phone size={13} className="text-gray-400 shrink-0" />
+                  {telefono ? (
+                    <a href={`tel:${solicitud.telefono}`} className="text-brand hover:underline">
+                      {telefono}
+                    </a>
+                  ) : (
+                    <span className="text-gray-400">Sin teléfono</span>
+                  )}
+                </p>
+                <p className="flex items-center gap-2 min-w-0">
+                  <Mail size={13} className="text-gray-400 shrink-0" />
+                  {solicitud.email ? (
+                    <a href={`mailto:${solicitud.email}`} className="text-brand hover:underline truncate">
+                      {solicitud.email}
+                    </a>
+                  ) : (
+                    <span className="text-gray-400">Sin email</span>
+                  )}
+                </p>
+                <p className="flex items-center gap-2">
+                  <Languages size={13} className="text-gray-400 shrink-0" />
+                  {solicitud.idioma === 'fr' ? 'Francés' : 'Español'}
+                </p>
               </div>
-              <Button variant="secondary" onClick={() => generarMutation.mutate()} disabled={generarMutation.isPending}>
-                <span className="flex items-center gap-1.5">
-                  <Sparkles size={14} />
-                  {generarMutation.isPending ? 'Generando…' : 'Volver a generar'}
-                </span>
-              </Button>
-              <Button onClick={() => marcarEnviadoMutation.mutate()} disabled={marcarEnviadoMutation.isPending}>
-                <span className="flex items-center gap-1.5">
-                  <Check size={14} />
-                  {/* Para seguimiento este botón solo marca la respuesta como revisada — no cambia
-                      presupuestos.estado a Aceptado (eso solo pasa desde las acciones masivas de
-                      SolicitudesPage). Etiqueta distinta para no dar a entender que ya se aceptó
-                      el presupuesto (hallazgo real, revisión 2026-08-12). */}
-                  {tipo === 'solicitud' ? 'Aceptado y enviado' : 'Marcar respuesta como revisada'}
-                </span>
-              </Button>
-              {tipo === 'solicitud' && (
+              {!cerrada && (
                 <Button
                   variant="secondary"
-                  onClick={async () => {
-                    if (await confirmar('¿Marcar como no concretada? Indica que no se llegó a acordar una visita.')) {
-                      cambiarEstadoMutation.mutate('No concretada');
-                    }
-                  }}
-                  disabled={cambiarEstadoMutation.isPending}
+                  className="w-full mt-3"
+                  onClick={() =>
+                    abrirNuevaVisita({
+                      nombre: solicitud.nombre ?? undefined,
+                      telefono: solicitud.telefono ?? undefined,
+                      email: solicitud.email ?? undefined,
+                      idioma: solicitud.idioma,
+                      contacto: 'Formulario',
+                      tipo: solicitud.tipo_reforma ?? undefined,
+                      descripcion: solicitud.comentario_cliente ?? undefined,
+                      solicitudId: solicitud.id,
+                    })
+                  }
                 >
-                  <span className="flex items-center gap-1.5">
-                    <X size={14} />
-                    Marcar como no concretada
+                  <span className="flex items-center justify-center gap-1.5">
+                    <CalendarPlus size={14} />
+                    Crear visita desde esta solicitud
                   </span>
                 </Button>
               )}
             </div>
           )}
 
-          {mensaje && enviado && (
-            <p className="text-sm text-brand flex items-center gap-1.5">
-              <Check size={15} />
-              Marcado como enviado{tipo === 'solicitud' ? ` el ${fecha(solicitud?.mensaje_enviado_en ?? null)}` : ''}.
-            </p>
+          {tipo === 'solicitud' && solicitud && (
+            <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col gap-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Gestión</p>
+              <Select
+                label="Solicita"
+                options={OPCIONES_TIPO_SOLICITUD}
+                value={solicitud.tipo_solicitud ?? ''}
+                disabled={tipoSolicitudMutation.isPending}
+                onChange={(e) => tipoSolicitudMutation.mutate((e.target.value || null) as TipoSolicitud | null)}
+              />
+              <div>
+                <Select
+                  label="Presupuesto vinculado"
+                  options={[
+                    { value: '', label: 'Sin vincular' },
+                    ...(presupuestosDisponibles ?? []).map((p) => ({
+                      value: p.id,
+                      label: `${p.numero ?? '(sin número)'} — ${p.cliente_nombre ?? ''}`,
+                    })),
+                  ]}
+                  value={solicitud.presupuesto_vinculado_id ?? ''}
+                  // Deshabilitado mientras está pendiente — si no, cambiar de presupuesto vinculado dos
+                  // veces seguidas antes de que la primera mutación complete lee presupuesto_vinculado_id
+                  // desactualizado (aún null) en ambas y puede registrar el evento de funnel dos veces,
+                  // apuntando al presupuesto ya sobrescrito (hallazgo real, revisión 2026-08-12).
+                  disabled={vincularMutation.isPending}
+                  onChange={(e) => vincularMutation.mutate(e.target.value || null)}
+                />
+                {solicitud.presupuesto_vinculado_id && (
+                  <button
+                    onClick={() =>
+                      navigate('/finanzas/presupuestos', {
+                        state: { verDocId: solicitud.presupuesto_vinculado_id, verDocTipo: 'presupuesto' },
+                      })
+                    }
+                    className="text-xs text-brand hover:underline mt-1 flex items-center gap-1"
+                  >
+                    <Link2 size={11} />
+                    Ver presupuesto
+                  </button>
+                )}
+              </div>
+              <div>
+                <Select
+                  label="Visita vinculada"
+                  options={[
+                    { value: '', label: 'Sin vincular' },
+                    ...(visitasDisponibles ?? []).map((v) => ({
+                      value: v.id,
+                      label: `${[v.nombre, v.apellidos].filter(Boolean).join(' ') || '(sin nombre)'} — ${fecha(v.fecha_visita)}${v.direccion ? ` · ${v.direccion}` : ''}`,
+                    })),
+                  ]}
+                  value={solicitud.visita_id ?? ''}
+                  disabled={vincularVisitaMutation.isPending}
+                  onChange={(e) => vincularVisitaMutation.mutate(e.target.value || null)}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Vincular presupuesto o visita marca la solicitud como Aceptada.
+                </p>
+              </div>
+            </div>
           )}
-        </>
-      )}
+
+          {tipo === 'seguimiento' && presupuesto && (
+            <div className="bg-surface border border-gray-200 rounded-sm p-4 flex flex-col gap-3">
+              {presupuesto.seguimiento_concluido ? (
+                <Button variant="secondary" onClick={() => concluidoMutation.mutate(false)} disabled={concluidoMutation.isPending}>
+                  Reabrir conversación
+                </Button>
+              ) : (
+                <Button onClick={() => concluidoMutation.mutate(true)} disabled={concluidoMutation.isPending}>
+                  <span className="flex items-center gap-1.5">
+                    <Check size={14} />
+                    Marcar como Aceptada (cerrar seguimiento)
+                  </span>
+                </Button>
+              )}
+              <span className="text-xs text-gray-400">
+                Cierre definitivo — deja de vigilarse por email (presupuesto definitivo, ajustes, facturas van aparte),
+                independiente de si el presupuesto en sí queda Pendiente, Aceptado o Rechazado.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
