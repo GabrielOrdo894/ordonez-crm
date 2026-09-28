@@ -1,9 +1,28 @@
 import { useEffect, useState } from 'react';
-import type { Session, User } from '@supabase/supabase-js';
+import { isAuthRetryableFetchError, type Session, type User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useToast } from './useToast';
 
 export type Rol = 'admin' | 'gestion' | 'contable';
+
+// App móvil abierta sin cobertura (2026-09-28): el token de acceso dura 1 h y Supabase no puede
+// renovarlo sin red, así que getSession() devuelve null y salía el login aunque la sesión siguiera
+// guardada — y sin red no se puede iniciar sesión. En ese caso (y solo si la sesión es de hoy, para
+// no saltarse el cierre a medianoche de App.tsx) se usa la sesión guardada para poder abrir
+// /rapido y dejar envíos en la cola; las llamadas a Supabase fallan igual hasta que vuelve la red.
+function sesionGuardadaSinConexion(): Session | null {
+  try {
+    const hoy = new Date();
+    const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+    if (localStorage.getItem('crm_sesion_fecha') !== hoyIso) return null;
+    const ref = new URL(import.meta.env.VITE_SUPABASE_URL as string).hostname.split('.')[0];
+    const guardada = localStorage.getItem(`sb-${ref}-auth-token`);
+    const sesion = guardada ? (JSON.parse(guardada) as Session) : null;
+    return sesion?.access_token && sesion.user ? sesion : null;
+  } catch {
+    return null;
+  }
+}
 
 export function useAuth() {
   const toast = useToast();
@@ -15,18 +34,31 @@ export function useAuth() {
   const [recuperandoContrasena, setRecuperandoContrasena] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) toast.error(error.message);
-      setSession(data.session);
-      setLoading(false);
-    });
+    const cargar = () =>
+      supabase.auth.getSession().then(({ data, error }) => {
+        const sinConexion = error && isAuthRetryableFetchError(error) ? sesionGuardadaSinConexion() : null;
+        if (error && !sinConexion) toast.error(error.message);
+        setSession(data.session ?? sinConexion);
+        setLoading(false);
+      });
+    void cargar();
+    // Abierta sin cobertura con la sesión guardada (ver sesionGuardadaSinConexion): al volver la red
+    // se renueva el token y se sustituye la copia por la sesión real.
+    const alConectar = () => void cargar();
+    window.addEventListener('online', alConectar);
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (event === 'PASSWORD_RECOVERY') setRecuperandoContrasena(true);
+      // La sesión inicial ya la resuelve cargar(); este evento llega con null cuando no hay red
+      // y pisaría la sesión guardada.
+      if (event === 'INITIAL_SESSION') return;
       setSession(newSession);
     });
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      listener.subscription.unsubscribe();
+      window.removeEventListener('online', alConectar);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

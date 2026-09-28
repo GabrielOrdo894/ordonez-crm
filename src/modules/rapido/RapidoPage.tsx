@@ -7,10 +7,14 @@ import { marcarCrmCompletoEnMovil } from '../../lib/crmCompletoMovil';
 import { useToast } from '../../hooks/useToast';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
-import { CV_VEHICULO_DEFECTO, insertarGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
+import { CV_VEHICULO_DEFECTO } from '../../lib/gastoKilometrico';
 import { calcularIndemnizacionKm } from '../finanzas/gastos/baremoKilometrico';
 import { formatearPrecio } from '../finanzas/lineas';
 import { SeccionFotosObra, SeccionTicket } from './seccionesMedia';
+import { AvisoCola } from './AvisoCola';
+import { encolar, esErrorDeRed, mensajeError, type EnvioKm } from './colaOffline';
+import { useCopiaLocal, textoCopia } from './copiaLocal';
+import { direccionDesdeCoordenadas, enviarKm } from './envios';
 import { MapsAutocomplete, type LugarSeleccionado } from '../google/MapsAutocomplete';
 import { formatearTelefonoVisual } from '../clientes/types';
 import { fechaVisitaCorta } from '../../lib/fechas';
@@ -76,30 +80,6 @@ type DatosEntidad = {
   seguro?: string;
 };
 
-type GoogleGeocodingWindow = {
-  google?: {
-    maps?: {
-      importLibrary: (libreria: string) => Promise<{
-        Geocoder: new () => {
-          geocode: (peticion: { location: { lat: number; lng: number } }) => Promise<{ results: { formatted_address: string }[] }>;
-        };
-      }>;
-    };
-  };
-};
-
-async function direccionDesdeCoordenadas(lat: number, lng: number): Promise<string | null> {
-  const google = (window as unknown as GoogleGeocodingWindow).google;
-  if (!google?.maps?.importLibrary) return null;
-  try {
-    const { Geocoder } = await google.maps.importLibrary('geocoding');
-    const { results } = await new Geocoder().geocode({ location: { lat, lng } });
-    return results[0]?.formatted_address ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function obtenerUbicacion(): Promise<{ lat: number; lng: number }> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -116,7 +96,7 @@ function obtenerUbicacion(): Promise<{ lat: number; lng: number }> {
               : 'No se pudo obtener la ubicación, inténtalo de nuevo',
           ),
         ),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 60000 },
     );
   });
 }
@@ -148,6 +128,7 @@ export default function RapidoPage() {
           <p className="text-sm font-semibold leading-tight">Acciones rápidas</p>
         </div>
       </header>
+      <AvisoCola />
 
       <div className="flex-1 w-full max-w-md mx-auto px-4 py-4 flex flex-col gap-4">
         {seccion === null ? (
@@ -324,17 +305,28 @@ function useVisitasPendientes() {
   });
 }
 
+// Sin cobertura, la última lista descargada (guardada en el móvil) — también la usa el kilometraje
+// para enlazar el gasto a la visita de hoy sin conexión.
+function useVisitasConCopia() {
+  const consulta = useVisitasPendientes();
+  const { datos, copiaDe } = useCopiaLocal('rapido_visitas_pendientes', consulta.data);
+  return { ...consulta, visitas: datos, copiaDe };
+}
+
 function SeccionVisitas({ onRegistrarKm }: { onRegistrarKm: () => void }) {
-  const { data: visitas, isLoading, isError, error } = useVisitasPendientes();
+  const { visitas, copiaDe, isError, error } = useVisitasConCopia();
   const hoy = hoyLocalIso();
   const deHoy = (visitas ?? []).filter((v) => v.fecha_visita === hoy);
   const proximas = (visitas ?? []).filter((v) => v.fecha_visita !== hoy);
 
-  if (isLoading) return <p className="text-sm text-gray-500">Cargando…</p>;
-  if (isError) return <p className="text-sm text-red-600">{error instanceof Error ? error.message : 'No se pudieron cargar las visitas'}</p>;
+  if (!visitas) {
+    if (isError) return <p className="text-sm text-red-600">{mensajeError(error)}</p>;
+    return <p className="text-sm text-gray-500">{navigator.onLine ? 'Cargando…' : 'Sin conexión y sin visitas guardadas en el móvil.'}</p>;
+  }
 
   return (
     <div className="flex flex-col gap-4">
+      {copiaDe && <p className="text-xs text-amber-700">{textoCopia(copiaDe)}</p>}
       <ListaVisitas titulo="Hoy" visitas={deHoy} vacio="Sin visitas hoy" onRegistrarKm={onRegistrarKm} />
       <ListaVisitas titulo="Próximas" visitas={proximas} vacio="Sin visitas programadas" />
     </div>
@@ -406,15 +398,16 @@ function ListaVisitas({
 type Propuesta = {
   lat: number;
   lng: number;
-  direccion: string;
+  direccion: string | null; // null = sin conexión, se calcula al enviarse
   km: number | null;
   visita: Visita | null;
+  sinConexion: boolean;
 };
 
 function SeccionKilometraje() {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { data: visitas } = useVisitasPendientes();
+  const { visitas } = useVisitasConCopia();
   const [buscando, setBuscando] = useState(false);
   const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
   const [kmTexto, setKmTexto] = useState('');
@@ -431,15 +424,17 @@ function SeccionKilometraje() {
   const proponerDesde = async (lat: number, lng: number, direccionConocida: string | null) => {
     setBuscando(true);
     try {
-      const [direccion, km] = await Promise.all([
-        direccionConocida ?? direccionDesdeCoordenadas(lat, lng),
-        calcularKmIdaYVuelta({ lat, lng }),
-      ]);
+      // Sin cobertura no se llama a Google (se quedaría esperando): el GPS sí funciona, así que se
+      // guardan las coordenadas y la dirección/km se calculan al enviarse (colaOffline.ts).
+      const sinConexion = !navigator.onLine;
+      const [direccion, km] = sinConexion
+        ? [direccionConocida, null]
+        : await Promise.all([direccionConocida ?? direccionDesdeCoordenadas(lat, lng), calcularKmIdaYVuelta({ lat, lng })]);
       const visita =
         (visitas ?? []).find(
           (v) => v.fecha_visita === hoy && v.lat != null && v.lng != null && distanciaMetros({ lat, lng }, { lat: v.lat, lng: v.lng }) <= RADIO_VISITA_METROS,
         ) ?? null;
-      setPropuesta({ lat, lng, direccion: direccion ?? `${lat.toFixed(5)}, ${lng.toFixed(5)}`, km, visita });
+      setPropuesta({ lat, lng, direccion: direccion ?? (sinConexion ? null : `${lat.toFixed(5)}, ${lng.toFixed(5)}`), km, visita, sinConexion });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo calcular la ruta');
     } finally {
@@ -470,32 +465,45 @@ function SeccionKilometraje() {
   };
 
   const guardarMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<'enviado' | 'en-cola'> => {
       if (!propuesta) throw new Error('Primero obtén la ubicación');
       const km = kmTexto.trim() === '' ? null : Number(kmTexto);
       if (km != null && (!Number.isFinite(km) || km <= 0)) throw new Error('Los km tienen que ser un número mayor que 0');
-      if (propuesta.visita) {
-        const { data: existente, error } = await supabase.from('gastos').select('id').eq('visita_id', propuesta.visita.id).limit(1);
-        if (error) throw error;
-        if (existente && existente.length > 0) throw new Error('Esta visita ya tiene un gasto de kilometraje registrado');
-      }
-      await insertarGastoKilometricoPendiente({
+      // La fecha es la de ahora (cuando se está en el sitio), aunque el envío llegue mañana.
+      const envio: EnvioKm = {
+        tipo: 'km',
         fecha: hoy,
-        etiqueta: propuesta.visita ? `visita ${propuesta.visita.nombre} ${propuesta.visita.apellidos}` : propuesta.direccion,
+        lat: propuesta.lat,
+        lng: propuesta.lng,
+        direccion: propuesta.direccion,
         km,
         visitaId: propuesta.visita?.id ?? null,
-      });
+        etiquetaVisita: propuesta.visita ? `visita ${propuesta.visita.nombre} ${propuesta.visita.apellidos}` : null,
+      };
+      try {
+        if (!navigator.onLine) throw new TypeError('Failed to fetch');
+        await enviarKm(envio);
+        return 'enviado';
+      } catch (err) {
+        if (!esErrorDeRed(err)) throw err;
+        await encolar(envio);
+        return 'en-cola';
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      toast.success(
-        importe != null
-          ? `Kilometraje registrado: ${formatearPrecio(importe)} — pendiente de revisar en Gastos`
-          : 'Kilometraje registrado — queda pendiente de revisar en Gastos',
-      );
+    onSuccess: (resultado) => {
+      if (resultado === 'en-cola') {
+        toast.success('Sin conexión — kilometraje guardado en el móvil, se enviará solo al volver la cobertura');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['gastos'] });
+        toast.success(
+          importe != null
+            ? `Kilometraje registrado: ${formatearPrecio(importe)} — pendiente de revisar en Gastos`
+            : 'Kilometraje registrado — queda pendiente de revisar en Gastos',
+        );
+      }
       setPropuesta(null);
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : 'No se pudo registrar el gasto'),
+    onError: (err) => toast.error(mensajeError(err)),
   });
 
   const kmNumero = kmTexto.trim() === '' ? null : Number(kmTexto);
@@ -521,14 +529,26 @@ function SeccionKilometraje() {
           o escribe la dirección
           <span className="flex-1 border-t border-gray-200" />
         </div>
-        <MapsAutocomplete label="Dirección del desplazamiento" value={direccionManual} onChange={setDireccionManual} onSelect={elegirDireccion} />
+        {navigator.onLine ? (
+          <MapsAutocomplete label="Dirección del desplazamiento" value={direccionManual} onChange={setDireccionManual} onSelect={elegirDireccion} />
+        ) : (
+          <p className="text-xs text-gray-500">Sin conexión no se puede buscar una dirección — usa tu ubicación.</p>
+        )}
       </div>
 
       {propuesta && (
         <div className="bg-white border border-gray-200 rounded-sm p-4 flex flex-col gap-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-400">Estás en</p>
-            <p className="text-sm text-gray-900">{propuesta.direccion}</p>
+            <p className="text-sm text-gray-900">
+              {propuesta.direccion ?? `${propuesta.lat.toFixed(5)}, ${propuesta.lng.toFixed(5)}`}
+            </p>
+            {propuesta.sinConexion && (
+              <p className="text-xs text-amber-700 mt-1">
+                Sin conexión: la ubicación ya está guardada. La dirección{propuesta.km == null ? ' y los km' : ''} se calculan al enviarse,
+                cuando vuelva la cobertura.
+              </p>
+            )}
           </div>
           {propuesta.visita ? (
             <div className="bg-brand-light rounded-sm px-3 py-2 text-xs text-gray-800">
@@ -547,7 +567,9 @@ function SeccionKilometraje() {
               min="0"
               value={kmTexto}
               onChange={(e) => setKmTexto(e.target.value)}
-              placeholder={propuesta.km == null ? 'Sin ruta calculada — escríbelos a mano' : ''}
+              placeholder={
+                propuesta.km != null ? '' : propuesta.sinConexion ? 'Se calcularán al enviarse (o escríbelos a mano)' : 'Sin ruta calculada — escríbelos a mano'
+              }
               className="w-full border border-gray-200 rounded-sm px-3 py-2 text-sm focus:border-brand focus:outline-none"
             />
           </label>
