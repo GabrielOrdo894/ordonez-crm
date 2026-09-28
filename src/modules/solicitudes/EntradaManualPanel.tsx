@@ -10,6 +10,8 @@ import { Select } from '../../components/ui/Select';
 
 const FUENTES_MANUALES = [
   { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'llamada', label: 'Llamada' },
+  { value: 'sms', label: 'SMS' },
   { value: 'email_directo', label: 'Email directo' },
   { value: 'manual', label: 'Otro (a mano)' },
 ];

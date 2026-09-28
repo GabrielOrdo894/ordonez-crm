@@ -170,6 +170,8 @@ export const FUENTE_LABEL: Record<string, string> = {
   autoenvio_gabriel: 'Autoenvío Gabriel',
   email_directo: 'Email directo',
   whatsapp: 'WhatsApp (manual)',
+  llamada: 'Llamada (manual)',
+  sms: 'SMS (manual)',
   manual: 'Añadida a mano',
   desconocida: 'Desconocida',
 };

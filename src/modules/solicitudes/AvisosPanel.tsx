@@ -68,6 +68,8 @@ type SolicitudDescartada = {
 // fuente que EntradaManualPanel.tsx, deducido de cómo llegó el cliente según la visita.
 function fuenteDesdeContacto(contacto: string | null) {
   if (contacto === 'WhatsApp') return 'whatsapp';
+  if (contacto === 'Llamada') return 'llamada';
+  if (contacto === 'SMS') return 'sms';
   if (contacto === 'Email') return 'email_directo';
   return 'manual';
 }
