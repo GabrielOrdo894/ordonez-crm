@@ -1010,3 +1010,13 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (en gastos «Exento» significa «sin TVA francesa deducible»; el IVA pagado queda como mayor coste), o
   «Intracomunitaria» solo si el proveedor facturó sin IVA con el nº de TVA intra de la EURL. Los gastos automáticos (kilometraje,
   banco) ya se creaban en Francia.
+- **`/rapido` sin conexión** (2026-09-28, petición de Gabriel): kilometraje, foto de ticket y fotos de obra
+  hechos sin cobertura se guardan en el móvil (IndexedDB, `src/modules/rapido/colaOffline.ts`) y se envían
+  solos al volver la red con las MISMAS funciones que el envío directo (`envios.ts` — la cola no tiene lógica
+  de negocio propia). El km guarda coordenadas + fecha del momento; dirección y km se calculan al enviarse.
+  Visitas pendientes y obras de la galería se muestran desde la última copia guardada (`copiaLocal.ts`).
+  `AvisoCola.tsx` (cabecera de `/rapido`) muestra "Sin conexión · N pendientes", "Enviar ahora", errores por
+  envío y "Descartar". La cola solo se procesa con `/rapido` abierta. `useAuth.ts`: sin red y con el token
+  caducado, `getSession()` devuelve null y salía el login — ahora usa la sesión guardada **solo si es de hoy**
+  (`crm_sesion_fecha`), para no saltarse el cierre a medianoche; tras medianoche sin red sigue saliendo el
+  login. Sin probar todavía en un móvil real.
