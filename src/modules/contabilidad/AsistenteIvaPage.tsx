@@ -13,11 +13,20 @@ import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { porcentajeIva } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 import { formatearPrecio } from '../finanzas/lineas';
+import { hoyLocalIso, isoLocal } from '../../lib/fechas';
 
 // La sociedad empezó a operar como tal en julio de 2026 — no hay TVA que declarar antes.
 const INICIO_SOCIEDAD_MES = limitesEjercicio(2026).inicio.slice(0, 7);
 
-type Declaracion = { mes: string; declarado: boolean; fecha_declaracion: string | null; credito_reportado: number | null };
+type LineaDeclarada = { linea: string; base?: number; taxe?: number };
+type Declaracion = {
+  mes: string;
+  declarado: boolean;
+  fecha_declaracion: string | null;
+  credito_reportado: number | null;
+  // Copia de la CA3 al marcarla como declarada — para avisar si después cambia.
+  datos: LineaDeclarada[] | null;
+};
 type EstadoMes = 'en_curso' | 'disponible' | 'declarado';
 
 function mesISODe(anio: number, mes: number) {
@@ -238,7 +247,9 @@ export default function AsistenteIvaPage() {
 
   const mesISO = `${anio}-${String(mes).padStart(2, '0')}`;
   const inicioMes = `${mesISO}-01`;
-  const finMes = new Date(anio, mes, 0).toISOString().slice(0, 10);
+  // Hora local: con toISOString() el último día del mes pasaba a UTC y se quedaba fuera de TODAS las
+  // declaraciones (septiembre acababa el 29) — auditoría 2026-09-29.
+  const finMes = isoLocal(new Date(anio, mes, 0));
 
   const { data: declaraciones } = useQuery({
     queryKey: ['declaraciones_iva'],
@@ -272,8 +283,9 @@ export default function AsistenteIvaPage() {
       const { error } = await supabase.from('declaraciones_iva').upsert({
         mes: mesISO,
         declarado,
-        fecha_declaracion: declarado ? new Date().toISOString().slice(0, 10) : null,
+        fecha_declaracion: declarado ? hoyLocalIso() : null,
         credito_reportado: ligne27,
+        datos: declarado ? filasExportar.map((f) => ({ linea: f.linea, base: f.base, taxe: f.taxe })) : null,
       });
       if (error) throw error;
     },
@@ -378,19 +390,36 @@ export default function AsistenteIvaPage() {
 
     const baseB2 = gastosIntracom.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const baseA4 = gastosImportacion.reduce((s, g) => s + (g.importe_base ?? 0), 0);
-    const baseE2 = pagosExentos.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rectExentas.reduce((s, f) => s + baseFactura(f), 0);
+    const baseE2 = Math.max(
+      0,
+      pagosExentos.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rectExentas.reduce((s, f) => s + baseFactura(f), 0),
+    );
 
-    // Base gravable = cobros del mes (cash-basis, ver comentario en la query de `pagos` arriba) +
-    // rectificativas emitidas el mes (émission-basis, sí o sí negativas).
-    const base08 = pagos20.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rect20.reduce((s, f) => s + baseFactura(f), 0);
-    const taxe08 = base08 * TASA_ESTANDAR;
-    const base9B = pagos10.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rect10.reduce((s, f) => s + baseFactura(f), 0);
-    const taxe9B = base9B * TASA_REDUCIDA_10;
-    const baseA1 = base08 + base9B;
+    // Base gravable = cobros del mes (cash-basis, ver comentario en la query de `pagos` arriba).
+    const baseVentas20 = pagos20.reduce((s, p) => s + baseSinIvaDePago(p), 0);
+    const baseVentas10 = pagos10.reduce((s, p) => s + baseSinIvaDePago(p), 0);
+    const baseA1 = baseVentas20 + baseVentas10;
 
     const taxe17 = baseB2 * TASA_ESTANDAR;
     const taxe24 = baseA4 * TASA_ESTANDAR;
-    const taxe16 = taxe08 + taxe9B + taxe17 + taxe24;
+    // La TVA autoliquidada de B2 (intracom) y A4 (importaciones) va DENTRO de la línea 08 (tipo del
+    // 20 %) — la 17 y la 24 son solo "dont". Antes la 08 salía sin ella y, copiada al formulario
+    // oficial, se declaraban 1.443 € de menos en septiembre (auditoría TVA 2026-09-29, notice
+    // 3310-CA3).
+    const base08 = baseVentas20 + baseB2 + baseA4;
+    const taxe08 = baseVentas20 * TASA_ESTANDAR + taxe17 + taxe24;
+    const base9B = baseVentas10;
+    const taxe9B = base9B * TASA_REDUCIDA_10;
+    const taxe16 = taxe08 + taxe9B;
+
+    // Rectificativas (notas de crédito): la CA3 no admite importes negativos — la base va en B5
+    // (régularisations) y la TVA a recuperar en la línea 21 ("dont régularisation sur TVA
+    // collectée"), en positivo.
+    const rectGravadas = [...rect20, ...rect10];
+    const baseB5 = Math.abs(rectGravadas.reduce((s, f) => s + baseFactura(f), 0));
+    const iva21 =
+      Math.abs(rect20.reduce((s, f) => s + baseFactura(f), 0)) * TASA_ESTANDAR +
+      Math.abs(rect10.reduce((s, f) => s + baseFactura(f), 0)) * TASA_REDUCIDA_10;
 
     // OJO revisado 2026-08-11 (y de nuevo 2026-08-21 al añadir importación): iva19 no excluye
     // tipo_iva === 'INTRACOM'/'IMPORTACION' a propósito — no hace falta. GastoForm.tsx fuerza
@@ -408,12 +437,25 @@ export default function AsistenteIvaPage() {
     );
     const iva20Gastos = gastosOtros.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
 
-    const detalle08 = [...pagos20.map((p) => detallePago(p, TASA_ESTANDAR)), ...rect20.map((f) => detalleRectificativa(f, TASA_ESTANDAR))];
-    const detalle9B = [...pagos10.map((p) => detallePago(p, TASA_REDUCIDA_10)), ...rect10.map((f) => detalleRectificativa(f, TASA_REDUCIDA_10))];
+    const detalle08 = [
+      ...pagos20.map((p) => detallePago(p, TASA_ESTANDAR)),
+      ...gastosIntracom.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+      ...gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+    ];
+    const detalle9B = pagos10.map((p) => detallePago(p, TASA_REDUCIDA_10));
+    const positivo = (d: Detalle): Detalle => ({
+      ...d,
+      base: d.base != null ? Math.abs(d.base) : undefined,
+      taxe: d.taxe != null ? Math.abs(d.taxe) : undefined,
+    });
+    const detalleRect = [
+      ...rect20.map((f) => positivo(detalleRectificativa(f, TASA_ESTANDAR))),
+      ...rect10.map((f) => positivo(detalleRectificativa(f, TASA_REDUCIDA_10))),
+    ];
     const conIva = (g: GastoFr) => (g.importe_iva ?? 0) !== 0;
     const iva20 = iva20Gastos + taxe17 + taxe24;
     const iva22 = creditoAnterior;
-    const iva23 = iva19 + iva20 + iva22;
+    const iva23 = iva19 + iva20 + iva21 + iva22;
 
     const iva25 = iva23 > taxe16 ? iva23 - taxe16 : 0;
     const iva27 = iva25;
@@ -425,7 +467,7 @@ export default function AsistenteIvaPage() {
           linea: 'A1',
           label: 'Ventes, prestations de services',
           base: baseA1,
-          detalle: [...detalle08, ...detalle9B].map((d) => ({ ...d, taxe: undefined })),
+          detalle: [...pagos20.map((p) => detallePago(p)), ...pagos10.map((p) => detallePago(p))],
         },
         // Revisado 2026-08-11: A3 (servicios intracomunitarios) siempre 0 a propósito por ahora
         // — GastoForm.tsx solo tiene un checkbox "intracomunitario" sin distinguir bienes de
@@ -435,7 +477,7 @@ export default function AsistenteIvaPage() {
         { linea: 'A3', label: 'Achats de prestations de services intracommunautaires', base: 0 },
         { linea: 'B2', label: 'Acquisitions intra-communautaires', base: baseB2, detalle: gastosIntracom.map((g) => detalleGasto(g)) },
         { linea: 'A4', label: 'Importations (autoliquidation, hors UE)', base: baseA4, detalle: gastosImportacion.map((g) => detalleGasto(g)) },
-        { linea: 'B5', label: 'Régularisations', base: 0 },
+        { linea: 'B5', label: 'Régularisations (factures rectificatives)', base: baseB5, detalle: detalleRect.map((d) => ({ ...d, taxe: undefined })) },
       ] as Fila[],
       seccionA_noTaxadas: [
         { linea: 'E1', label: 'Exportations hors UE', base: 0 },
@@ -489,7 +531,7 @@ export default function AsistenteIvaPage() {
           taxe: taxe24,
           detalle: gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
         },
-        { linea: '21', label: 'Autre TVA à déduire', taxe: 0 },
+        { linea: '21', label: 'Autre TVA à déduire (dont régularisation sur TVA collectée)', taxe: iva21, detalle: detalleRect },
         { linea: '22', label: 'Report du crédit de la précédente déclaration', taxe: iva22 },
         { linea: '23', label: 'Total TVA déductible (lignes 19 à 2C)', taxe: iva23 },
       ] as Fila[],
@@ -520,6 +562,21 @@ export default function AsistenteIvaPage() {
   );
 
   const cargando = cargandoPagos || cargandoRectificativas || cargandoGastos;
+
+  // Un mes ya declarado puede cambiar si luego se crea o edita un cobro o un gasto con fecha de ese
+  // mes: se avisa de qué líneas difieren de lo declarado (auditoría TVA 2026-09-29). La diferencia no
+  // se corrige en esa CA3, sino en la línea 21 (o 15) de una declaración posterior.
+  const lineasCambiadas = useMemo(() => {
+    const declaradas = declaracionMesActivo?.declarado ? declaracionMesActivo.datos : null;
+    if (!declaradas) return [];
+    const distinto = (a?: number, b?: number) => Math.abs((a ?? 0) - (b ?? 0)) >= 0.01;
+    return filasExportar
+      .filter((f) => {
+        const antes = declaradas.find((d) => d.linea === f.linea);
+        return !antes || distinto(antes.base, f.base) || distinto(antes.taxe, f.taxe);
+      })
+      .map((f) => f.linea);
+  }, [declaracionMesActivo, filasExportar]);
 
   return (
     <div>
@@ -618,6 +675,13 @@ export default function AsistenteIvaPage() {
               {estadoMesActivo === 'declarado' && declaracionMesActivo?.fecha_declaracion && (
                 <p className="text-xs text-brand mt-0.5">
                   Declarada el {declaracionMesActivo.fecha_declaracion}
+                </p>
+              )}
+              {estadoMesActivo === 'declarado' && lineasCambiadas.length > 0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-sm px-2 py-1 mt-1">
+                  Desde que se declaró han cambiado las líneas {lineasCambiadas.join(', ')} (se ha registrado o editado un
+                  cobro o gasto de este mes). No se rectifica esta CA3: la diferencia se regulariza en la línea 21 (TVA a
+                  favor) o 15 (TVA a reingresar) de la próxima declaración.
                 </p>
               )}
             </div>

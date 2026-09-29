@@ -6,6 +6,7 @@ import { formatearPrecio, calcularTotales } from '../finanzas/lineas';
 import type { Visita } from '../visitas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
+import type { Presupuesto } from '../finanzas/presupuestos/types';
 
 type FilaProyecto = {
   id: string;
@@ -49,7 +50,18 @@ export default function RentabilidadPage() {
     },
   });
 
-  const cargando = cargandoVisitas || cargandoFacturas || cargandoGastos;
+  // Misma queryKey y select que Presupuestos/Dashboard general — para tomar la visita de una factura
+  // que no la tiene (p. ej. AC-2026-0021) desde su presupuesto.
+  const { data: presupuestos, isLoading: cargandoPresupuestos } = useQuery({
+    queryKey: ['presupuestos'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('presupuestos').select('*').is('eliminado_en', null);
+      if (error) throw error;
+      return data as Presupuesto[];
+    },
+  });
+
+  const cargando = cargandoVisitas || cargandoFacturas || cargandoGastos || cargandoPresupuestos;
 
   const { filas, gastosSinProyecto, facturadoSinProyecto, cobradoSinProyecto } = useMemo(() => {
     const porVisita = new Map<string, { facturado: number; cobrado: number; gastos: number }>();
@@ -62,33 +74,39 @@ export default function RentabilidadPage() {
     // registran en el CRM para las acomptes pero no son ingreso/margen real de esta EURL.
     let facturadoSinProyecto = 0;
     let cobradoSinProyecto = 0;
+    // Todo sin IVA (2026-09-29): el IVA cobrado se debe a Hacienda, no es margen — antes el "Margen
+    // real" lo incluía. La visita de una factura sin visita_id se toma de su presupuesto.
+    const visitaDePresupuesto = new Map((presupuestos ?? []).map((p) => [p.id, p.visita_id]));
     for (const f of facturas ?? []) {
       if (f.estructura_anterior) continue;
-      const { totalConIva } = calcularTotales(f.lineas ?? []);
+      const { totalConIva, totalSinIva } = calcularTotales(f.lineas ?? []);
+      const cobradoSinIva = totalConIva !== 0 ? (f.monto_pagado ?? 0) * (totalSinIva / totalConIva) : 0;
+      const visitaId = f.visita_id ?? (f.presupuesto_id ? visitaDePresupuesto.get(f.presupuesto_id) ?? null : null);
       // Facturas sin visita_id (p. ej. presupuestos orientativos Aceptados sin visita, o facturas
       // sueltas sin coincidencia en el CRM) se descartaban en silencio del todo — la única factura
       // real de la EURL hoy en producción (AC-2026-0021) no tiene visita_id, así que "Facturado/
       // Cobrado/Margen real (proyectos)" mostraba prácticamente 0€ pese a haber dinero cobrado de
       // verdad (bug real, auditoría 2026-09-21) — mismo patrón que ya se aplicaba a gastos sin
       // proyecto (gastosSinProyecto más abajo), ahora simétrico para facturas.
-      if (!f.visita_id) {
-        facturadoSinProyecto += totalConIva;
-        cobradoSinProyecto += f.monto_pagado ?? 0;
+      if (!visitaId) {
+        facturadoSinProyecto += totalSinIva;
+        cobradoSinProyecto += cobradoSinIva;
         continue;
       }
-      const fila = asegurar(f.visita_id);
-      fila.facturado += totalConIva;
+      const fila = asegurar(visitaId);
+      fila.facturado += totalSinIva;
       // monto_pagado es el cobro real acumulado de esa factura (RegistrarPagoModal/
       // VincularFacturaModal lo mantienen exacto, incluye cobros parciales) — el margen se basa en
       // esto, no en "facturado", para no contar como beneficio una factura Vencida o pendiente de
       // cobro todavía (bug real corregido 2026-08-18: "Margen real" podía incluir dinero que el
       // cliente nunca llegó a pagar).
-      fila.cobrado += f.monto_pagado ?? 0;
+      fila.cobrado += cobradoSinIva;
     }
 
     let gastosSinProyecto = 0;
     for (const g of gastos ?? []) {
-      const importe = (g.importe_base ?? 0) + (g.importe_iva ?? 0);
+      if (g.estado_gasto === 'pendiente') continue;
+      const importe = g.importe_base ?? 0;
       if (!g.visita_id) {
         gastosSinProyecto += importe;
         continue;
@@ -116,7 +134,7 @@ export default function RentabilidadPage() {
       .sort((a, b) => a.margen - b.margen);
 
     return { filas, gastosSinProyecto, facturadoSinProyecto, cobradoSinProyecto };
-  }, [visitas, facturas, gastos]);
+  }, [visitas, facturas, gastos, presupuestos]);
 
   const totales = useMemo(
     () => ({
@@ -132,11 +150,11 @@ export default function RentabilidadPage() {
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Facturado (proyectos)</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Facturado sin IVA (proyectos)</p>
           <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(totales.facturado)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Cobrado (proyectos)</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Cobrado sin IVA (proyectos)</p>
           <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(totales.cobrado)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
@@ -144,7 +162,7 @@ export default function RentabilidadPage() {
           <p className="text-2xl font-semibold text-red-600">{formatearPrecio(totales.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Margen real (cobrado)</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Margen real (cobrado, sin IVA)</p>
           <p className={`text-2xl font-semibold ${totales.margen >= 0 ? 'text-brand' : 'text-red-600'}`}>
             {formatearPrecio(totales.margen)}
           </p>

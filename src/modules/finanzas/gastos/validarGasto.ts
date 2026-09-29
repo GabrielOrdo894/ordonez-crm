@@ -26,8 +26,10 @@ export type DatosValidacionGasto = {
 export function validarGasto(g: DatosValidacionGasto): string[] {
   const faltan: string[] = [];
   const esKilometrico = g.km != null;
-  // Dotación a amortizaciones: apunte interno, sin factura de proveedor detrás.
-  const esAmortizacion = (g.cuenta_contable ?? '').startsWith('681');
+  // Sin factura de proveedor detrás: dotación a amortizaciones (681), rémunération del gérant (641,
+  // justificada por su décision) e impôt sur les sociétés (695, por su avis/relevé).
+  const cuenta = g.cuenta_contable ?? '';
+  const esAmortizacion = cuenta.startsWith('681') || cuenta.startsWith('641') || cuenta.startsWith('695');
   const base = g.importe_base ?? 0;
   const total = base + (g.importe_iva ?? 0);
 

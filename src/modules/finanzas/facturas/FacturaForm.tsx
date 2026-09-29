@@ -8,7 +8,7 @@ import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { registrarEventoFunnel } from '../../../lib/funnelTracking';
 import { congelarTerminosCondicionesPorId } from '../../../lib/terminos';
-import { registrarAsientoFacturaEmision, rectificarAsientos } from '../../../lib/asientosContables';
+import { recontabilizarFactura } from '../../../lib/pagosFactura';
 import { generarPdfFactura, notasLegales } from '../../../lib/generarPdfFactura';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
@@ -30,7 +30,6 @@ import { SelectorIva } from '../SelectorIva';
 import { tipoIvaPorDefecto, mencionIvaReducida } from '../iva';
 import { claseColorEstado } from '../estadoColor';
 import {
-  ESTADOS_COBRO,
   METODOS_PAGO,
   lineaVacia,
   calcularLinea,
@@ -485,16 +484,19 @@ export function FacturaForm({
       // creada" (hallazgo real, auditoría 2026-09-08: AC-2026-0021 se quedó sin ningún asiento
       // porque este paso se disparaba sin esperar su resultado, "fire and forget").
       try {
-        await rectificarAsientos('factura', resultado.id, 'creacion');
-        if (form.pais === 'Francia' && !form.estructura_anterior) {
-          await registrarAsientoFacturaEmision({
-            id: resultado.id,
-            numero: resultado.numero,
-            cliente_nombre: form.cliente_nombre || null,
-            fecha_factura: form.fecha_factura,
-            lineas: form.lineas,
-          });
-        }
+        // Emisión y cobros juntos (ver recontabilizarFactura): un cambio de tipo de IVA, país o
+        // estructura_anterior deja también los cobros coherentes.
+        await recontabilizarFactura({
+          id: resultado.id,
+          numero: resultado.numero,
+          cliente_nombre: form.cliente_nombre || null,
+          fecha_factura: form.fecha_factura,
+          lineas: form.lineas,
+          tipo: form.tipo,
+          tipo_iva: form.tipo_iva,
+          pais: form.pais,
+          estructura_anterior: form.estructura_anterior,
+        });
       } catch (error) {
         toast.warning(`Factura guardada, pero no se pudo actualizar el libro diario: ${(error as Error).message}`);
       }
@@ -700,12 +702,14 @@ export function FacturaForm({
                 value={form.metodo_pago}
                 onChange={(e) => setForm((f) => ({ ...f, metodo_pago: e.target.value }))}
               />
-              <Select
-                label="Estado de cobro"
-                options={ESTADOS_COBRO.map((e) => ({ value: e, label: e }))}
-                value={form.estado_cobro}
-                onChange={(e) => setForm((f) => ({ ...f, estado_cobro: e.target.value }))}
-              />
+              {/* Solo lectura (2026-09-29): el estado sale de los pagos registrados ("Registrar pago"),
+                  que son los que generan el asiento de cobro y la TVA del mes. Marcar "Cobrada" a
+                  mano dejaba la factura cobrada fuera del libro diario y de la CA3. */}
+              <div>
+                <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Estado de cobro</p>
+                <p className="text-sm text-gray-700 py-1.5">{form.estado_cobro}</p>
+                <p className="text-xs text-gray-400">Se actualiza al registrar los pagos desde la lista de facturas.</p>
+              </div>
             </div>
             {factura?.monto_pagado != null && (
               <p className="text-xs text-gray-500 mt-3">

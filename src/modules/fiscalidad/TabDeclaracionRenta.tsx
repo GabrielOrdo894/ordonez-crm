@@ -157,9 +157,9 @@ export function TabDeclaracionRenta() {
         <p className="font-semibold text-gray-900 mb-1">Casilla 1GB — fórmula completa aplicada (BOFiP BOI-RSA-GER-20)</p>
         <p>
           1GB = rémunération − cotisations TNS totales <strong>+ CSG/CRDS no deducible</strong> (2,9% de la assiette,
-          calculado sobre la misma base que usa Cotisations URSSAF). Confirmado 2026-08-26 que ese 2,9% se aplica
-          sobre la assiette TNS (rémunération × 0,74) bajo el régimen "assiette única" 2026, no sobre el bruto —
-          distinto del tratamiento de un salarié normal. El abattement del 10% de frais professionnels, en cambio, lo
+          calculado sobre la misma base que usa Cotisations URSSAF). Ese 2,9% se aplica sobre la assiette TNS del
+          régimen "assiette única" (revenu brut — rémunération más cotisations — menos el 26 %) — distinto del
+          tratamiento de un salarié normal. El abattement del 10% de frais professionnels, en cambio, lo
           aplica sola la Administración al procesar la declaración — no lo restes tú.
         </p>
       </div>

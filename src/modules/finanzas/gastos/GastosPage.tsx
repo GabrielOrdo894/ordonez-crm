@@ -14,9 +14,10 @@ import { KpiRow } from '../../../components/ui/Kpi';
 import { BotonExportar } from '../../../components/ui/BotonExportar';
 import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
-import { fechaCorta } from '../../../lib/fechas';
+import { fechaCorta, hoyLocalIso } from '../../../lib/fechas';
 import { formatearPrecio, formatearPrecioEntero } from '../lineas';
 import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
+import { mensajeFaltanDatos, validarGasto } from './validarGasto';
 import { GRUPOS_CATEGORIA } from './categorias';
 import type { Gasto } from './types';
 import { GastoForm } from './GastoForm';
@@ -146,18 +147,30 @@ export default function GastosPage() {
   // el libro diario (ver crearGastoKilometricoPendiente.ts).
   const registrarPagoMutation = useMutation({
     mutationFn: async (g: Gasto) => {
+      const faltan = validarGasto({ ...g, proveedorIdentificador: null });
+      if (faltan.length > 0) throw new Error(mensajeFaltanDatos(faltan));
       const { error } = await supabase.from('gastos').update({ estado_gasto: 'pagado' }).eq('id', g.id);
       if (error) throw error;
       if (g.pais === 'Francia') {
-        await registrarAsientoGasto({
-          id: g.id,
-          fecha: g.fecha,
-          descripcion: g.descripcion,
-          proveedor: g.proveedor,
-          cuenta_contable: g.cuenta_contable,
-          importe_base: g.importe_base ?? 0,
-          importe_iva: g.importe_iva ?? 0,
-        });
+        try {
+          await registrarAsientoGasto({
+            id: g.id,
+            fecha: g.fecha,
+            descripcion: g.descripcion,
+            proveedor: g.proveedor,
+            cuenta_contable: g.cuenta_contable,
+            importe_base: g.importe_base ?? 0,
+            importe_iva: g.importe_iva ?? 0,
+            tipo_iva: g.tipo_iva,
+            km: g.km,
+          });
+        } catch (errorAsiento) {
+          // Sin asiento no puede quedar "pagado": se devuelve a pendiente para reintentarlo, en vez
+          // de un gasto pagado fuera del libro diario (auditoría contable 2026-09-29).
+          const { error: errorVuelta } = await supabase.from('gastos').update({ estado_gasto: 'pendiente' }).eq('id', g.id);
+          if (errorVuelta) throw errorVuelta;
+          throw errorAsiento;
+        }
       }
     },
     onSuccess: () => {
@@ -226,12 +239,15 @@ export default function GastosPage() {
 
   const kpis = useMemo(() => {
     const todos = gastos ?? [];
-    const hoyMes = new Date().toISOString().slice(0, 7);
-    const totalEsteMes = todos
+    // Hora local (a las 00:00-02:00 del día 1, toISOString daba el mes anterior) y sin pendientes de
+    // revisar en los importes: todavía no son gasto real ni deducen IVA (auditoría 2026-09-29).
+    const hoyMes = hoyLocalIso().slice(0, 7);
+    const reales = todos.filter((g) => g.estado_gasto !== 'pendiente');
+    const totalEsteMes = reales
       .filter((g) => g.fecha?.slice(0, 7) === hoyMes)
       .reduce((s, g) => s + totalConIva(g), 0);
-    const totalBase = todos.reduce((s, g) => s + (g.importe_base ?? 0), 0);
-    const totalIvaDeducible = todos.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+    const totalBase = reales.reduce((s, g) => s + (g.importe_base ?? 0), 0);
+    const totalIvaDeducible = reales.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
     // Gastos sin cuenta contable asignada caen en la cuenta de espera 471 en el libro diario y
     // desajustan el compte de résultat — este contador ayuda a que no se acumulen sin revisar.
     const sinCategorizar = todos.filter((g) => !g.cuenta_contable).length;

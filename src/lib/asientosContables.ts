@@ -12,6 +12,9 @@ const ETIQUETAS_CUENTA_EXTRA: Record<string, string> = {
   '512': '512 · Banque',
   '706': '706 · Prestations de services',
   '44571': '44571 · TVA collectée',
+  '44574': '44574 · TVA collectée en attente (encaissements)',
+  '4191': '4191 · Clients — avances et acomptes reçus sur commandes',
+  '455': '455 · Associés — comptes courants',
   '44566': '44566 · TVA déductible sur autres biens et services',
   '471': '471 · Compte d’attente (sin clasificar)',
   '2801': '2801 · Amortissements des immobilisations (compte global)',
@@ -21,7 +24,16 @@ const ETIQUETAS_CUENTA_EXTRA: Record<string, string> = {
 };
 
 export function etiquetaCuenta(codigo: string): string {
-  return ETIQUETAS_CUENTA_EXTRA[codigo] ?? cuentaLabel(codigo);
+  if (ETIQUETAS_CUENTA_EXTRA[codigo]) return ETIQUETAS_CUENTA_EXTRA[codigo];
+  if (codigo.startsWith('28')) return `${codigo} · Amortissements des immobilisations`;
+  return cuentaLabel(codigo);
+}
+
+// Cuenta de amortizaciones acumuladas de un activo según el PCG: '28' + la cuenta del activo sin su
+// '2' inicial (2154 → 28154, 2183 → 28183, 201 → 2801). Hasta 2026-09-29 todo iba a 2801, que en el
+// PCG es solo la de frais d'établissement (hallazgo de la auditoría contable de esa fecha).
+export function cuentaAmortizacionDe(cuentaActivo: string | null | undefined): string {
+  return cuentaActivo && cuentaActivo.startsWith('2') ? `28${cuentaActivo.slice(1)}` : CUENTA_AMORTIZACIONES_ACUMULADAS;
 }
 
 export type TipoEvento = 'creacion' | 'cobro';
@@ -58,6 +70,17 @@ const CUENTA_VALEUR_COMPTABLE_CEDEE = '675';
 const CUENTA_CLIENTES = '411';
 const CUENTA_VENTAS = '706';
 const CUENTA_IVA_COLECTADA = '44571';
+// TVA sur encaissements (régimen de la EURL): al EMITIR, la TVA de la factura queda en espera en
+// 44574 y pasa a 44571 (exigible) al COBRAR, en proporción a cada pago — así 44571 cuadra siempre
+// con la CA3 del mes, también con facturas pendientes (auditoría contable 2026-09-29).
+const CUENTA_IVA_COLECTADA_ESPERA = '44574';
+// Acomptes recibidos antes de terminar la obra: no son venta (706) sino un anticipo del cliente
+// (4191) hasta la factura final, que los descuenta con la línea 'ACOMPTE' (art. 38-2 bis CGI,
+// auditoría fiscal 2026-09-29 — antes iban directos a 706 e inflaban el résultat y el IS).
+const CUENTA_ACOMPTES_RECIBIDOS = '4191';
+// Indemnités kilométriques del gérant por su vehículo personal: la EURL se las debe a él, no salen
+// del banco — cuenta corriente del asociado (455) en vez de 512 (auditoría contable 2026-09-29).
+const CUENTA_CORRIENTE_ASOCIADO = '455';
 const CUENTA_TVA_DUE_INTRACOM = '4452';
 const CUENTA_TVA_DEDUCIBLE_INTRACOM = '445662';
 const CUENTA_TVA_DEDUCIBLE_IMPORTACION = '445661';
@@ -87,6 +110,10 @@ export function construirAsientosGasto(gasto: {
   // 'INTRACOM' | 'IMPORTACION' | cualquier otro valor de tipo_iva (nacional, exento...) — ver
   // GastoForm.tsx. Solo estos dos valores disparan la autoliquidación de más abajo.
   tipo_iva?: string | null;
+  // Gasto de kilometraje (indemnité kilométrique): contrapartida 455 en vez de banco.
+  km?: number | null;
+  // Solo dotaciones (681): cuenta 28xx del activo amortizado (ver cuentaAmortizacionDe).
+  cuenta_amortizacion?: string | null;
 }): NuevoAsiento[] {
   const fecha = gasto.fecha ?? hoyLocalIso();
   const cuenta = gasto.cuenta_contable ?? CUENTA_SIN_CLASIFICAR;
@@ -147,7 +174,11 @@ export function construirAsientosGasto(gasto: {
   if (base + iva !== 0) {
     asientos.push({
       fecha,
-      cuenta: esAmortizacion ? CUENTA_AMORTIZACIONES_ACUMULADAS : CUENTA_BANCO,
+      cuenta: esAmortizacion
+        ? (gasto.cuenta_amortizacion ?? CUENTA_AMORTIZACIONES_ACUMULADAS)
+        : gasto.km != null
+          ? CUENTA_CORRIENTE_ASOCIADO
+          : CUENTA_BANCO,
       debe: 0,
       haber: base + iva,
       concepto,
@@ -192,6 +223,8 @@ export function construirAsientosFacturaEmision(factura: {
   cliente_nombre: string | null;
   fecha_factura: string | null;
   lineas: Linea[];
+  // 'normal' | 'acompte' | 'rectificativa' (facturas.tipo). Sin él se trata como normal.
+  tipo?: string | null;
 }): NuevoAsiento[] {
   const fecha = factura.fecha_factura ?? hoyLocalIso();
   const { totalSinIva, totalConIva } = calcularTotales(factura.lineas);
@@ -199,16 +232,35 @@ export function construirAsientosFacturaEmision(factura: {
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Factura';
   const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'creacion' as const };
 
-  const asientos = [apunte(CUENTA_CLIENTES, totalConIva, 'debe', base), apunte(CUENTA_VENTAS, totalSinIva, 'haber', base)];
+  const asientos = [apunte(CUENTA_CLIENTES, totalConIva, 'debe', base)];
+  if (factura.tipo === 'acompte') {
+    asientos.push(apunte(CUENTA_ACOMPTES_RECIBIDOS, totalSinIva, 'haber', base));
+  } else {
+    // Factura final: la línea 'ACOMPTE' (negativa, ver lineaDeduccionAcomptes) salda el anticipo de
+    // 4191 en vez de restar de la venta — la venta (706) es el importe total de la obra.
+    const deduccionAcomptes = calcularTotales(factura.lineas.filter((l) => l.referencia === 'ACOMPTE')).totalSinIva;
+    asientos.push(apunte(CUENTA_VENTAS, totalSinIva - deduccionAcomptes, 'haber', base));
+    asientos.push(apunte(CUENTA_ACOMPTES_RECIBIDOS, deduccionAcomptes, 'haber', base));
+  }
   if (iva !== 0) {
-    asientos.push(apunte(CUENTA_IVA_COLECTADA, iva, 'haber', base));
+    // Una rectificativa corrige TVA ya declarada al emitirse (no se "cobra"), así que va directa a
+    // 44571; el resto espera en 44574 hasta el cobro.
+    const cuentaIva = factura.tipo === 'rectificativa' ? CUENTA_IVA_COLECTADA : CUENTA_IVA_COLECTADA_ESPERA;
+    asientos.push(apunte(cuentaIva, iva, 'haber', base));
   }
 
   return asientos.filter((a): a is NuevoAsiento => a !== null);
 }
 
+// TVA incluida en un cobro (monto con IVA) — la parte que pasa de 44574 a 44571 al cobrar.
+export function tvaDeCobro(monto: number, tipoIva: string | null | undefined): number {
+  const pct = porcentajeIva(tipoIva ?? null);
+  return pct > 0 ? Math.round(((monto * pct) / (100 + pct)) * 100) / 100 : 0;
+}
+
 export function construirAsientosFacturaCobro(
-  factura: { id: string; numero: string | null; cliente_nombre: string | null },
+  // tipo_iva: para traspasar de 44574 a 44571 la TVA contenida en este cobro.
+  factura: { id: string; numero: string | null; cliente_nombre: string | null; tipo_iva: string | null },
   monto: number,
   fecha: string,
   // Ver NuevoAsiento.pago_id — se pasa cuando el cobro corresponde a una fila de pagos_factura
@@ -217,10 +269,18 @@ export function construirAsientosFacturaCobro(
 ): NuevoAsiento[] {
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Cobro de factura';
   const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'cobro' as const, pago_id: pagoId };
-  return [
+  const asientos: NuevoAsiento[] = [
     { ...base, cuenta: CUENTA_BANCO, debe: monto, haber: 0 },
     { ...base, cuenta: CUENTA_CLIENTES, debe: 0, haber: monto },
   ];
+  const tva = tvaDeCobro(monto, factura.tipo_iva);
+  if (tva !== 0) {
+    asientos.push(
+      { ...base, cuenta: CUENTA_IVA_COLECTADA_ESPERA, debe: tva, haber: 0 },
+      { ...base, cuenta: CUENTA_IVA_COLECTADA, debe: 0, haber: tva },
+    );
+  }
+  return asientos;
 }
 
 // Reversa (debe/haber invertidos) de asientos ya existentes — cada línea usa la fecha REAL del
@@ -247,6 +307,45 @@ export function construirAsientosRectificacion(
     tipo_evento: tipoEvento,
     pago_id: a.pago_id ?? null,
   }));
+}
+
+// Reversa por SALDO NETO: agrupa todo el histórico del evento por (pago, cuenta, fecha) y anula solo
+// lo que siga teniendo saldo. Sustituye (2026-09-29) al criterio anterior de "reversar el último
+// lote", que no distinguía si ese lote ya era una anulación: guardar AC-2026-0020 (cuya última
+// escritura es su propia reversa) volvía a contabilizar 15.707,59 €, y un duplicado nunca se
+// corregía solo (auditoría contable 2026-09-29). Con el neto, rectificar dos veces seguidas o un
+// documento ya anulado no inserta nada.
+export function construirAsientosRectificacionNeta(
+  historico: { cuenta: string; debe: number; haber: number; concepto: string; fecha: string; pago_id?: string | null }[],
+  documentoTipo: 'factura' | 'gasto',
+  documentoId: string,
+  tipoEvento: TipoEvento,
+): NuevoAsiento[] {
+  const grupos = new Map<string, { cuenta: string; fecha: string; pago_id: string | null; concepto: string; neto: number }>();
+  for (const a of historico) {
+    const clave = `${a.pago_id ?? ''}|${a.cuenta}|${a.fecha}`;
+    const g = grupos.get(clave) ?? { cuenta: a.cuenta, fecha: a.fecha, pago_id: a.pago_id ?? null, concepto: a.concepto, neto: 0 };
+    g.neto += Number(a.debe) - Number(a.haber);
+    if (!a.concepto.endsWith('(rectificación)')) g.concepto = a.concepto;
+    grupos.set(clave, g);
+  }
+  const reversa: NuevoAsiento[] = [];
+  for (const g of grupos.values()) {
+    const neto = Math.round(g.neto * 100) / 100;
+    if (neto === 0) continue;
+    reversa.push({
+      fecha: g.fecha,
+      cuenta: g.cuenta,
+      debe: neto < 0 ? -neto : 0,
+      haber: neto > 0 ? neto : 0,
+      concepto: `${g.concepto.replace(/ \(rectificación\)$/, '')} (rectificación)`,
+      documento_tipo: documentoTipo,
+      documento_id: documentoId,
+      tipo_evento: tipoEvento,
+      pago_id: g.pago_id,
+    });
+  }
+  return reversa;
 }
 
 // --- Wrappers con efecto (Supabase) — llamados desde GastoForm/FacturaForm/RegistrarPagoModal ---
@@ -284,7 +383,7 @@ export function construirAsientosBajaInmovilizado(
   const concepto = `Baja de inmovilizado — ${activo.descripcion}`;
   const base = { fecha, concepto, documento_tipo: 'inmovilizado' as const, documento_id: activo.id, tipo_evento: 'creacion' as const };
   const asientos = [
-    apunte(CUENTA_AMORTIZACIONES_ACUMULADAS, amortizacionAcumuladaActivo, 'debe', base),
+    apunte(cuentaAmortizacionDe(activo.cuenta_pcg), amortizacionAcumuladaActivo, 'debe', base),
     apunte(CUENTA_VALEUR_COMPTABLE_CEDEE, valorNetoContableActivo, 'debe', base),
     apunte(activo.cuenta_pcg, amortizacionAcumuladaActivo + valorNetoContableActivo, 'haber', base),
   ];
@@ -303,7 +402,7 @@ export async function registrarAsientoBajaInmovilizado(
 // Al registrar un pago de Factura: Débit Banco / Crédit Clients, por el importe de ESE pago
 // concreto (una factura puede tener varios, ver pagos_factura) — nunca el total acumulado.
 export async function registrarAsientoFacturaCobro(
-  factura: { id: string; numero: string | null; cliente_nombre: string | null },
+  factura: Parameters<typeof construirAsientosFacturaCobro>[0],
   monto: number,
   fecha: string,
   pagoId: string | null = null,
@@ -331,42 +430,17 @@ export async function rectificarAsientos(
 ) {
   let query = supabase
     .from('asientos_contables')
-    .select('cuenta, debe, haber, concepto, fecha, created_at, pago_id')
+    .select('cuenta, debe, haber, concepto, fecha, pago_id')
     .eq('documento_tipo', documentoTipo)
     .eq('documento_id', documentoId)
-    .eq('tipo_evento', tipoEvento)
-    .order('created_at', { ascending: false });
+    .eq('tipo_evento', tipoEvento);
   if (pagoId) query = query.eq('pago_id', pagoId);
   const { data: historico, error } = await query;
   if (error) throw error;
   if (!historico || historico.length === 0) return;
 
-  // Agrupado por pago_id (null incluido, para 'creacion' o cobros de antes de que existiera esta
-  // trazabilidad) — una factura de Francia puede tener varios pagos reales, cada uno su propio
-  // lote de asientos con su propio pago_id (ver pagos_factura). Sin agrupar por pago_id, reversar
-  // "todo el evento" solo tocaba el lote más reciente insertado en general, dejando contabilizados
-  // para siempre los pagos anteriores si se vaciaban todos a la vez o se papelerizaba la factura
-  // (bug real corregido 2026-09-21 — nunca se había manifestado en producción porque hasta esa
-  // fecha ninguna factura real había tenido más de un pago, pero el propio CLAUDE.md documenta
-  // "factura cobrada en dos meses distintos" como caso soportado).
-  //
-  // Dentro de cada grupo, solo se reversa su ÚLTIMO lote (mismo criterio que antes, ver comentario
-  // histórico de 2026-09-10): insertarAsientos() mete cada lote en una única sentencia INSERT y
-  // Postgres le da a todas sus filas el mismo `now()`, así que agrupar por `created_at` basta para
-  // identificar "las filas de esta misma llamada" sin ninguna columna nueva — evita que un pago
-  // editado varias veces acumule decenas de apuntes casi duplicados.
-  const porPago = new Map<string, typeof historico>();
-  for (const fila of historico) {
-    const clave = fila.pago_id ?? '__sin_pago__';
-    const grupo = porPago.get(clave);
-    if (grupo) grupo.push(fila);
-    else porPago.set(clave, [fila]);
-  }
-
-  const previos = Array.from(porPago.values()).flatMap((filasDelPago) => {
-    const ultimoLote = filasDelPago[0].created_at;
-    return filasDelPago.filter((a) => a.created_at === ultimoLote);
-  });
-
-  await insertarAsientos(construirAsientosRectificacion(previos, documentoTipo, documentoId, tipoEvento));
+  // Saldo neto de todo el histórico (agrupado por pago, cuenta y fecha), no el "último lote" — ver
+  // construirAsientosRectificacionNeta.
+  const reversa = construirAsientosRectificacionNeta(historico, documentoTipo, documentoId, tipoEvento);
+  if (reversa.length > 0) await insertarAsientos(reversa);
 }

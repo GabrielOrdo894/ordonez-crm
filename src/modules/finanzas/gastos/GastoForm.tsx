@@ -16,7 +16,7 @@ import type { Proveedor } from '../proveedores/types';
 import { CategoriaPicker } from './CategoriaPicker';
 import { cuentaLabel, GRUPOS_CATEGORIA } from './categorias';
 import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
-import { registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
+import { cuentaAmortizacionDe, registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
 import { calcularIndemnizacionKm, tarifaPorCv, CV_OPCIONES } from './baremoKilometrico';
 import { calcularKmIdaYVuelta } from '../../../lib/calcularKmIdaYVuelta';
 import { MapsAutocomplete } from '../../google/MapsAutocomplete';
@@ -205,9 +205,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     queryKey: ['inmovilizado', gasto?.inmovilizado_id],
     enabled: !!gasto?.inmovilizado_id,
     queryFn: async () => {
-      const { data, error } = await supabase.from('inmovilizado').select('duracion_anios').eq('id', gasto!.inmovilizado_id!).single();
+      const { data, error } = await supabase.from('inmovilizado').select('duracion_anios, cuenta_pcg').eq('id', gasto!.inmovilizado_id!).single();
       if (error) throw error;
-      return data as { duracion_anios: number };
+      return data as { duracion_anios: number; cuenta_pcg: string };
     },
   });
   useEffect(() => {
@@ -481,6 +481,8 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
               importe_base: Math.round(importeBase * 100) / 100,
               importe_iva: Math.round(importeIvaDeducible * 100) / 100,
               tipo_iva: form.tipo_iva,
+              km: form.es_kilometrico ? form.km : null,
+              cuenta_amortizacion: esAmortizacion && inmovilizadoVinculado ? cuentaAmortizacionDe(inmovilizadoVinculado.cuenta_pcg) : null,
             });
           }
         } catch (error) {

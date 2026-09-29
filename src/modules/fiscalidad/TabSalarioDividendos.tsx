@@ -18,12 +18,15 @@ const ANIO_ACTUAL = new Date().getFullYear();
 const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 
 export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
-  // Igual que TabIS.tsx: el beneficio del ejercicio solo suma lo facturado/gastado hasta HOY, no el
-  // ejercicio completo — usar `ejercicio.meses` para el plafond del 15% de IS infla ese plafond
-  // respecto a un beneficio parcial y da una cifra de IS distinta (más optimista) que la que
-  // muestra "Impôt sur les Sociétés" para el mismo beneficio real (bug real, auditoría 2026-08-15).
-  // Por eso esta pestaña usa `mesesTranscurridos` del hook compartido, no `ejercicio.meses`.
-  const { mesesTranscurridos, config, fuente, capitalSocial, compteCourantMedio, beneficioBruto } = useEjercicioFiscal(anio);
+  // El simulador compara una rémunération del ejercicio con el beneficio del ejercicio COMPLETO:
+  // el beneficio real (hasta hoy) se proyecta al ejercicio entero y el IS usa sus meses reales, igual
+  // que TabIS. Antes se usaban los meses transcurridos: el plafond del 15 % quedaba a la mitad y se
+  // restaba una rémunération de ejercicio completo a un beneficio de solo unos meses (auditoría
+  // fiscal 2026-09-29).
+  const { ejercicio, mesesTranscurridos, config, fuente, capitalSocial, compteCourantMedio, beneficioBruto: beneficioHastaHoy } =
+    useEjercicioFiscal(anio);
+  const beneficioBruto = mesesTranscurridos > 0 ? (beneficioHastaHoy * ejercicio.meses) / mesesTranscurridos : beneficioHastaHoy;
+  const mesesEjercicio = ejercicio.meses;
   const { gerantConfig, guardar, guardando } = useGerantConfig();
 
   const [remuneracion, setRemuneracion] = useState(30000);
@@ -39,20 +42,20 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
   }, [gerantConfig]);
 
   const resultado = useMemo(
-    () => simularEjercicio(remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config),
-    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config],
+    () => simularEjercicio(remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config),
+    [remuneracion, pctDividendos, beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config],
   );
 
   const escenarios = useMemo(() => {
-    const todoSalario = simularEjercicio(beneficioBruto, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
-    const salario30kDiv = simularEjercicio(30000, 100, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
-    const salario30kReservas = simularEjercicio(30000, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config);
+    const todoSalario = simularEjercicio(beneficioBruto, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config);
+    const salario30kDiv = simularEjercicio(30000, 100, beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config);
+    const salario30kReservas = simularEjercicio(30000, 0, beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config);
     return [
       { nombre: 'Todo salario', neto: todoSalario.netoDisponible, prelevements: todoSalario.totalPrelevements },
       { nombre: 'Salario 30k + dividendos', neto: salario30kDiv.netoDisponible, prelevements: salario30kDiv.totalPrelevements },
       { nombre: 'Salario 30k + reservas', neto: salario30kReservas.netoDisponible, prelevements: salario30kReservas.totalPrelevements },
     ];
-  }, [beneficioBruto, capitalSocial, compteCourantMedio, mesesTranscurridos, config]);
+  }, [beneficioBruto, capitalSocial, compteCourantMedio, mesesEjercicio, config]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -109,7 +112,7 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
         <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <TrendingUp size={14} className="text-brand" /> Optimizador salario vs dividendos
           <InfoTooltip>
-            Reparte el beneficio del ejercicio ({fmt(beneficioBruto)} antes de rémunération) entre salario del gérant
+            Reparte el beneficio proyectado al ejercicio completo ({fmt(beneficioBruto)} antes de rémunération) entre salario del gérant
             y dividendos, y compara cuánto termina pagando en cotisations, IS y flat tax en cada combinación. El % de
             dividendos se aplica sobre el <strong>beneficio distribuible</strong> (lo que queda del beneficio después
             de restar la rémunération, sus cotisations TNS, el IS y el 5% de reserva legal que exige el Artículo 18
@@ -254,7 +257,8 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
           },
           {
             q: 'Ejemplo completo con números',
-            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario: 30.000 × 0,74 × 45% = 9.990 €. Beneficio tras salario: 50.000 − 30.000 − 9.990 = 10.010 €. IS (ejercicio de 6 meses, plafond 21.250 €): 10.010 × 15% = 1.501,50 €. Beneficio tras IS: 10.010 − 1.501,50 = 8.508,50 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 8.508,50 × 5% = 425,43 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 8.508,50 − 100 = 8.408,50 €. Dividendos (50%): 4.204,25 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 31,4% = 31,40 €); los 4.104,25 € restantes llevan IR del 12,8% (525,34 €) + cotisations TNS del 45% (1.846,91 €) = 2.403,66 € de carga. Total prélèvements: 9.990 + 1.501,50 + 2.403,66 = 13.895,16 €. Neto disponible para Mario: 30.000 − 9.990 + 4.204,25 − 2.403,66 = 21.810,59 €.',
+            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario (assiette única: revenu brut = rémunération + cotisations, menos el 26 %): 45% × 0,74 × (30.000 + cotisations) = 14.977,51 €. Beneficio tras salario: 50.000 − 30.000 − 14.977,51 = 5.022,49 €. IS (ejercicio de 6 meses, plafond 21.250 €): 5.022,49 × 15% = 753,37 €. Beneficio tras IS: 5.022,49 − 753,37 = 4.269,12 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 4.269,12 × 5% = 213,46 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 4.269,12 − 100 = 4.169,12 €. Dividendos (50%): 2.084,56 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 31,4% = 31,40 €); los 1.984,56 € restantes llevan IR del 12,8% (254,02 €) + cotisations TNS del 45% (893,05 €) = 1.178,47 € de carga. Total prélèvements: 14.977,51 + 753,37 + 1.178,47 = 16.909,35 €. Neto disponible para Mario: 30.000 − 14.977,51 + 2.084,56 − 1.178,47 = 15.928,58 €.',
+
           },
           {
             q: '¿Qué diferencia hay entre "Neto disponible Mario" y "Total prélèvements"?',

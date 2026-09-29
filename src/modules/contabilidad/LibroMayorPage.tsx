@@ -1,20 +1,25 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
+import { Select } from '../../components/ui/Select';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
+import { limitesEjercicio } from '../fiscalidad/calculos';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
+import { useAsientosContables } from './useAsientosContables';
 import { formatearPrecio } from '../finanzas/lineas';
 
-type AsientoContable = {
-  cuenta: string;
-  debe: number;
-  haber: number;
-  fecha: string;
-};
+const PRIMER_EJERCICIO = 2026;
+
+// Cuentas de gestión (clases 6 y 7): solo cuentan los movimientos del ejercicio. El resto (balance)
+// se acumula desde el inicio hasta el cierre del ejercicio — sin asiento de cierre, es su saldo real
+// a esa fecha (auditoría contable 2026-09-29: antes se sumaba todo el histórico, mezclando años).
+function esCuentaDeGestion(cuenta: string) {
+  return cuenta.startsWith('6') || cuenta.startsWith('7');
+}
 
 type CuentaMayor = {
   id: string;
@@ -42,25 +47,12 @@ function importeComaDecimal(n: number): string {
 
 export default function LibroMayorPage() {
   const sinClasificar = useGastosSinClasificar();
+  const [anio, setAnio] = useState(new Date().getFullYear());
+  const ejercicio = limitesEjercicio(anio);
 
-  const { data: asientos, isLoading } = useQuery({
-    queryKey: ['asientos_contables'],
-    queryFn: async () => {
-      // select() debe incluir siempre las MISMAS columnas que el resto de consumidores de esta
-      // queryKey (LibroDiarioPage, useComptaFrancia) — Tanstack Query cachea por key, no por
-      // select, así que un select más corto aquí podía servir filas incompletas a quien necesita
-      // más columnas (bug real corregido 2026-08-18: corrompía el compte de résultat de la Liasse
-      // Fiscale si se visitaba esta página justo antes). Se selecciona siempre el superconjunto
-      // que usa LibroDiarioPage, el consumidor más exigente, para que cualquiera de los tres
-      // pueda poblar la caché sin dejar corto a otro.
-      const { data, error } = await supabase.from('asientos_contables').select('id, fecha, cuenta, debe, haber, concepto, documento_tipo');
-      if (error) throw error;
-      return data as AsientoContable[];
-    },
-  });
+  const { data: asientos, isLoading } = useAsientosContables();
 
-  // Salvaguarda de truncación — mismo motivo que LibroDiarioPage.tsx (queryKey propia, no la
-  // compartida ['asientos_contables'], así que no interfiere con el select de arriba).
+  // Salvaguarda de integridad — mismo motivo que LibroDiarioPage.tsx.
   const { data: totalReal } = useQuery({
     queryKey: ['asientos_contables', 'count'],
     queryFn: async () => {
@@ -74,6 +66,8 @@ export default function LibroMayorPage() {
   const cuentas = useMemo<CuentaMayor[]>(() => {
     const porCuenta = new Map<string, { totalDebe: number; totalHaber: number }>();
     for (const a of asientos ?? []) {
+      if (a.fecha > ejercicio.fin) continue;
+      if (esCuentaDeGestion(a.cuenta) && a.fecha < ejercicio.inicio) continue;
       const actual = porCuenta.get(a.cuenta) ?? { totalDebe: 0, totalHaber: 0 };
       actual.totalDebe += a.debe;
       actual.totalHaber += a.haber;
@@ -82,7 +76,7 @@ export default function LibroMayorPage() {
     return Array.from(porCuenta.entries())
       .map(([cuenta, t]) => ({ id: cuenta, cuenta, totalDebe: t.totalDebe, totalHaber: t.totalHaber, saldo: t.totalDebe - t.totalHaber }))
       .sort((a, b) => a.cuenta.localeCompare(b.cuenta));
-  }, [asientos]);
+  }, [asientos, ejercicio.inicio, ejercicio.fin]);
 
   return (
     <div>
@@ -98,8 +92,17 @@ export default function LibroMayorPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <Select
+            options={Array.from({ length: new Date().getFullYear() - PRIMER_EJERCICIO + 1 }, (_, i) => PRIMER_EJERCICIO + i).map((a) => ({
+              value: String(a),
+              label: `Ejercicio ${a}`,
+            }))}
+            value={String(anio)}
+            onChange={(e) => setAnio(Number(e.target.value))}
+            className="w-36"
+          />
           <BotonExportar
-            nombreArchivo="libro_mayor.csv"
+            nombreArchivo={`libro_mayor_${anio}.csv`}
             filas={cuentas}
             columnas={[
               { key: 'cuenta', label: 'Cuenta', valor: (c) => etiquetaCuenta(c.cuenta) },
@@ -110,13 +113,16 @@ export default function LibroMayorPage() {
           />
           <BotonExportar
             label="Exportar para Edifiscale (CSV)"
-            nombreArchivo="balance-edifiscale.csv"
-            filas={cuentas}
+            nombreArchivo={`balance-edifiscale-${anio}.csv`}
+            filas={cuentas.filter((c) => Math.abs(c.saldo) >= 0.005)}
+            // Balance de SALDOS del ejercicio (una columna a 0 por cuenta), como el modelo real de
+            // Edifiscale — antes se exportaban los movimientos brutos (p. ej. 411 con el mismo
+            // importe en Débit y en Crédit), que rellenarían mal el 2050 (auditoría 2026-09-29).
             columnas={[
               { key: 'compte', label: 'Compte', valor: (c) => codigoPcg6(c.cuenta) },
               { key: 'libelle', label: 'Libellé', valor: (c) => nombreCuentaSinCodigo(c.cuenta) },
-              { key: 'debit', label: 'Débit', valor: (c) => importeComaDecimal(c.totalDebe) },
-              { key: 'credit', label: 'Crédit', valor: (c) => importeComaDecimal(c.totalHaber) },
+              { key: 'debit', label: 'Débit', valor: (c) => importeComaDecimal(Math.max(0, c.saldo)) },
+              { key: 'credit', label: 'Crédit', valor: (c) => importeComaDecimal(Math.max(0, -c.saldo)) },
             ]}
           />
         </div>

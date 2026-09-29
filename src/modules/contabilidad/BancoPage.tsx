@@ -101,7 +101,7 @@ export default function BancoPage() {
       queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
       if (m.factura_id) {
         queryClient.invalidateQueries({ queryKey: ['facturas'] });
-        queryClient.invalidateQueries({ queryKey: ['pagos_factura', m.factura_id] });
+        queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
         queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       }
       toast.success(

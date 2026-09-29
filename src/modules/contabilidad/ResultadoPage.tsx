@@ -18,6 +18,7 @@ type PagoIngreso = {
 
 type GastoFila = {
   fecha: string | null;
+  estado_gasto: string | null;
   categoria: string | null;
   proveedor: string | null;
   importe_base: number | null;
@@ -60,7 +61,7 @@ export default function ResultadoPage() {
   const { data: gastos, isLoading: cargandoGastos } = useQuery({
     queryKey: ['gastos', 'resultado'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('fecha, categoria, proveedor, importe_base');
+      const { data, error } = await supabase.from('gastos').select('fecha, categoria, proveedor, importe_base, estado_gasto');
       if (error) throw error;
       return data as GastoFila[];
     },
@@ -93,7 +94,8 @@ export default function ResultadoPage() {
     }
 
     for (const g of gastos ?? []) {
-      if (!g.fecha) continue;
+      // Un gasto pendiente de revisar todavía no es gasto real (auditoría 2026-09-29).
+      if (!g.fecha || g.estado_gasto === 'pendiente') continue;
       const mes = g.fecha.slice(0, 7);
       const actual = obtenerMes(mes);
       const importe = g.importe_base ?? 0;

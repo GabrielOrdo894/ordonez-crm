@@ -71,6 +71,19 @@ export async function vincularMovimientoAFactura(
   factura: Factura,
   origen: 'manual' | 'automatica',
 ): Promise<{ pagoId: string; avisoAsiento: string | null }> {
+  // Se "reserva" el movimiento antes de crear el pago: solo una pestaña o dispositivo puede pasarlo de
+  // Pendiente a Vinculado. Antes, dos sesiones abiertas a la vez podían registrar el mismo cobro dos
+  // veces (auditoría 2026-09-29).
+  const { data: reservado, error: errorReserva } = await supabase
+    .from('movimientos_banco')
+    .update({ estado: 'Vinculado', factura_id: factura.id })
+    .eq('id', movimiento.id)
+    .eq('estado', 'Pendiente')
+    .is('pago_id', null)
+    .select('id');
+  if (errorReserva) throw errorReserva;
+  if (!reservado || reservado.length === 0) throw new Error('Este movimiento ya se ha vinculado desde otra sesión.');
+
   const { data: nuevoPago, error: errorPago } = await supabase
     .from('pagos_factura')
     .insert({
@@ -82,19 +95,28 @@ export async function vincularMovimientoAFactura(
     })
     .select()
     .single();
-  if (errorPago) throw errorPago;
+  if (errorPago) {
+    const { error: errorVuelta } = await supabase
+      .from('movimientos_banco')
+      .update({ estado: 'Pendiente', factura_id: null })
+      .eq('id', movimiento.id);
+    if (errorVuelta) throw errorVuelta;
+    throw errorPago;
+  }
 
   const { data: pagosFactura, error: errorPagos } = await supabase
     .from('pagos_factura')
-    .select('monto')
+    .select('monto, fecha')
     .eq('factura_id', factura.id);
   if (errorPagos) throw errorPagos;
   const totalPagado = Math.round((pagosFactura ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
+  // fecha_pago = la del último pago real, aunque el movimiento sea anterior a otro pago ya registrado.
+  const ultimaFecha = (pagosFactura ?? []).reduce((max, p) => (p.fecha > max ? p.fecha : max), movimiento.fecha);
   const estado_cobro = estadoCobroDePagos(totalPagado, totalConIvaFactura(factura));
 
   const { error: errorFactura } = await supabase
     .from('facturas')
-    .update({ fecha_pago: movimiento.fecha, monto_pagado: totalPagado, estado_cobro })
+    .update({ fecha_pago: ultimaFecha, monto_pagado: totalPagado, estado_cobro })
     .eq('id', factura.id);
   if (errorFactura) throw errorFactura;
 
@@ -116,7 +138,7 @@ export async function vincularMovimientoAFactura(
   if (factura.pais === 'Francia' && !factura.estructura_anterior) {
     try {
       await registrarAsientoFacturaCobro(
-        { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
+        { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre, tipo_iva: factura.tipo_iva },
         movimiento.importe,
         movimiento.fecha,
         nuevoPago.id as string,

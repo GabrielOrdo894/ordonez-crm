@@ -55,7 +55,7 @@ export function VincularFacturaModal({ movimiento, onClose }: VincularFacturaMod
     onSuccess: (resultado) => {
       if (resultado) {
         queryClient.invalidateQueries({ queryKey: ['facturas'] });
-        queryClient.invalidateQueries({ queryKey: ['pagos_factura', resultado.factura.id] });
+        queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
         queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
         queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
         toast.success('Factura marcada como cobrada y movimiento vinculado');

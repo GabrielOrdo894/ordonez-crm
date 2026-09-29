@@ -44,5 +44,7 @@ describe('validarGasto', () => {
     expect(validarGasto(km)).toEqual([]);
     const amort = { ...completo, cuenta_contable: '681', proveedor: null, adjunto_url: null, importe_iva: 0 };
     expect(validarGasto(amort)).toEqual([]);
+    const remuneracion = { ...completo, cuenta_contable: '641', proveedor: null, adjunto_url: null, importe_iva: 0 };
+    expect(validarGasto(remuneracion)).toEqual([]);
   });
 });

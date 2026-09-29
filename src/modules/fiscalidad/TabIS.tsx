@@ -42,12 +42,13 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
     resultadoNeto,
     capitalSocial,
     reservaLegal,
+    gerantConfig,
   } = useEjercicioFiscal(anio);
   const { echeances, marcarCompletada } = useEcheances();
 
   const tipoEfectivo = beneficioNeto > 0 ? is.total / beneficioNeto : 0;
   const margenNeto = ingresosHT > 0 ? resultadoNeto / ingresosHT : 0;
-  const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config);
+  const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config, gerantConfig?.remuneracion_desde ?? null);
 
   const handleAprobacionCuentas = async () => {
     setGenerandoAprobacion(true);

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { rectificarAsientos } from '../../lib/asientosContables';
 import { useToast } from '../../hooks/useToast';
 import { mensajeError } from '../../lib/mensajeError';
 import { Button } from '../../components/ui/Button';
@@ -197,7 +196,6 @@ async function pasoBorrado(
 // primero lo que depende de presupuesto_id/gasto_id, luego lo que depende de visita_id, y las filas
 // de visitas al final (todo lo demás las referencia; facturas.visita_id queda a NULL automáticamente).
 const BUCKET_GALERIA = 'galeria';
-const BUCKET_JUSTIFICANTES = 'justificantes';
 
 function pathGaleriaDesdeUrl(url: string): string | null {
   const marca = `/storage/v1/object/public/${BUCKET_GALERIA}/`;
@@ -260,21 +258,9 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
       );
   }
 
-  // `gastos.adjunto_url` ya guarda el path del bucket privado directamente (no una URL pública que
-  // haya que recortar, a diferencia de galería) — ver GastoForm.tsx.
-  const rutasJustificantes = (gas.data ?? [])
-    .map((g) => g.adjunto_url as string | null)
-    .filter((p): p is string => !!p);
-  if (rutasJustificantes.length > 0) {
-    const { error: errorStorage } = await supabase.storage
-      .from(BUCKET_JUSTIFICANTES)
-      .remove(rutasJustificantes);
-    if (errorStorage)
-      console.warn(
-        'No se pudieron borrar todos los justificantes de gastos en Storage:',
-        errorStorage.message,
-      );
-  }
+  // Los justificantes de gastos NO se borran (2026-09-29): son documentos contables que hay que
+  // conservar 10 años (Code de commerce L123-22), igual que las facturas. Ver más abajo: los gastos
+  // se desvinculan de la visita en vez de borrarse.
 
   const galeriaIds = gal.data.map((g) => g.id as string);
   const gastoIds = (gas.data ?? []).map((g) => g.id as string);
@@ -293,11 +279,6 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   if (solicitudIds.length) {
     await pasoBorrado('solicitudes', () =>
       supabase.from('solicitudes').delete().in('id', solicitudIds),
-    );
-  }
-  if (gastoIds.length) {
-    await pasoBorrado('movimientos_banco (gastos)', () =>
-      supabase.from('movimientos_banco').delete().in('gasto_id', gastoIds),
     );
   }
   if (presupuestoIds.length) {
@@ -331,14 +312,22 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
         .in('id', facturaIds),
     );
   }
-  // Los gastos de Francia ya contabilizados tienen sus asientos en asientos_contables (insert-only
-  // por ley, ver asientosContables.ts) — hay que reversarlos ANTES de borrar la fila, si no el
-  // Libro Diario/Mayor se queda con apuntes que referencian un gasto que ya no existe. No hace
-  // falta filtrar por país: para un gasto de España (sin asientos) rectificarAsientos no encuentra
-  // nada y no hace nada (bug real, corregido 2026-09-10 — la papelera de facturas ya reversaba sus
-  // asientos al purgar, esta purga RGPD se había quedado sin ese mismo paso).
-  await Promise.all(gastoIds.map((id) => rectificarAsientos('gasto', id, 'creacion')));
-  await pasoBorrado('gastos', () => supabase.from('gastos').delete().in('visita_id', visitaIds));
+  // Gastos: son gastos reales de la empresa (kilometraje, material), con su asiento, su justificante y
+  // a veces su movimiento bancario — la ley obliga a conservarlos 10 años (Code de commerce L123-22).
+  // Hasta 2026-09-29 se borraban y se anulaba su contabilidad; ahora solo se desvinculan de la visita
+  // y, en el kilometraje, se quita el nombre del cliente de la descripción (auditoría 2026-09-29).
+  if (gastoIds.length) {
+    await pasoBorrado('gastos (desvinculados)', () =>
+      supabase.from('gastos').update({ visita_id: null }).in('id', gastoIds),
+    );
+    await pasoBorrado('gastos de kilometraje (anonimizados)', () =>
+      supabase
+        .from('gastos')
+        .update({ descripcion: 'Indemnité kilométrique — visita (datos del cliente eliminados, RGPD)' })
+        .in('id', gastoIds)
+        .not('km', 'is', null),
+    );
+  }
   // Por id recopilado (visita_id + presupuesto_id + factura_id), no solo visita_id — ver comentario
   // grande más arriba.
   if (galeriaIds.length) {
@@ -412,11 +401,10 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
         </p>
         <p className="text-sm text-gray-600 mb-3">
           Borra para siempre los datos de este cliente en visitas, notas, planning, presupuestos,
-          gastos, galería y solicitudes de contacto. Las facturas son la única excepción: por ley la
-          numeración debe quedar completa y sin huecos, así que no se eliminan — se anonimizan (el
-          nombre, dirección, email y teléfono del cliente se borran de la factura, pero el registro
-          numerado se conserva). También borra las fotos de galería y los justificantes de gastos
-          guardados en el almacenamiento. No se puede deshacer.
+          galería y solicitudes de contacto. Las facturas y los gastos se conservan porque la ley
+          obliga a guardar los documentos contables 10 años: de las facturas se borran el nombre,
+          dirección, email y teléfono del cliente, y los gastos (con sus justificantes) solo se
+          desvinculan de sus visitas. También borra las fotos de galería. No se puede deshacer.
         </p>
         <Button variant="danger" size="sm" onClick={() => setModalPurgaAbierto(true)}>
           <span className="flex items-center gap-1.5">

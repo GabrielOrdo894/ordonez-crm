@@ -68,6 +68,12 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
   const agregarPagoMutation = useMutation({
     mutationFn: async () => {
       if (!factura) return null;
+      // Un cobro mayor que lo pendiente dejaba la cuenta 411 con saldo acreedor (auditoría contable
+      // 2026-09-29): si el cliente pagó de más, se registra lo facturado y el resto se trata aparte.
+      if (!(monto > 0)) throw new Error('El importe del pago debe ser mayor que 0.');
+      if (monto > pendiente + 0.005) {
+        throw new Error(`El pago (${formatearPrecio(monto)}) supera lo pendiente de cobro (${formatearPrecio(pendiente)}).`);
+      }
       const { data: nuevoPago, error } = await supabase
         .from('pagos_factura')
         .insert({ factura_id: factura.id, fecha: fechaPago, monto, creado_por: nombreUsuarioActual })
@@ -76,9 +82,11 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
       if (error) throw error;
       const nuevoTotalPagado = Math.round((totalPagado + monto) * 100) / 100;
       const estado_cobro = estadoCobroDePagos(nuevoTotalPagado, total);
+      // fecha_pago = la del último pago real, aunque este se registre con una fecha anterior.
+      const ultimaFecha = (pagos ?? []).reduce((max, p) => (p.fecha > max ? p.fecha : max), fechaPago);
       const { error: errorFactura } = await supabase
         .from('facturas')
-        .update({ fecha_pago: fechaPago, monto_pagado: nuevoTotalPagado, estado_cobro })
+        .update({ fecha_pago: ultimaFecha, monto_pagado: nuevoTotalPagado, estado_cobro })
         .eq('id', factura.id);
       if (errorFactura) throw errorFactura;
       if (factura.visita_id) {
@@ -104,7 +112,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
     },
     onSuccess: async (nuevoPago) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['pagos_factura', factura?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
       toast.success('Pago registrado');
       // Solo facturas de Francia van al libro diario (PCG). estructura_anterior (2026-08-22): cobro
       // de una empresa anterior a la EURL, no es ingreso real — no genera apunte. Cada pago genera
@@ -114,7 +122,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
         queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
         try {
           await registrarAsientoFacturaCobro(
-            { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre },
+            { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre, tipo_iva: factura.tipo_iva },
             monto,
             fechaPago,
             nuevoPago.id,
@@ -145,7 +153,7 @@ export function RegistrarPagoModal({ factura, onClose }: RegistrarPagoModalProps
     },
     onSuccess: async (pago) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['pagos_factura', factura?.id] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
       toast.success('Pago eliminado');
       if (factura && factura.pais === 'Francia' && !factura.estructura_anterior) {
         queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });

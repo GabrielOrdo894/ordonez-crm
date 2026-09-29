@@ -8,9 +8,7 @@ import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfLiasseFiscale } from '../../lib/generarPdfLiasseFiscale';
 import { generarPdfLivreInventaire } from '../../lib/generarPdfLivreInventaire';
-import { useComptaFrancia } from './useComptaFrancia';
-import { useEjercicioFiscal } from './useEjercicioFiscal';
-import { calcularBilanPasivo } from './calculos';
+import { useLiasse } from './useLiasse';
 import { fmt } from './format';
 import { Faq } from './Faq';
 import { ResumenTitular } from './ResumenTitular';
@@ -31,11 +29,7 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
   const toast = useToast();
   const [generando, setGenerando] = useState(false);
   const [generandoInventaire, setGenerandoInventaire] = useState(false);
-  const { is, resultadoNeto, capitalSocial, reservaLegal } = useEjercicioFiscal(anio);
-  const { compteResultat, bilanActivo, activos, cargando } = useComptaFrancia(anio);
-
-  const bilanPasivo = calcularBilanPasivo(resultadoNeto, reservaLegal, is, capitalSocial);
-  const descuadre = bilanActivo.total - bilanPasivo.total;
+  const { compteResultat, bilanActivo, bilanPasivo, is, resultadoNeto, activos, pendienteRegistrar, descuadre, cargando } = useLiasse(anio);
 
   const handleDescargar = async () => {
     setGenerando(true);
@@ -80,6 +74,14 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
         <strong className="text-brand">{fmt(resultadoNeto)}</strong> (IS de {fmt(is.total)} sobre un resultado antes de
         impuestos de {fmt(compteResultat.resultadoAntesIS)}).
       </ResumenTitular>
+      {pendienteRegistrar > 0.5 && (
+        <p className="text-xs text-amber-700 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          Según la configuración del gérant faltan unos {fmt(pendienteRegistrar)} de rémunération y cotisations por
+          registrar en Gastos (cuentas 641 y 646). Hasta que se registren, el résultat y el IS de esta liasse salen más
+          altos de lo real.
+        </p>
+      )}
       <p className="text-xs text-gray-400 px-1">
         Calculado desde el libro diario (<code>/contabilidad/diario</code>) y el registro de inmovilizado — no
         sustituye el formulario Cerfa oficial ni su transmisión EDI-TDFC, que quedan como paso posterior tuyo (con
@@ -117,7 +119,8 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
           <table className="w-full text-sm mb-3">
             <tbody>
               <Fila label="Trésorerie (512)" valor={bilanActivo.tresoreria} />
-              <Fila label="Créances clients" valor={bilanActivo.creancesClients} />
+              <Fila label="Créances clients (411)" valor={bilanActivo.creancesClients} />
+              <Fila label="Crédit de TVA" valor={bilanActivo.creditoTva} />
               <Fila label="Immobilisations (valeur nette)" valor={bilanActivo.inmovilizadoNeto} />
               <Fila label="Total actif" valor={bilanActivo.total} negrita />
             </tbody>
@@ -129,6 +132,9 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Réserves" valor={bilanPasivo.reservas} />
               <Fila label="Résultat de l'exercice" valor={bilanPasivo.resultadoEjercicio} />
               <Fila label="Dettes fiscales (IS)" valor={bilanPasivo.dettesFiscales} />
+              <Fila label="TVA à payer" valor={bilanPasivo.deudaTva} />
+              <Fila label="Avances et acomptes reçus (4191)" valor={bilanPasivo.avancesRecibidas} />
+              <Fila label="Compte courant d'associé (455)" valor={bilanPasivo.compteCourantAssocie} />
               <Fila label="Dettes fournisseurs" valor={bilanPasivo.dettesFournisseurs} />
               <Fila label="Total passif" valor={bilanPasivo.total} negrita />
             </tbody>
@@ -136,8 +142,8 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
           {Math.abs(descuadre) > 0.01 && (
             <p className="text-xs text-amber-700 flex items-start gap-1.5 mt-2 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2">
               <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-              El bilan no cuadra exactamente (diferencia de {fmt(descuadre)}) — normal dado el límite de las dettes
-              fournisseurs de arriba y que este simulador no lleva un balance de apertura entre ejercicios.
+              El bilan no cuadra (diferencia de {fmt(descuadre)}). Lo más habitual: la aportación del capital social no
+              está registrada en el libro diario, o faltan asientos de apertura de un ejercicio anterior.
             </p>
           )}
         </div>

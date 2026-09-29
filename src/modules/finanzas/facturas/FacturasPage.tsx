@@ -26,7 +26,7 @@ import { KpiRow } from '../../../components/ui/Kpi';
 import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import { DescargarZipModal } from '../../../components/ui/DescargarZipModal';
-import { ESTADOS_COBRO } from './types';
+import { ESTADOS_COBRO, motivoNoPapeleraFactura } from './types';
 import { formatearPrecio } from '../lineas';
 import type { Factura } from './types';
 import { FacturaForm } from './FacturaForm';
@@ -130,6 +130,8 @@ export default function FacturasPage() {
 
   const eliminarMutation = useMutation({
     mutationFn: async (f: Factura) => {
+      const motivo = motivoNoPapeleraFactura(f);
+      if (motivo) throw new Error(motivo);
       const { error } = await supabase
         .from('facturas')
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
@@ -164,7 +166,7 @@ export default function FacturasPage() {
     },
     onSuccess: async (_data, f) => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['pagos_factura', f.id] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
       toast.success('Pagos eliminados, factura vuelve a Pendiente');
       try {
         await rectificarSiHaceFalta(f, 'cobro');
@@ -180,9 +182,15 @@ export default function FacturasPage() {
     mutationFn: async (ids: (string | number)[]) => {
       const { data: filas, error: errorLectura } = await supabase
         .from('facturas')
-        .select('id, pais, estructura_anterior')
+        .select('id, numero, pais, estructura_anterior')
         .in('id', ids as string[]);
       if (errorLectura) throw errorLectura;
+      const bloqueadas = (filas ?? []).filter((f) => motivoNoPapeleraFactura(f));
+      if (bloqueadas.length > 0) {
+        throw new Error(
+          `${bloqueadas.map((f) => f.numero).join(', ')} ya están contabilizadas: para anularlas, crea una factura rectificativa. No se ha movido nada a la papelera.`,
+        );
+      }
       const { error } = await supabase
         .from('facturas')
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
@@ -252,18 +260,22 @@ export default function FacturasPage() {
   }, [facturas, zipEstado, zipTipo, zipPais, zipDesde, zipHasta]);
 
   const kpis = useMemo(() => {
-    const todas = facturas ?? [];
+    // Sin las facturas de la etapa de autónomo (estructura_anterior): no son de la EURL e inflaban
+    // "Ingresos Francia" en 15.707,59 € (auditoría 2026-09-29). Siguen en la lista de abajo.
+    const todas = (facturas ?? []).filter((f) => !f.estructura_anterior);
     const pendientes = todas.filter((f) => f.estado_cobro === 'Pendiente' || f.estado_cobro === 'Cobrada parcialmente').length;
     const cobradas = todas.filter((f) => f.estado_cobro === 'Cobrada');
     const vencidas = todas.filter((f) => f.estado_cobro === 'Vencida');
     const sinIva = (lista: Factura[]) => lista.reduce((s, f) => s + totalFacturaSinIva(f), 0);
     const conIva = (lista: Factura[]) => lista.reduce((s, f) => s + totalFactura(f), 0);
-    const ingresosPais = (pais: string) => conIva(todas.filter((f) => f.pais === pais));
+    const facturadoPais = (pais: string) => conIva(todas.filter((f) => f.pais === pais));
     return [
       { label: 'Total facturas', valor: todas.length },
       { label: 'Pendientes de cobro', valor: pendientes },
-      { label: 'Ingresos Francia (con IVA)', valor: formatearPrecio(ingresosPais('Francia')), acento: true },
-      { label: 'Ingresos España (con IVA)', valor: formatearPrecio(ingresosPais('España')) },
+      // "Facturado", no "Ingresos": suma todas las facturas emitidas, cobradas o no (lo cobrado está en
+      // "Cobradas" y en Contabilidad → Libro de ingresos).
+      { label: 'Facturado Francia (con IVA)', valor: formatearPrecio(facturadoPais('Francia')), acento: true },
+      { label: 'Facturado España (con IVA)', valor: formatearPrecio(facturadoPais('España')) },
       {
         label: `Cobradas (${cobradas.length})`,
         valor: `${formatearPrecio(sinIva(cobradas))} sin IVA`,

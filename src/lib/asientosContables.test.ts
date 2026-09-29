@@ -4,6 +4,9 @@ import {
   construirAsientosFacturaEmision,
   construirAsientosFacturaCobro,
   construirAsientosRectificacion,
+  construirAsientosRectificacionNeta,
+  cuentaAmortizacionDe,
+  tvaDeCobro,
   type NuevoAsiento,
 } from './asientosContables';
 import type { Linea } from '../modules/finanzas/lineas';
@@ -137,7 +140,9 @@ describe('construirAsientosFacturaEmision', () => {
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
     expect(asientos.find((a) => a.cuenta === '411')?.debe).toBeCloseTo(1100);
     expect(asientos.find((a) => a.cuenta === '706')?.haber).toBeCloseTo(1000);
-    expect(asientos.find((a) => a.cuenta === '44571')?.haber).toBeCloseTo(100);
+    // TVA sur encaissements: en espera (44574) hasta el cobro.
+    expect(asientos.find((a) => a.cuenta === '44574')?.haber).toBeCloseTo(100);
+    expect(asientos.some((a) => a.cuenta === '44571')).toBe(false);
   });
 
   it('factura sin IVA no genera apunte de TVA collectée', () => {
@@ -149,7 +154,7 @@ describe('construirAsientosFacturaEmision', () => {
       fecha_factura: '2026-05-01',
       lineas: [lineaSinIva],
     });
-    expect(asientos.some((a) => a.cuenta === '44571')).toBe(false);
+    expect(asientos.some((a) => a.cuenta === '44571' || a.cuenta === '44574')).toBe(false);
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
   });
 
@@ -161,6 +166,7 @@ describe('construirAsientosFacturaEmision', () => {
       cliente_nombre: 'Cliente Z',
       fecha_factura: '2026-05-01',
       lineas: [lineaNegativa],
+      tipo: 'rectificativa',
     });
     // Nunca un debe/haber negativo — el lado se invierte, el importe siempre en positivo.
     expect(asientos.every((a) => a.debe >= 0 && a.haber >= 0)).toBe(true);
@@ -171,9 +177,122 @@ describe('construirAsientosFacturaEmision', () => {
   });
 });
 
+describe('acomptes y factura final (4191)', () => {
+  const linea = (base: number, ref = 'OBR-001'): Linea => ({
+    designacion: 'Obra',
+    referencia: ref,
+    descripcion: '',
+    unidad: 'ud',
+    tipo_servicio: 'Travaux',
+    cantidad: 1,
+    precio_unit: base,
+    total_sin_iva: base,
+    total_con_iva: base * 1.1,
+    es_incluido: false,
+  });
+
+  it('una factura de acompte abona 4191, no 706', () => {
+    const asientos = construirAsientosFacturaEmision({
+      id: 'a1',
+      numero: 'AC-1',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-09-01',
+      lineas: [linea(3000)],
+      tipo: 'acompte',
+    });
+    expect(asientos.find((a) => a.cuenta === '4191')?.haber).toBeCloseTo(3000);
+    expect(asientos.some((a) => a.cuenta === '706')).toBe(false);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('la factura final vende el total de la obra en 706 y salda el acompte de 4191', () => {
+    const asientos = construirAsientosFacturaEmision({
+      id: 'f9',
+      numero: 'F-9',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-10-01',
+      lineas: [linea(10000), linea(-3000, 'ACOMPTE')],
+      tipo: 'normal',
+    });
+    expect(asientos.find((a) => a.cuenta === '706')?.haber).toBeCloseTo(10000);
+    expect(asientos.find((a) => a.cuenta === '4191')?.debe).toBeCloseTo(3000);
+    expect(asientos.find((a) => a.cuenta === '411')?.debe).toBeCloseTo(7700);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+});
+
+describe('construirAsientosFacturaCobro — TVA sur encaissements', () => {
+  it('el cobro traspasa su TVA de 44574 a 44571', () => {
+    const asientos = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X', tipo_iva: 'TVA_10' }, 1100, '2026-09-10', 'p1');
+    expect(asientos.find((a) => a.cuenta === '44574')?.debe).toBeCloseTo(100);
+    expect(asientos.find((a) => a.cuenta === '44571')?.haber).toBeCloseTo(100);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('tvaDeCobro redondea a céntimos', () => {
+    expect(tvaDeCobro(1000, 'TVA_20')).toBe(166.67);
+    expect(tvaDeCobro(500, 'EXENTO')).toBe(0);
+  });
+});
+
+describe('kilometraje y amortizaciones', () => {
+  it('un gasto de kilometraje se abona a la cuenta corriente del asociado (455), no al banco', () => {
+    const asientos = construirAsientosGasto({
+      id: 'k1',
+      fecha: '2026-09-09',
+      descripcion: 'Indemnité kilométrique',
+      proveedor: null,
+      cuenta_contable: '6251',
+      importe_base: 42.03,
+      importe_iva: 0,
+      km: 63,
+    });
+    expect(asientos.find((a) => a.cuenta === '455')?.haber).toBeCloseTo(42.03);
+    expect(asientos.some((a) => a.cuenta === '512')).toBe(false);
+  });
+
+  it('cuentaAmortizacionDe da la 28xx del activo', () => {
+    expect(cuentaAmortizacionDe('2154')).toBe('28154');
+    expect(cuentaAmortizacionDe('2183')).toBe('28183');
+    expect(cuentaAmortizacionDe('201')).toBe('2801');
+    expect(cuentaAmortizacionDe(null)).toBe('2801');
+  });
+});
+
+describe('construirAsientosRectificacionNeta', () => {
+  const fila = (cuenta: string, debe: number, haber: number, concepto = 'AC-2026-0020 — Bea') => ({
+    cuenta,
+    debe,
+    haber,
+    concepto,
+    fecha: '2026-04-20',
+    pago_id: null,
+  });
+
+  it('un documento ya anulado (neto cero) no genera ninguna reversa — caso real AC-2026-0020', () => {
+    const historico = [
+      fila('411', 15707.59, 0),
+      fila('706', 0, 14279.63),
+      fila('44571', 0, 1427.96),
+      fila('411', 0, 15707.59, 'AC-2026-0020 — Bea (rectificación)'),
+      fila('706', 14279.63, 0, 'AC-2026-0020 — Bea (rectificación)'),
+      fila('44571', 1427.96, 0, 'AC-2026-0020 — Bea (rectificación)'),
+    ];
+    expect(construirAsientosRectificacionNeta(historico, 'factura', 'x', 'creacion')).toEqual([]);
+  });
+
+  it('un lote duplicado se anula entero (no solo el último)', () => {
+    const historico = [fila('6251', 10, 0), fila('512', 0, 10), fila('6251', 10, 0), fila('512', 0, 10)];
+    const reversa = construirAsientosRectificacionNeta(historico, 'gasto', 'g', 'creacion');
+    expect(reversa.find((a) => a.cuenta === '6251')?.haber).toBeCloseTo(20);
+    expect(reversa.find((a) => a.cuenta === '512')?.debe).toBeCloseTo(20);
+    expect(reversa.every((a) => a.concepto === 'AC-2026-0020 — Bea (rectificación)')).toBe(true);
+  });
+});
+
 describe('construirAsientosFacturaCobro', () => {
   it('cobro: debe banco, haber clientes, por el monto cobrado', () => {
-    const asientos = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-2026-0001', cliente_nombre: 'Cliente X' }, 550, '2026-06-01');
+    const asientos = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-2026-0001', cliente_nombre: 'Cliente X', tipo_iva: null }, 550, '2026-06-01');
     expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
     expect(asientos.find((a) => a.cuenta === '512')?.debe).toBe(550);
     expect(asientos.find((a) => a.cuenta === '411')?.haber).toBe(550);
@@ -193,8 +312,8 @@ describe('construirAsientosRectificacion', () => {
   });
 
   it('reversa dos apuntes de cobro en fechas distintas: cada línea conserva SU fecha, no una común (bug real corregido 2026-09-08)', () => {
-    const cobro1 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X' }, 500, '2026-03-15', 'pago-1');
-    const cobro2 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X' }, 300, '2026-04-20', 'pago-2');
+    const cobro1 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X', tipo_iva: null }, 500, '2026-03-15', 'pago-1');
+    const cobro2 = construirAsientosFacturaCobro({ id: 'f1', numero: 'F-1', cliente_nombre: 'X', tipo_iva: null }, 300, '2026-04-20', 'pago-2');
     const reversa = construirAsientosRectificacion(
       [...cobro1, ...cobro2].map((a) => ({ cuenta: a.cuenta, debe: a.debe, haber: a.haber, concepto: a.concepto, fecha: a.fecha })),
       'factura',

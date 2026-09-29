@@ -100,7 +100,12 @@ export function notasLegales(idioma: 'es' | 'fr', tipoIva: string | null): strin
   if (idioma === 'es') {
     notas.push('IVA aplicado según normativa vigente.');
   } else {
-    if (tipoIva === 'TVA_10') notas.push('TVA sur les travaux de rénovation selon article 279-0 bis du CGI.');
+    // Desde 2025 no hay cerfa: el cliente certifica las condiciones del tipo reducido en el devis que
+    // firma (artículo 18 de las condiciones generales) — la factura lo recuerda (auditoría TVA 2026-09-29).
+    if (tipoIva === 'TVA_10')
+      notas.push(
+        "TVA au taux réduit de 10 % (art. 279-0 bis du CGI) : le client a attesté, en acceptant le devis, que les travaux portent sur des locaux d'habitation achevés depuis plus de deux ans.",
+      );
     notas.push("En cas de retard de paiement, indemnité forfaitaire de 40€ (décret n°2012-1115), en sus des pénalités légales.");
   }
   return notas;

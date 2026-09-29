@@ -296,7 +296,8 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
           },
           {
             q: '¿Por qué la assiette es menor que la rémunération? Ejemplo con números',
-            a: 'Desde la reforma 2026 (LFSS 2024), las cotisations TNS ya no se calculan sobre el salario bruto completo, sino sobre una "assiette única" con un abatimiento del 26% — se asume que ese 26% ya cubre ciertas cargas que antes se calculaban aparte. Por eso assiette = rémunération × 0,74. Ejemplo: con una rémunération de 20.000 €/año, la assiette es 20.000 × 0,74 = 14.800 €, y las cotisations anuales serían 14.800 × 45% = 6.660 €. Con 40.000 €/año, la assiette sube a 29.600 € y las cotisations a 13.320 €. Este abatimiento solo aplica hasta el 130% del PASS; la parte de rémunération que supera ese tope no lleva abatimiento (se cotiza sobre el 100% de esa fracción).',
+            a: 'Desde la reforma de la assiette sociale de los independientes (LFSS 2024, aplicada a los revenus desde 2025), las cotisations TNS se calculan sobre una "assiette única": se parte del revenu BRUTO — la rémunération más las propias cotisations obligatorias — y se le resta un abattement del 26 %, acotado entre el 1,76 % y el 130 % del PASS. Como las cotisations forman parte de su propia base, pesan más de lo que parecería: con una rémunération de 20.000 €/año y un tipo global del 45 %, las cotisations salen en torno a 9.985 € (assiette ≈ 22.189 €); con 40.000 €/año, unos 19.970 € (assiette ≈ 44.378 €). Son estimaciones con el tipo global configurado: el importe exacto lo fija la URSSAF (conviene contrastarlo con su simulador).',
+
           },
           {
             q: '¿Qué es el PASS y por qué importa aquí?',

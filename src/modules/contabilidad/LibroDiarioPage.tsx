@@ -1,49 +1,67 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { FileDown, Search } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
+import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Select';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { etiquetaCuenta } from '../../lib/asientosContables';
 import { fechaVisitaCorta } from '../../lib/fechas';
+import { codificarLatin9, construirFec, nombreFicheroFec } from '../../lib/fec';
+import { cargarEntidad } from '../../lib/pdfEmpresa';
+import { useToast } from '../../hooks/useToast';
+import { limitesEjercicio } from '../fiscalidad/calculos';
 import { useGastosSinClasificar } from './useGastosSinClasificar';
+import { useAsientosContables } from './useAsientosContables';
 import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
-type AsientoContable = {
-  id: string;
-  fecha: string;
-  cuenta: string;
-  debe: number;
-  haber: number;
-  concepto: string;
-  documento_tipo: string;
-};
+const PRIMER_EJERCICIO = 2026;
 
 export default function LibroDiarioPage() {
+  const toast = useToast();
   const [busqueda, setBusqueda] = useState('');
+  const [anioFec, setAnioFec] = useState(new Date().getFullYear());
+  const [generandoFec, setGenerandoFec] = useState(false);
   const sinClasificar = useGastosSinClasificar();
 
-  const { data: asientos, isLoading } = useQuery({
-    queryKey: ['asientos_contables'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('asientos_contables')
-        .select('id, fecha, cuenta, debe, haber, concepto, documento_tipo')
-        .order('fecha', { ascending: false })
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data as AsientoContable[];
-    },
-  });
+  const { data: asientos, isLoading } = useAsientosContables();
 
-  // Salvaguarda de truncación (auditoría 2026-09-21): un libro insert-only y legalmente
-  // inalterable no tiene ningún límite de filas configurado ni ningún conteo que avisara si algún
-  // día se supera el límite por defecto de PostgREST — el KPI "Descuadre" no lo detectaría (cada
-  // lote insertado ya está cuadrado en sí mismo, recortar lotes completos por arriba no lo
-  // desequilibra). Queda de sobra hoy (96 filas reales) pero el aviso es gratis y cierra el hueco.
+  const exportarFec = async () => {
+    setGenerandoFec(true);
+    try {
+      const { entidad } = await cargarEntidad('Francia');
+      if (!entidad.siren) throw new Error('Falta el SIREN de la empresa en Configuración (datos de Francia).');
+      const [facturas, gastos] = await Promise.all([
+        supabase.from('facturas').select('id, numero'),
+        supabase.from('gastos').select('id, num_factura_proveedor'),
+      ]);
+      if (facturas.error) throw facturas.error;
+      if (gastos.error) throw gastos.error;
+      const referencias = new Map<string, string>();
+      for (const f of facturas.data ?? []) if (f.numero) referencias.set(f.id, f.numero);
+      for (const g of gastos.data ?? []) if (g.num_factura_proveedor) referencias.set(g.id, g.num_factura_proveedor);
+      const ejercicio = limitesEjercicio(anioFec);
+      const contenido = construirFec(asientos ?? [], ejercicio, referencias);
+      const blob = new Blob([codificarLatin9(contenido)], { type: 'text/plain;charset=iso-8859-15' });
+      const url = URL.createObjectURL(blob);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      enlace.download = nombreFicheroFec(entidad.siren, ejercicio.fin);
+      enlace.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setGenerandoFec(false);
+    }
+  };
+
+  // Salvaguarda de integridad: ahora se carga todo por páginas (useAsientosContables), así que
+  // esto solo avisaría si algo fallara a mitad de la carga.
   const { data: totalReal } = useQuery({
     queryKey: ['asientos_contables', 'count'],
     queryFn: async () => {
@@ -53,6 +71,37 @@ export default function LibroDiarioPage() {
     },
   });
   const truncado = totalReal != null && asientos != null && totalReal > asientos.length;
+
+  // Control documento ↔ asiento (auditoría 2026-09-29): toda factura de Francia de la EURL y todo gasto
+  // pagado de Francia debe tener su asiento vivo. Ya pasó con AC-2026-0021 (se guardó sin asiento) y
+  // nada lo detectaba. Consultas con claves propias (no las compartidas ['facturas']/['gastos']).
+  const { data: documentosContables } = useQuery({
+    queryKey: ['libro-diario', 'documentos-contables'],
+    queryFn: async () => {
+      const [facturas, gastos] = await Promise.all([
+        supabase.from('facturas').select('id, numero').eq('pais', 'Francia').eq('estructura_anterior', false).is('eliminado_en', null),
+        supabase.from('gastos').select('id, descripcion, fecha').eq('pais', 'Francia').eq('estado_gasto', 'pagado'),
+      ]);
+      if (facturas.error) throw facturas.error;
+      if (gastos.error) throw gastos.error;
+      return {
+        facturas: (facturas.data ?? []).map((f) => ({ id: f.id as string, nombre: (f.numero as string | null) ?? 'Factura' })),
+        gastos: (gastos.data ?? []).map((g) => ({ id: g.id as string, nombre: `${(g.descripcion as string | null) ?? 'Gasto'} (${g.fecha ?? ''})` })),
+      };
+    },
+  });
+  const sinAsiento = useMemo(() => {
+    if (!documentosContables || !asientos) return [];
+    const vivos = new Set<string>();
+    const netos = new Map<string, number>();
+    for (const a of asientos) {
+      if (a.tipo_evento !== 'creacion') continue;
+      const clave = `${a.documento_id}|${a.cuenta}`;
+      netos.set(clave, (netos.get(clave) ?? 0) + a.debe - a.haber);
+    }
+    for (const [clave, neto] of netos) if (Math.abs(neto) >= 0.005) vivos.add(clave.split('|')[0]);
+    return [...documentosContables.facturas, ...documentosContables.gastos].filter((d) => !vivos.has(d.id));
+  }, [documentosContables, asientos]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -95,6 +144,13 @@ export default function LibroDiarioPage() {
         </div>
       )}
 
+      {sinAsiento.length > 0 && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-sm px-3 py-2 mb-4">
+          {sinAsiento.length} documento(s) sin asiento en el libro: {sinAsiento.slice(0, 5).map((d) => d.nombre).join(', ')}
+          {sinAsiento.length > 5 ? '…' : ''}. Ábrelos y guárdalos de nuevo para contabilizarlos.
+        </div>
+      )}
+
       {sinClasificar.mensaje && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-sm px-3 py-2 mb-4">
           {sinClasificar.mensaje}{' '}
@@ -115,6 +171,21 @@ export default function LibroDiarioPage() {
           />
         </div>
         <span className="text-sm text-gray-500 ml-auto mr-2">{filtrados.length} asientos</span>
+        <Select
+          options={Array.from({ length: new Date().getFullYear() - PRIMER_EJERCICIO + 1 }, (_, i) => PRIMER_EJERCICIO + i).map((a) => ({
+            value: String(a),
+            label: `Ejercicio ${a}`,
+          }))}
+          value={String(anioFec)}
+          onChange={(e) => setAnioFec(Number(e.target.value))}
+          className="w-36"
+        />
+        <Button size="sm" variant="secondary" onClick={exportarFec} disabled={generandoFec || isLoading}>
+          <span className="flex items-center gap-1.5">
+            <FileDown size={14} />
+            {generandoFec ? 'Generando...' : 'Exportar FEC'}
+          </span>
+        </Button>
         <BotonExportar
           nombreArchivo="libro_diario.csv"
           filas={filtrados}

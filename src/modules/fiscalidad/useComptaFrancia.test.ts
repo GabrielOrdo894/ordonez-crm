@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { saldoNetoCuentas, calcularCompteResultat, calcularBilanActivo, type AsientoContable, type FacturaPendiente } from './useComptaFrancia';
+import { saldoNetoCuentas, calcularCompteResultat, calcularBilanActivo, type AsientoContable } from './useComptaFrancia';
 import type { ActivoInmovilizado } from '../../lib/inmovilizado';
-import type { Linea } from '../finanzas/lineas';
 
 describe('saldoNetoCuentas', () => {
   it('suma debe - haber de las cuentas que empiecen por los prefijos dados', () => {
@@ -62,18 +61,7 @@ describe('calcularCompteResultat', () => {
 });
 
 describe('calcularBilanActivo', () => {
-  const linea: Linea = {
-    designacion: 'Obra',
-    referencia: 'OBR-001',
-    descripcion: '',
-    unidad: 'ud',
-    tipo_servicio: 'Travaux',
-    cantidad: 1,
-    precio_unit: 1000,
-    total_sin_iva: 1000,
-    total_con_iva: 1100,
-    es_incluido: false,
-  };
+
   const activo: ActivoInmovilizado = {
     id: 'a1',
     descripcion: 'Furgoneta',
@@ -86,29 +74,29 @@ describe('calcularBilanActivo', () => {
 
   it('trésorerie es el saldo neto de la cuenta 512', () => {
     const asientos: AsientoContable[] = [{ cuenta: '512', debe: 500, haber: 200 }];
-    const r = calcularBilanActivo(asientos, [], [], 2026);
+    const r = calcularBilanActivo(asientos, [], 2026);
     expect(r.tresoreria).toBe(300);
   });
 
-  it('créances clients suma el pendiente de cobro (total con IVA - pagado), nunca negativo', () => {
-    const facturas: FacturaPendiente[] = [
-      { lineas: [linea], monto_pagado: 100 }, // pendiente: 1000
-      { lineas: [linea], monto_pagado: 1100 }, // ya pagada de más, no debe restar del total
-    ];
-    const r = calcularBilanActivo([], facturas, [], 2026);
-    expect(r.creancesClients).toBe(1000);
+  it('créances clients es el saldo deudor de la 411, nunca negativo', () => {
+    expect(calcularBilanActivo([{ cuenta: '411', debe: 1100, haber: 100 }], [], 2026).creancesClients).toBe(1000);
+    expect(calcularBilanActivo([{ cuenta: '411', debe: 0, haber: 50 }], [], 2026).creancesClients).toBe(0);
+  });
+
+  it('un saldo deudor de TVA (445xx) es crédito de TVA en el activo', () => {
+    const r = calcularBilanActivo([{ cuenta: '44566', debe: 80, haber: 0 }, { cuenta: '44571', debe: 0, haber: 30 }], [], 2026);
+    expect(r.creditoTva).toBe(50);
   });
 
   it('inmovilizado neto usa el valor neto contable de cada activo en el año dado', () => {
     // 12000 / 5 = 2400/año; a 2026 (2 años completos: 2025, 2026) amortizado 4800 -> VNC 7200
-    const r = calcularBilanActivo([], [], [activo], 2026);
+    const r = calcularBilanActivo([], [activo], 2026);
     expect(r.inmovilizadoNeto).toBeCloseTo(7200);
   });
 
-  it('total es la suma de los tres componentes', () => {
-    const asientos: AsientoContable[] = [{ cuenta: '512', debe: 300, haber: 0 }];
-    const facturas: FacturaPendiente[] = [{ lineas: [linea], monto_pagado: 0 }];
-    const r = calcularBilanActivo(asientos, facturas, [activo], 2026);
-    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.inmovilizadoNeto);
+  it('total es la suma de los componentes', () => {
+    const asientos: AsientoContable[] = [{ cuenta: '512', debe: 300, haber: 0 }, { cuenta: '411', debe: 1100, haber: 0 }];
+    const r = calcularBilanActivo(asientos, [activo], 2026);
+    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.inmovilizadoNeto);
   });
 });

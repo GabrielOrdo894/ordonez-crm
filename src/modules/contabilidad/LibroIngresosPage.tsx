@@ -6,7 +6,7 @@ import { Table } from '../../components/ui/Table';
 import { KpiRow } from '../../components/ui/Kpi';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { porcentajeIva } from '../finanzas/iva';
-import { fechaVisitaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, hoyLocalIso } from '../../lib/fechas';
 import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 // Un pago real (pagos_factura) con los datos de su factura embebidos — un ingreso real es un PAGO,
@@ -71,7 +71,7 @@ export default function LibroIngresosPage() {
   }, [ingresos, busqueda]);
 
   const kpis = useMemo(() => {
-    const hoyMes = new Date().toISOString().slice(0, 7);
+    const hoyMes = hoyLocalIso().slice(0, 7);
     const esteMes = ingresos.filter((i) => i.fecha.slice(0, 7) === hoyMes);
     const totalSinIva = ingresos.reduce((s, i) => s + i.sinIva, 0);
     const totalConIva = ingresos.reduce((s, i) => s + i.conIva, 0);

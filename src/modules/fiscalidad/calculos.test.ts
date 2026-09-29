@@ -9,6 +9,8 @@ import {
   simularEjercicio,
   generarEcheances,
   mesesTranscurridosEjercicio,
+  mesesRemuneradosEjercicio,
+  fechaLimiteLiasse,
   calcularQuotientFamiliar,
   calcularAbattementProfesional,
   calcularIRPersonal,
@@ -101,25 +103,28 @@ describe('calcularIS', () => {
 });
 
 describe('calcularTNS', () => {
-  it('remuneración por debajo del tope abatido (PASS x 1.3) aplica el abattement entero', () => {
+  it('assiette única: revenu brut (rémunération + cotisations) menos el 26 %', () => {
     const r = calcularTNS(40000, cfgPorDefecto);
-    expect(r.assiette).toBeCloseTo(40000 * 0.74);
-    expect(r.total).toBeCloseTo(40000 * 0.74 * 0.45);
+    // C = 0,45 × 0,74 × (R + C)  →  C = 0,333 R / 0,667
+    const esperado = (0.45 * 0.74 * 40000) / (1 - 0.45 * 0.74);
+    expect(r.total).toBeCloseTo(esperado, 0);
+    expect(r.assiette).toBeCloseTo((40000 + r.total) * 0.74, 0);
     expect(r.mensual).toBeCloseTo(r.total / 12);
   });
 
-  it('remuneración por encima del tope abatido tributa el exceso sin abattement', () => {
-    const topeAbatido = 48060 * 1.3;
-    const r = calcularTNS(80000, cfgPorDefecto);
-    const parteAbatida = topeAbatido * 0.74;
-    const parteExceso = 80000 - topeAbatido;
-    expect(r.assiette).toBeCloseTo(parteAbatida + parteExceso);
-    expect(r.total).toBeCloseTo((parteAbatida + parteExceso) * 0.45);
+  it('el abattement se limita al 130 % del PASS en rémunérations altas', () => {
+    const r = calcularTNS(200000, cfgPorDefecto);
+    const bruto = 200000 + r.total;
+    expect(r.assiette).toBeCloseTo(bruto - 48060 * 1.3, 0);
+  });
+
+  it('sin rémunération no hay cotisations', () => {
+    expect(calcularTNS(0, cfgPorDefecto).total).toBe(0);
   });
 
   it('csgNoDeducible es el 2,9% de la assiette (2,9% de los 9,7% totales de CSG-CRDS)', () => {
     const r = calcularTNS(40000, cfgPorDefecto);
-    expect(r.csgNoDeducible).toBeCloseTo(40000 * 0.74 * 0.029);
+    expect(r.csgNoDeducible).toBeCloseTo(r.assiette * 0.029);
   });
 });
 
@@ -190,14 +195,14 @@ describe('simularEjercicio', () => {
     // TabSalarioDividendos.tsx (regresión: si esto cambia de valor sin querer, el texto del FAQ deja
     // de ser correcto).
     const r = simularEjercicio(30000, 50, 50000, 1000, 0, 6, cfgPorDefecto);
-    expect(r.tns.total).toBeCloseTo(9990, 0);
-    expect(r.beneficioTrasSalario).toBeCloseTo(10010, 0);
-    expect(r.is.total).toBeCloseTo(1501.5, 1);
+    expect(r.tns.total).toBeCloseTo(14977.51, 1);
+    expect(r.beneficioTrasSalario).toBeCloseTo(5022.49, 1);
+    expect(r.is.total).toBeCloseTo(753.37, 1);
     expect(r.reservaLegal.dotacion).toBeCloseTo(100, 0);
-    expect(r.dividendos).toBeCloseTo(4204.25, 1);
-    expect(r.divCalc.total).toBeCloseTo(2403.66, 1);
-    expect(r.totalPrelevements).toBeCloseTo(13895.16, 1);
-    expect(r.netoDisponible).toBeCloseTo(21810.59, 1);
+    expect(r.dividendos).toBeCloseTo(2084.56, 1);
+    expect(r.divCalc.total).toBeCloseTo(1178.47, 1);
+    expect(r.totalPrelevements).toBeCloseTo(16909.36, 1);
+    expect(r.netoDisponible).toBeCloseTo(15928.57, 1);
   });
 
   it('sin beneficio (0), no hay IS ni dividendos, solo las cotisations TNS mínimas sobre la rémunération', () => {
@@ -210,16 +215,32 @@ describe('simularEjercicio', () => {
 });
 
 describe('calcularBilanPasivo', () => {
-  it('suma capital social, reservas (previas + dotación), resultado del ejercicio y deuda fiscal por IS', () => {
+  it('capital, reservas ya constituidas (sin la dotación del ejercicio), resultado y deuda por IS', () => {
     const is = calcularIS(30000, 6, cfgPorDefecto);
     const reservaLegal = calcularReservaLegal(8508.5, 1000, cfgPorDefecto);
     const r = calcularBilanPasivo(8508.5, reservaLegal, is, 1000);
     expect(r.capitalSocial).toBe(1000);
-    expect(r.reservas).toBeCloseTo(reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion);
+    // La dotación se decide en N+1 y ya está dentro del resultado: no se suma dos veces.
+    expect(r.reservas).toBeCloseTo(reservaLegal.reservaAcumuladaPrevia);
     expect(r.resultadoEjercicio).toBe(8508.5);
     expect(r.dettesFiscales).toBeCloseTo(is.total);
     expect(r.dettesFournisseurs).toBe(0);
     expect(r.total).toBeCloseTo(1000 + r.reservas + 8508.5 + is.total);
+  });
+
+  it('recoge del libro la TVA a pagar, los acomptes recibidos y la cuenta corriente del asociado', () => {
+    const is = calcularIS(0, 6, cfgPorDefecto);
+    const reservaLegal = calcularReservaLegal(0, 1000, cfgPorDefecto);
+    const r = calcularBilanPasivo(0, reservaLegal, is, 1000, [
+      { cuenta: '44571', debe: 0, haber: 300 },
+      { cuenta: '44566', debe: 100, haber: 0 },
+      { cuenta: '4191', debe: 0, haber: 5000 },
+      { cuenta: '455', debe: 0, haber: 42 },
+    ]);
+    expect(r.deudaTva).toBeCloseTo(200);
+    expect(r.avancesRecibidas).toBeCloseTo(5000);
+    expect(r.compteCourantAssocie).toBeCloseTo(42);
+    expect(r.total).toBeCloseTo(1000 + 200 + 5000 + 42);
   });
 });
 
@@ -371,5 +392,25 @@ describe('generarEcheances', () => {
     const fechas = echeances.map((e) => e.fecha_limite);
     const ordenadas = [...fechas].sort((a, b) => a.localeCompare(b));
     expect(fechas).toEqual(ordenadas);
+  });
+});
+
+describe('mesesRemuneradosEjercicio', () => {
+  const ej = { inicio: '2026-07-01', fin: '2026-12-31', meses: 6 };
+  it('sin cobrar todavía (remuneración desde octubre, hoy septiembre) → 0', () => {
+    expect(mesesRemuneradosEjercicio(ej, '2026-10-01', new Date('2026-09-29T12:00:00'))).toBe(0);
+  });
+  it('en noviembre cuenta octubre y noviembre', () => {
+    expect(mesesRemuneradosEjercicio(ej, '2026-10-01', new Date('2026-11-15T12:00:00'))).toBe(2);
+  });
+  it('al cierre, 3 meses (oct-dic); sin fecha, todo el ejercicio transcurrido', () => {
+    expect(mesesRemuneradosEjercicio(ej, '2026-10-01', new Date('2027-02-01T12:00:00'))).toBe(3);
+    expect(mesesRemuneradosEjercicio(ej, null, new Date('2026-09-29T12:00:00'))).toBe(3);
+  });
+});
+
+describe('fechaLimiteLiasse', () => {
+  it('2027: 2º día hábil tras el 1 de mayo (martes 4) + 15 días = 19 de mayo', () => {
+    expect(fechaLimiteLiasse(2027)).toBe('2027-05-19');
   });
 });

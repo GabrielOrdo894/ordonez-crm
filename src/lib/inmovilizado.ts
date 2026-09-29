@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { registrarAsientoGasto } from './asientosContables';
+import { cuentaAmortizacionDe, registrarAsientoGasto } from './asientosContables';
 
 export type ActivoInmovilizado = {
   id: string;
@@ -109,6 +109,7 @@ export async function generarDotacionEjercicio(activo: ActivoInmovilizado, anio:
     cuenta_contable: '681',
     importe_base: importe,
     importe_iva: 0,
+    cuenta_amortizacion: cuentaAmortizacionDe(activo.cuenta_pcg),
   });
 
   return 'generada';

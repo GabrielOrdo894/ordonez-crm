@@ -224,26 +224,21 @@ export default function DashboardPage() {
     });
   }, [visitas, desde, hasta, zona]);
 
-  const presupuestosFiltrados = useMemo(() => {
-    return (presupuestos ?? []).filter((p) => {
-      if (p.fecha_emision && (p.fecha_emision < desde || p.fecha_emision > hasta)) return false;
-      return coincideZonaRegistro(p.pais, p.visita_id);
-    });
-  }, [presupuestos, desde, hasta, coincideZonaRegistro]);
-
   const facturasFiltradas = useMemo(() => {
     return (facturas ?? []).filter((f) => {
       // estructura_anterior = cobro de la estructura autónoma anterior a la EURL, no ingreso
       // real — corregido 2026-09-21 (inflaba "Facturación por zona" y "Comparativa anual").
       if (f.estructura_anterior) return false;
-      if (f.fecha_factura && (f.fecha_factura < desde || f.fecha_factura > hasta)) return false;
+      if (!f.fecha_factura || f.fecha_factura < desde || f.fecha_factura > hasta) return false;
       return coincideZonaRegistro(f.pais, f.visita_id);
     });
   }, [facturas, desde, hasta, coincideZonaRegistro]);
 
   const gastosFiltrados = useMemo(() => {
     return (gastos ?? []).filter((g) => {
-      if (g.fecha && (g.fecha < desde || g.fecha > hasta)) return false;
+      // Un gasto pendiente de revisar todavía no es un gasto real (auditoría 2026-09-29).
+      if (g.estado_gasto === 'pendiente') return false;
+      if (!g.fecha || g.fecha < desde || g.fecha > hasta) return false;
       return coincideZonaRegistro(g.pais, g.visita_id);
     });
   }, [gastos, desde, hasta, coincideZonaRegistro]);
@@ -362,32 +357,36 @@ export default function DashboardPage() {
       .sort((a, b) => b.total - a.total);
   }, [facturasFiltradas, visitaPorId]);
 
-  // 4. Tipo de obra más rentable
+  // 4. Tipo de obra más rentable — por lo FACTURADO sin IVA en el período (no por el total de los
+  // presupuestos aceptados, que sumaba obras sin facturar y el IVA: +33.209 € en septiembre,
+  // auditoría 2026-09-29). La visita de una factura sin visita_id se toma de su presupuesto.
   const rentabilidadPorTipo = useMemo(() => {
-    const map = new Map<string, { totalPresupuestos: number; obras: Set<string> }>();
-    for (const p of presupuestosFiltrados) {
-      if (p.estado !== 'Aceptado' || !p.visita_id) continue;
-      const tipo = visitaPorId.get(p.visita_id)?.tipo ?? 'Otro';
-      const actual = map.get(tipo) ?? { totalPresupuestos: 0, obras: new Set<string>() };
-      actual.totalPresupuestos += calcularTotales(p.lineas).totalConIva;
-      actual.obras.add(p.visita_id);
+    const visitaDePresupuesto = new Map((presupuestos ?? []).map((p) => [p.id, p.visita_id]));
+    const map = new Map<string, { facturado: number; obras: Set<string> }>();
+    for (const f of facturasFiltradas) {
+      const visitaId = f.visita_id ?? (f.presupuesto_id ? visitaDePresupuesto.get(f.presupuesto_id) : null);
+      if (!visitaId) continue;
+      const tipo = visitaPorId.get(visitaId)?.tipo ?? 'Otro';
+      const actual = map.get(tipo) ?? { facturado: 0, obras: new Set<string>() };
+      actual.facturado += calcularTotales(f.lineas).totalSinIva;
+      actual.obras.add(visitaId);
       map.set(tipo, actual);
     }
     return Array.from(map.entries())
       .map(([tipo, v]) => {
         const gastosTipo = gastosFiltrados
           .filter((g) => g.visita_id && v.obras.has(g.visita_id))
-          .reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
+          .reduce((s, g) => s + (g.importe_base ?? 0), 0);
         const nObras = v.obras.size;
         return {
           tipo,
           nObras,
-          facturacionMedia: nObras > 0 ? v.totalPresupuestos / nObras : 0,
-          margenMedio: nObras > 0 ? (v.totalPresupuestos - gastosTipo) / nObras : 0,
+          facturacionMedia: nObras > 0 ? v.facturado / nObras : 0,
+          margenMedio: nObras > 0 ? (v.facturado - gastosTipo) / nObras : 0,
         };
       })
       .sort((a, b) => b.margenMedio - a.margenMedio);
-  }, [presupuestosFiltrados, gastosFiltrados, visitaPorId]);
+  }, [facturasFiltradas, gastosFiltrados, visitaPorId, presupuestos]);
 
   // 5. Tiempo medio de cierre
   const tiempoCierre = useMemo(() => {
@@ -428,9 +427,17 @@ export default function DashboardPage() {
       .reduce((s, f) => s + (calcularTotales(f.lineas).totalConIva - (f.monto_pagado ?? 0)), 0);
 
     const idsPresupuestoEnCurso = new Set((proyectos ?? []).filter((p) => p.estado === 'En curso').map((p) => p.presupuesto_id));
+    // Solo lo que queda por facturar de cada obra en curso: lo ya facturado (acomptes incluidos, y
+    // también los de la etapa anterior) ya está en pendienteCobro o cobrado — antes se sumaba el
+    // presupuesto entero y se contaba dos veces (auditoría 2026-09-29).
+    const facturadoPorPresupuesto = new Map<string, number>();
+    for (const f of facturas ?? []) {
+      if (!f.presupuesto_id) continue;
+      facturadoPorPresupuesto.set(f.presupuesto_id, (facturadoPorPresupuesto.get(f.presupuesto_id) ?? 0) + calcularTotales(f.lineas).totalConIva);
+    }
     const obrasEnCurso = presupuestosZona
       .filter((p) => idsPresupuestoEnCurso.has(p.id))
-      .reduce((s, p) => s + calcularTotales(p.lineas).totalConIva, 0);
+      .reduce((s, p) => s + Math.max(0, calcularTotales(p.lineas).totalConIva - (facturadoPorPresupuesto.get(p.id) ?? 0)), 0);
 
     const hayVencidas = facturasZona.some((f) => f.estado_cobro === 'Vencida');
 
@@ -867,7 +874,7 @@ export default function DashboardPage() {
               <tr className="text-xs text-gray-400">
                 <th className="text-left py-1 font-medium">Tipo</th>
                 <th className="text-right py-1 font-medium">Nº obras</th>
-                <th className="text-right py-1 font-medium">Facturación media</th>
+                <th className="text-right py-1 font-medium">Facturado medio (sin IVA)</th>
                 <th className="text-right py-1 font-medium">Margen medio</th>
               </tr>
             </thead>
@@ -930,7 +937,7 @@ export default function DashboardPage() {
               <span>{formatearPrecio(tesoreria.pendienteCobro)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Obras en curso (presupuesto aceptado)</span>
+              <span>Obras en curso (pendiente de facturar)</span>
               <span>{formatearPrecio(tesoreria.obrasEnCurso)}</span>
             </div>
           </div>

@@ -20,6 +20,7 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { calcularTotales, formatearPrecio, formatearMiles } from '../finanzas/lineas';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
+import { porcentajeIva } from '../finanzas/iva';
 import { normalizarTelefono } from '../clientes/types';
 import { useComptaFrancia } from '../fiscalidad/useComptaFrancia';
 import type { Factura } from '../finanzas/facturas/types';
@@ -101,11 +102,11 @@ export default function DashboardContablePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pagos_factura')
-        .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .select('fecha, monto, facturas!inner(pais, tipo_iva, tipo, eliminado_en, estructura_anterior)')
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;
-      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null } }[];
+      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null; tipo_iva: string | null; tipo: string | null } }[];
     },
   });
 
@@ -130,25 +131,44 @@ export default function DashboardContablePage() {
   const pagosPeriodo = useMemo(() => (pagos ?? []).filter((p) => p.fecha >= desde && p.fecha <= hasta), [pagos, desde, hasta]);
 
   const gastosPeriodo = useMemo(
-    () => (gastos ?? []).filter((g) => g.fecha && g.fecha >= desde && g.fecha <= hasta),
+    // Sin gastos pendientes de revisar: todavía no son gasto real (auditoría 2026-09-29).
+    () => (gastos ?? []).filter((g) => g.estado_gasto !== 'pendiente' && g.fecha && g.fecha >= desde && g.fecha <= hasta),
     [gastos, desde, hasta],
   );
 
   const kpis = useMemo(() => {
-    const ingresos = pagosPeriodo.reduce((s, p) => s + p.monto, 0);
-    const gastosTotal = gastosPeriodo.reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
+    // Sin IVA (2026-09-29): el IVA cobrado o pagado se liquida con Hacienda, no es resultado — antes
+    // este resultado salía con IVA (19.301 € en vez de 18.074 € en septiembre).
+    const baseDePago = (p: (typeof pagosPeriodo)[number]) => {
+      const pct = porcentajeIva(p.facturas.tipo_iva);
+      return pct > 0 ? p.monto / (1 + pct / 100) : p.monto;
+    };
+    const ingresos = pagosPeriodo.reduce((s, p) => s + baseDePago(p), 0);
+    const gastosTotal = gastosPeriodo.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     // El IVA español (Modelo 303) y la TVA francesa (CA3) son declaraciones a administraciones
     // distintas que nunca se compensan entre sí — mezclarlas en un único saldo neto podía leerse
     // como "300€ a favor" cuando en realidad eran, p. ej., 900€ a pagar en España y 600€ a favor en
     // Francia (bug real, corregido 2026-09-10; AsistenteIvaPage ya lo hacía bien, solo para
     // Francia). Se calcula el saldo por separado para cada país.
     const saldoIvaPorPais = (pais: 'España' | 'Francia') => {
-      const repercutido = facturasEurl
-        .filter((f) => f.pais === pais && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
-        .reduce((s, f) => {
-          const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
-          return s + (totalConIva - totalSinIva);
-        }, 0);
+      // Francia declara la TVA al COBRO (como el Asistente de IVA); España, a la emisión.
+      const repercutido =
+        pais === 'Francia'
+          ? pagosPeriodo
+              .filter((p) => p.facturas.pais === 'Francia' && p.facturas.tipo !== 'rectificativa')
+              .reduce((s, p) => s + (p.monto - baseDePago(p)), 0) +
+            facturasEurl
+              .filter((f) => f.pais === 'Francia' && f.tipo === 'rectificativa' && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
+              .reduce((s, f) => {
+                const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+                return s + (totalConIva - totalSinIva);
+              }, 0)
+          : facturasEurl
+              .filter((f) => f.pais === pais && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
+              .reduce((s, f) => {
+                const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+                return s + (totalConIva - totalSinIva);
+              }, 0);
       const deducible = gastosPeriodo.filter((g) => g.pais === pais).reduce((s, g) => s + (g.importe_iva ?? 0), 0);
       return { repercutido, deducible, saldo: repercutido - deducible };
     };
@@ -257,6 +277,9 @@ export default function DashboardContablePage() {
     const pendientes = todos.filter((p) => p.estado === 'Pendiente');
     const aceptadosSinFacturar = todos.filter((p) => {
       if (p.estado !== 'Aceptado') return false;
+      // Un orientativo no se factura (lo sustituye el presupuesto normal): contarlo duplicaba la obra
+      // (auditoría 2026-09-29).
+      if (p.tipo === 'orientativo') return false;
       const telAceptado = p.cliente_tel ? normalizarTelefono(p.cliente_tel) : null;
       return !facturasEurl.some(
         (f) => f.presupuesto_id === p.id || (telAceptado && f.cliente_tel && normalizarTelefono(f.cliente_tel) === telAceptado),
@@ -304,15 +327,15 @@ export default function DashboardContablePage() {
           <p className="text-xs text-gray-400 mt-1">cuenta 512, solo Francia contabilizada</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos del período</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos del período (sin IVA)</p>
           <p className="text-2xl font-semibold text-brand">{formatearPrecio(kpis.ingresos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos del período</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos del período (sin IVA)</p>
           <p className="text-2xl font-semibold text-red-600">{formatearPrecio(kpis.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado del período</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado del período (sin IVA)</p>
           <p className={`text-2xl font-semibold ${kpis.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
             {formatearPrecio(kpis.resultado)}
           </p>

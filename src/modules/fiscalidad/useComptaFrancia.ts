@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAsientosContables } from '../contabilidad/useAsientosContables';
 import { supabase } from '../../lib/supabase';
-import { calcularTotales } from '../finanzas/lineas';
 import type { Linea } from '../finanzas/lineas';
 import { valorNetoContable, type ActivoInmovilizado } from '../../lib/inmovilizado';
 import { limitesEjercicio } from './calculos';
@@ -53,17 +53,14 @@ export function calcularCompteResultat(asientos: AsientoContable[]) {
   };
 }
 
-export function calcularBilanActivo(
-  asientos: AsientoContable[],
-  facturasPendientes: FacturaPendiente[],
-  activos: ActivoInmovilizado[],
-  anio: number,
-) {
+// Bilan desde el libro diario (saldos acumulados hasta el cierre del ejercicio) — antes créances
+// clients salía de las facturas pendientes y el pasivo no recogía ni la TVA a pagar, ni los acomptes
+// recibidos, ni la cuenta corriente del asociado, así que no cuadraba (auditoría 2026-09-29).
+export function calcularBilanActivo(asientos: AsientoContable[], activos: ActivoInmovilizado[], anio: number) {
   const tresoreria = saldoNetoCuentas(asientos, ['512']);
-  const creancesClients = facturasPendientes.reduce((s, f) => {
-    const { totalConIva } = calcularTotales(f.lineas);
-    return s + Math.max(0, totalConIva - (f.monto_pagado ?? 0));
-  }, 0);
+  const creancesClients = Math.max(0, saldoNetoCuentas(asientos, ['411']));
+  // TVA: saldo deudor de las cuentas 445 = crédito a favor de la empresa.
+  const creditoTva = Math.max(0, saldoNetoCuentas(asientos, ['445']));
   // Un activo dado de baja antes del cierre del ejercicio ya salió del balance (asiento de baja,
   // ver registrarAsientoBajaInmovilizado en asientosContables.ts) — su VNC ya no debe sumar aquí.
   // Antes se seguía sumando valorNetoContable(a, anio), que se queda "congelado" en el valor que
@@ -74,23 +71,20 @@ export function calcularBilanActivo(
     if (a.dado_de_baja_en && a.dado_de_baja_en <= `${anio}-12-31`) return s;
     return s + valorNetoContable(a, anio);
   }, 0);
-  return { tresoreria, creancesClients, inmovilizadoNeto, total: tresoreria + creancesClients + inmovilizadoNeto };
+  return {
+    tresoreria,
+    creancesClients,
+    creditoTva,
+    inmovilizadoNeto,
+    total: tresoreria + creancesClients + creditoTva + inmovilizadoNeto,
+  };
 }
 
 export function useComptaFrancia(anio: number) {
   const ejercicio = limitesEjercicio(anio);
 
-  const { data: asientos, isLoading: cargandoAsientos } = useQuery({
-    queryKey: ['asientos_contables'],
-    queryFn: async () => {
-      // Mismo superconjunto de columnas que LibroDiarioPage/LibroMayorPage — comparten esta
-      // queryKey y Tanstack Query cachea por key, no por select (bug real corregido 2026-08-18,
-      // ver comentario gemelo en LibroMayorPage.tsx).
-      const { data, error } = await supabase.from('asientos_contables').select('id, fecha, cuenta, debe, haber, concepto, documento_tipo');
-      if (error) throw error;
-      return data as AsientoContable[];
-    },
-  });
+  // Paginado y compartido con el Libro diario/mayor (useAsientosContables).
+  const { data: asientos, isLoading: cargandoAsientos } = useAsientosContables();
 
   // El compte de résultat es del EJERCICIO (ventas/cargas del período), no acumulado — sin este
   // filtro, como `asientos_contables` es insert-only y nunca se borra, un ejercicio posterior
@@ -101,21 +95,6 @@ export function useComptaFrancia(anio: number) {
     () => (asientos ?? []).filter((a) => !a.fecha || (a.fecha >= ejercicio.inicio && a.fecha <= ejercicio.fin)),
     [asientos, ejercicio.inicio, ejercicio.fin],
   );
-
-  const { data: facturasPendientes, isLoading: cargandoFacturas } = useQuery({
-    queryKey: ['facturas', 'pendientes_francia'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('facturas')
-        .select('lineas, monto_pagado')
-        .eq('pais', 'Francia')
-        .eq('estructura_anterior', false)
-        .is('eliminado_en', null)
-        .neq('estado_cobro', 'Cobrada');
-      if (error) throw error;
-      return data as FacturaPendiente[];
-    },
-  });
 
   const { data: activos, isLoading: cargandoActivos } = useQuery({
     queryKey: ['inmovilizado'],
@@ -128,10 +107,10 @@ export function useComptaFrancia(anio: number) {
 
   const compteResultat = useMemo(() => calcularCompteResultat(asientosEjercicio), [asientosEjercicio]);
 
-  const bilanActivo = useMemo(
-    () => calcularBilanActivo(asientos ?? [], facturasPendientes ?? [], activos ?? [], anio),
-    [asientos, facturasPendientes, activos, anio],
-  );
+  // Balance: saldos acumulados hasta el cierre del ejercicio (sin los de años posteriores).
+  const asientosBalance = useMemo(() => (asientos ?? []).filter((a) => a.fecha <= ejercicio.fin), [asientos, ejercicio.fin]);
 
-  return { compteResultat, bilanActivo, activos: activos ?? [], cargando: cargandoAsientos || cargandoFacturas || cargandoActivos };
+  const bilanActivo = useMemo(() => calcularBilanActivo(asientosBalance, activos ?? [], anio), [asientosBalance, activos, anio]);
+
+  return { compteResultat, bilanActivo, asientosBalance, activos: activos ?? [], cargando: cargandoAsientos || cargandoActivos };
 }

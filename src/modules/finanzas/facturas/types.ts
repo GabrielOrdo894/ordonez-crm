@@ -134,3 +134,12 @@ export function lineaDeduccionAcomptes(
     porcentajeIva(tipoIva),
   );
 }
+
+// Una factura de Francia de la EURL ya está contabilizada y numerada: la ley no permite hacerla
+// desaparecer (numeración sin huecos, Code de commerce A123-12). Para anularla hace falta una
+// factura rectificativa, no la papelera (auditoría contable 2026-09-29 — antes la papelera anulaba
+// su contabilidad sin ninguna factura que lo justificara).
+export function motivoNoPapeleraFactura(f: Pick<Factura, 'pais' | 'estructura_anterior' | 'numero'>): string | null {
+  if (f.pais !== 'Francia' || f.estructura_anterior) return null;
+  return `La factura ${f.numero ?? ''} ya está contabilizada: para anularla, crea una factura rectificativa desde su menú.`;
+}

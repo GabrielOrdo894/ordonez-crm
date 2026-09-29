@@ -30,6 +30,23 @@ export function mesesTranscurridosEjercicio(ejercicio: { inicio: string; fin: st
   return Math.min(ejercicio.meses, Math.max(1, meses));
 }
 
+// Meses del ejercicio en los que ya se cobra la rémunération (desde `desde`, o desde el inicio del
+// ejercicio si es null), contados hasta hoy o hasta el cierre — mismo criterio que
+// mesesTranscurridosEjercicio. 0 si todavía no ha empezado.
+export function mesesRemuneradosEjercicio(
+  ejercicio: { inicio: string; fin: string; meses: number },
+  desde: string | null,
+  hoy: Date = new Date(),
+) {
+  const inicio = desde && desde > ejercicio.inicio ? desde : ejercicio.inicio;
+  if (inicio > ejercicio.fin) return 0;
+  const transcurridos = mesesTranscurridosEjercicio(ejercicio, hoy);
+  const d = new Date(`${inicio}T00:00:00`);
+  const e = new Date(`${ejercicio.inicio}T00:00:00`);
+  const mesesAntes = (d.getFullYear() - e.getFullYear()) * 12 + (d.getMonth() - e.getMonth());
+  return Math.max(0, transcurridos - mesesAntes);
+}
+
 export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
   const tasaReducida = config('is_taux_reduit', 0.15);
   const tasaNormal = config('is_taux_normal', 0.25);
@@ -42,14 +59,32 @@ export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
 }
 
 export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
-  const abattement = config('tns_abattement', 0.26);
+  const abattementPct = config('tns_abattement', 0.26);
   const tauxGlobal = config('tns_taux_global', 0.45);
   const pass = config('pass_2026', 48060);
-  const topeAbatido = pass * 1.3;
-  const parteAbatida = Math.min(remuneracionAnual, topeAbatido) * (1 - abattement);
-  const parteExceso = Math.max(0, remuneracionAnual - topeAbatido);
-  const assiette = parteAbatida + parteExceso;
-  const total = assiette * tauxGlobal;
+  // Assiette única (reforma URSSAF, revenus desde 2025): se parte del revenu BRUTO = rémunération
+  // + las propias cotisations obligatorias, y se le resta un abattement del 26 % acotado entre el
+  // 1,76 % y el 130 % del PASS (el tope se aplica al abattement, no a la rémunération). Como las
+  // cotisations dependen de sí mismas, se resuelve por iteración (converge en pocas vueltas).
+  // Antes se usaba rémunération × 0,74 sin sumar las cotisations, lo que las subestimaba en torno
+  // a un tercio (auditoría fiscal 2026-09-29).
+  let total = 0;
+  let assiette = 0;
+  for (let i = 0; i < 50; i++) {
+    const bruto = remuneracionAnual + total;
+    const abattement = Math.min(Math.max(bruto * abattementPct, pass * 0.0176), pass * 1.3);
+    assiette = Math.max(0, bruto - abattement);
+    const siguiente = assiette * tauxGlobal;
+    if (Math.abs(siguiente - total) < 0.005) {
+      total = siguiente;
+      break;
+    }
+    total = siguiente;
+  }
+  if (remuneracionAnual <= 0) {
+    total = 0;
+    assiette = 0;
+  }
   // CSG/CRDS no deducible (2,9% de los 9,7% totales, ver DESGLOSE_REFERENCIA — el resto, 6,8%, sí
   // es deducible y ya está correctamente restado dentro de `total`) — hay que sumarlo de vuelta a
   // la rémunération neta para obtener el importe real de la casilla 1GB del formulario 2042 (art.
@@ -242,16 +277,44 @@ export function calcularBilanPasivo(
   reservaLegal: ReturnType<typeof calcularReservaLegal>,
   is: ReturnType<typeof calcularIS>,
   capitalSocial: number,
+  // Saldos del libro diario hasta el cierre (ver useComptaFrancia.asientosBalance).
+  asientosBalance: { cuenta: string; debe: number; haber: number }[] = [],
 ) {
-  const reservas = reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion;
+  const saldoAcreedor = (prefijo: string) =>
+    Math.max(0, -asientosBalance.filter((a) => a.cuenta.startsWith(prefijo)).reduce((s, a) => s + a.debe - a.haber, 0));
+  // Solo las reservas ya constituidas: la dotación del ejercicio se decide al aprobar las cuentas en
+  // N+1 y ya está dentro del résultat — sumarla también la contaba dos veces (auditoría 2026-09-29).
+  const reservas = reservaLegal.reservaAcumuladaPrevia;
+  const deudaTva = saldoAcreedor('445');
+  const avancesRecibidas = saldoAcreedor('4191');
+  const compteCourantAssocie = saldoAcreedor('455');
   return {
     capitalSocial,
     reservas,
     resultadoEjercicio: resultadoNeto,
     dettesFiscales: is.total,
+    deudaTva,
+    avancesRecibidas,
+    compteCourantAssocie,
     dettesFournisseurs: 0,
-    total: capitalSocial + reservas + resultadoNeto + is.total,
+    total: capitalSocial + reservas + resultadoNeto + is.total + deudaTva + avancesRecibidas + compteCourantAssocie,
   };
+}
+
+// Liasse del régimen réel normal transmitida por EDI: segundo día hábil siguiente al 1 de mayo,
+// más 15 días de plazo adicional por la transmisión EDI (auditoría fiscal 2026-09-29 — antes se
+// fijaba el 31 de mayo, fuera de plazo).
+export function fechaLimiteLiasse(anioPresentacion: number): string {
+  const festivos = new Set([`${anioPresentacion}-05-01`, `${anioPresentacion}-05-08`]);
+  const d = new Date(anioPresentacion, 4, 1);
+  let habiles = 0;
+  while (habiles < 2) {
+    d.setDate(d.getDate() + 1);
+    const clave = iso(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    if (d.getDay() !== 0 && d.getDay() !== 6 && !festivos.has(clave)) habiles++;
+  }
+  d.setDate(d.getDate() + 15);
+  return iso(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
 
 export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[] {
@@ -330,11 +393,11 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
   echeances.push({
     tipo: 'LIASSE',
     titulo: `Liasse fiscale (2065) — ejercicio ${anio}`,
-    fecha_limite: iso(anio + 1, config('liasse_mes', 5), config('liasse_dia', 31)),
+    fecha_limite: fechaLimiteLiasse(anio + 1),
     organismo: 'DGFiP',
     url_oficial: 'https://www.impots.gouv.fr',
     importe_estimado: null,
-    notas: null,
+    notas: 'Segundo día hábil tras el 1 de mayo + 15 días por transmitirse por EDI (Edifiscale). Presentarla tarde supone un recargo del 10 % (art. 1728 CGI).',
   });
   echeances.push({
     tipo: 'DEPOT_COMPTES',
@@ -372,7 +435,9 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
     // (casillas 1GB/1HB, "traitements et salaires" art. 62 CGI) — NO el 2042-C-PRO, que es para
     // autónomos con ingresos BIC/BNC y no aplica a un gérant majoritaire. Ver TabDeclaracionRenta.tsx.
     titulo: `Déclaration de revenus de Mario (formulaire 2042, casillas 1GB/1HB) — ingresos ${anio}`,
-    fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 5), config('declaracion_ir_dia', 28)),
+    // Pyrénées-Atlantiques (64) está en la zona 3 de la declaración en línea, la última — no en la
+    // zona 1 (auditoría 2026-09-29). Fecha aproximada: la DGFiP la publica cada año.
+    fecha_limite: iso(anio + 1, config('declaracion_ir_mes', 6), config('declaracion_ir_dia', 4)),
     organismo: 'DGFiP (IR personal)',
     url_oficial: 'https://www.impots.gouv.fr',
     importe_estimado: null,

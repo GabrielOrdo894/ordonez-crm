@@ -12,7 +12,7 @@ import { AccionesFila, type AccionRapida } from '../../components/ui/AccionesFil
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
-import { registrarAsientoFacturaEmision, registrarAsientoFacturaCobro } from '../../lib/asientosContables';
+import { recontabilizarFactura } from '../../lib/pagosFactura';
 
 type Tabla = 'visitas' | 'presupuestos' | 'facturas';
 
@@ -279,13 +279,9 @@ function TablaFacturas() {
     // asiento de cobro con su fecha e importe reales — no un único cobro por el monto_pagado
     // acumulado, que perdería la fecha de cada pago si hubo más de uno.
     async (f) => {
-      if (f.pais !== 'Francia' || f.estructura_anterior) return;
-      await registrarAsientoFacturaEmision({ id: f.id, numero: f.numero, cliente_nombre: f.cliente_nombre, fecha_factura: f.fecha_factura, lineas: f.lineas });
-      const { data: pagos, error } = await supabase.from('pagos_factura').select('id, fecha, monto').eq('factura_id', f.id);
-      if (error) throw error;
-      for (const pago of pagos ?? []) {
-        await registrarAsientoFacturaCobro({ id: f.id, numero: f.numero, cliente_nombre: f.cliente_nombre }, pago.monto, pago.fecha, pago.id);
-      }
+      // Anula lo que siga vivo y regenera emisión + un cobro por pago real: si la factura se mandó a
+      // la papelera por una vía que no anuló sus asientos, restaurarla ya no los duplica.
+      await recontabilizarFactura(f);
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
     },
   );

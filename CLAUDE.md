@@ -1033,3 +1033,43 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   factura) o gastos que las componen; la suma del desglose es el total de la línea. El Asistente ya no lee
   gastos `pendiente` (no están contabilizados). La pantalla "Iniciar planning" usa ahora las zonas de
   Configuración en vez de una lista fija sin Biarritz/Ciboure/Biriatou/Guéthary.
+- **Auditoría de contabilidad y fiscalidad y arreglos** (2026-09-29, 4 revisiones en paralelo; Gabriel es su propio
+  gestor y el CRM es la contabilidad oficial de la EURL). Cambios de criterio contable (todos con tests en
+  `asientosContables.test.ts`, `calculos.test.ts`, `fec.test.ts`):
+  - **Acomptes → 4191** (anticipos recibidos), no 706: la venta entra con la factura final, cuya línea `ACOMPTE`
+    salda 4191. **TVA sur encaissements en el libro**: la TVA de una factura queda en 44574 al emitirla y pasa a
+    44571 con cada cobro (`tvaDeCobro`); las rectificativas van directas a 44571. **Kilometraje → 455** (cuenta
+    corriente del gérant), no 512. **Amortizaciones → 28xx del activo** (`cuentaAmortizacionDe`), no 2801. Los
+    asientos ya existentes se reclasificaron por SQL el mismo día (el libro sigue cuadrando). Consecuencia: hasta
+    que se emitan las facturas finales, el résultat del libro solo recoge 550 € de ventas y los gastos de obra —
+    al cierre hará falta valorar las obras en curso (en-cours) si siguen abiertas.
+  - **Anulación por saldo neto** (`construirAsientosRectificacionNeta`): `rectificarAsientos` ya no reversa "el
+    último lote" (guardar AC-2026-0020 volvía a contabilizar 15.707,59 €) sino el neto de todo el histórico por
+    (pago, cuenta, fecha). `recontabilizarFactura` (`pagosFactura.ts`) regenera emisión y cobros juntos al guardar
+    una factura y al restaurarla de la papelera. Las facturas de Francia de la EURL ya **no pueden ir a la
+    papelera** (`motivoNoPapeleraFactura`): se anulan con rectificativa. El estado de cobro es solo lectura en
+    `FacturaForm` (sale de los pagos); `RegistrarPagoModal` no admite pagos por encima de lo pendiente; la
+    conciliación bancaria "reserva" el movimiento antes de crear el pago (evita cobros duplicados).
+  - **Libro diario/mayor**: `useAsientosContables` carga todo por páginas (antes límite de 1.000 filas); el mayor
+    y el CSV de Edifiscale van por ejercicio (clases 6/7 del ejercicio, balance acumulado al cierre) y el CSV
+    exporta **saldos** como el modelo de Edifiscale. **Export FEC** (`src/lib/fec.ts`, botón en Libro diario):
+    18 columnas, ISO 8859-15, `SIRENFECAAAAMMJJ.txt`. Aviso en Libro diario de documentos sin asiento.
+  - **Fiscalidad desde el libro**: `useResultadoEjercicio` y `useEvolucionAcumulada` calculan desde
+    `asientos_contables` (sin acomptes, estructura_anterior, inmovilizado comprado ni gastos pendientes).
+    `useLiasse` (liasse y cierre) calcula el IS sobre el résultat del libro — la liasse ya cuadra consigo
+    misma — y avisa si falta registrar rémunération/cotisations (Gastos 641/646). Bilan desde el libro (411,
+    crédito/deuda de TVA, 4191, 455); la reserva legal ya no se suma dos veces. `gerant_config.remuneracion_desde`
+    = 2026-10-01 (decisión de Gabriel: cobra desde octubre). TNS con la **assiette única** real (revenu brut =
+    rémunération + cotisations, −26 %). Plazo de la liasse = 2º día hábil tras el 1 de mayo + 15 días (19/05/2027);
+    renta del gérant en zona 3 (≈4 de junio). "Salario vs Dividendos" proyecta el beneficio al ejercicio completo.
+  - **TVA (CA3)**: el último día del mes ya entra (antes se perdía por UTC); la base y la TVA de B2/A4 van dentro de
+    la línea 08; las rectificativas van en B5 y línea 21 (nunca en negativo); al declarar se guarda la CA3
+    (`declaraciones_iva.datos`) y se avisa si luego cambia. Condiciones generales FR: nuevo artículo 18 con la
+    certificación del cliente para el 10 % (obligatoria desde 2025, sin cerfa) y la factura lo recuerda.
+    Decisión de Gabriel: los tickets españoles con IVA se siguen registrando con TVA 20 % (contra la advertencia
+    de la auditoría: el IVA español no es deducible en la CA3 francesa).
+  - **Pantallas**: resultados sin IVA en Dashboard contable/general y Rentabilidad; "Tipo de obra más rentable"
+    por lo facturado (no por presupuestos aceptados); previsión de tesorería sin contar dos veces lo facturado;
+    Facturas muestra "Facturado" (no "Ingresos") y sin estructura_anterior; la tarjeta de IVA de Inicio es de un
+    solo país y por cobro; los gastos pendientes no cuentan en ningún total. La purga RGPD **ya no borra gastos ni
+    justificantes** (se conservan 10 años): los desvincula de la visita y anonimiza la descripción del kilometraje.

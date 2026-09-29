@@ -1,55 +1,36 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '../../lib/supabase';
-import { calcularTotales } from '../finanzas/lineas';
-import type { Factura } from '../finanzas/facturas/types';
-import type { Gasto } from '../finanzas/gastos/types';
+import { useMemo } from 'react';
+import { useAsientosContables } from '../contabilidad/useAsientosContables';
+import { saldoNetoCuentas } from './useComptaFrancia';
 
+// Cuentas que la cadena fiscal trata aparte (useEjercicioFiscal): rémunération del gérant (641),
+// cargas sociales (645/646) e impôt sur les sociétés (695). Quedan fuera del "beneficio bruto" para
+// no restarlas dos veces cuando ya estén registradas en el libro.
+const CUENTAS_GERANTE_E_IS = ['641', '645', '646', '695'];
+
+// Resultado del período DESDE EL LIBRO DIARIO (2026-09-29) — la misma fuente que el compte de
+// résultat de la liasse. Antes se sumaban facturas y gastos en bruto por fecha, lo que:
+// - contaba los acomptes como venta (ahora van a 4191 hasta la factura final),
+// - deducía entera la compra de un inmovilizado (en el libro va al activo y se amortiza),
+// - contaba gastos pendientes de revisar (sin asiento),
+// y hacía que el IS y la liasse no cuadraran entre sí (auditoría fiscal 2026-09-29).
+// Solo Francia y sin estructura_anterior: el libro diario ya solo recoge eso.
 export function useResultadoEjercicio(desde: string, hasta: string) {
-  const { data: facturas, isLoading: cargandoFacturas } = useQuery({
-    queryKey: ['facturas'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
-      if (error) throw error;
-      return data as Factura[];
-    },
-  });
+  const { data: asientos, isLoading } = useAsientosContables();
 
-  const { data: gastos, isLoading: cargandoGastos } = useQuery({
-    queryKey: ['gastos'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*');
-      if (error) throw error;
-      return data as Gasto[];
-    },
-  });
-
-  // Solo Francia: la EURL declara el Impôt sur les Sociétés únicamente sobre la actividad
-  // francesa, así que todo lo fiscal (IS, cotisations, salario/dividendos, alertas de tramo)
-  // debe ignorar las facturas/gastos de España. También se excluyen las facturas
-  // estructura_anterior (cobros de la etapa como autónomo, antes de la EURL) — no son ingreso
-  // real de la sociedad y no deben entrar en el IS, mismo criterio que el resto del CRM desde el
-  // 22 ago. 2026. Se filtra aquí en memoria, no en la query Supabase — 'facturas'/'gastos' son las
-  // mismas claves de caché que usan Facturas/Gastos (que sí necesitan ver los dos países y todas
-  // las facturas), así que filtrar en la query rompería esas páginas.
-  const facturasPeriodo = (facturas ?? []).filter(
-    (f) =>
-      f.pais === 'Francia' &&
-      !f.estructura_anterior &&
-      f.fecha_factura &&
-      f.fecha_factura >= desde &&
-      f.fecha_factura <= hasta,
-  );
-  const gastosPeriodo = (gastos ?? []).filter(
-    (g) => g.pais === 'Francia' && g.fecha && g.fecha >= desde && g.fecha <= hasta,
-  );
-
-  const ingresosHT = facturasPeriodo.reduce((s, f) => s + calcularTotales(f.lineas).totalSinIva, 0);
-  const gastosHT = gastosPeriodo.reduce((s, g) => s + (g.importe_base ?? 0), 0);
-
-  return {
-    ingresosHT,
-    gastosHT,
-    beneficioBruto: ingresosHT - gastosHT,
-    cargando: cargandoFacturas || cargandoGastos,
-  };
+  return useMemo(() => {
+    const periodo = (asientos ?? []).filter((a) => a.fecha >= desde && a.fecha <= hasta);
+    const ingresosHT = -saldoNetoCuentas(periodo, ['7']);
+    const cargasTotales = saldoNetoCuentas(periodo, ['6']);
+    const cargasGerenteEIs = saldoNetoCuentas(periodo, CUENTAS_GERANTE_E_IS);
+    const gastosHT = cargasTotales - cargasGerenteEIs;
+    return {
+      ingresosHT,
+      gastosHT,
+      beneficioBruto: ingresosHT - gastosHT,
+      // Lo ya registrado en el libro en el período (Gastos con cuenta 641/646).
+      remuneracionRegistrada: saldoNetoCuentas(periodo, ['641']),
+      cotisacionesRegistradas: saldoNetoCuentas(periodo, ['645', '646']),
+      cargando: isLoading,
+    };
+  }, [asientos, desde, hasta, isLoading]);
 }

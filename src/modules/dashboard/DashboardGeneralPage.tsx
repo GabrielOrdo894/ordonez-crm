@@ -13,7 +13,7 @@ import type { Visita } from '../visitas/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Gasto } from '../finanzas/gastos/types';
-import { formatearPrecio } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 
 const PERIODOS = [
   { value: 'mes', label: 'Este mes' },
@@ -109,13 +109,18 @@ export default function DashboardGeneralPage() {
   const facturasIngresoReal = useMemo(() => (facturas ?? []).filter((f) => !f.estructura_anterior), [facturas]);
 
   const kpis = useMemo(() => {
-    const ingresos = facturasIngresoReal.filter((f) => f.monto_pagado != null).reduce((s, f) => s + (f.monto_pagado ?? 0), 0);
-    const gastosTotal = (gastos ?? []).reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
+    // Sin IVA (2026-09-29): el IVA se liquida con Hacienda, no es resultado. Lo cobrado de cada factura
+    // se pasa a base con su propia proporción base/total.
+    const ingresos = facturasIngresoReal.reduce((s, f) => {
+      const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+      return s + (totalConIva !== 0 ? (f.monto_pagado ?? 0) * (totalSinIva / totalConIva) : 0);
+    }, 0);
+    const gastosTotal = (gastos ?? []).filter((g) => g.estado_gasto !== 'pendiente').reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const presupuestosPendientes = (presupuestos ?? []).filter((p) => p.estado === 'Pendiente').length;
-    const facturasPendientes = (facturas ?? []).filter(
+    const facturasPendientes = facturasIngresoReal.filter(
       (f) => f.estado_cobro === 'Pendiente' || f.estado_cobro === 'Cobrada parcialmente',
     ).length;
-    const facturasVencidas = (facturas ?? []).filter((f) => f.estado_cobro === 'Vencida').length;
+    const facturasVencidas = facturasIngresoReal.filter((f) => f.estado_cobro === 'Vencida').length;
     return {
       totalClientes: clientes.length,
       totalVisitas: (visitas ?? []).length,
@@ -126,7 +131,7 @@ export default function DashboardGeneralPage() {
       facturasPendientes,
       facturasVencidas,
     };
-  }, [clientes, visitas, facturas, facturasIngresoReal, gastos, presupuestos]);
+  }, [clientes, visitas, facturasIngresoReal, gastos, presupuestos]);
 
   const ingresosPorPaisPeriodo = useMemo(() => {
     const pagosPeriodo = (pagos ?? []).filter((p) => p.fecha >= desde && p.fecha <= hasta);
@@ -165,26 +170,26 @@ export default function DashboardGeneralPage() {
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos Francia (período)</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Cobrado Francia (período, con IVA)</p>
           <p className="text-2xl font-semibold text-brand">{formatearPrecio(ingresosPorPaisPeriodo.francia)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos España (período)</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Cobrado España (período, con IVA)</p>
           <p className="text-2xl font-semibold text-gray-900">{formatearPrecio(ingresosPorPaisPeriodo.espana)}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos históricos</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Ingresos históricos (cobrados, sin IVA)</p>
           <p className="text-2xl font-semibold text-brand">{formatearPrecio(kpis.ingresos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos históricos</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Gastos históricos (sin IVA)</p>
           <p className="text-2xl font-semibold text-red-600">{formatearPrecio(kpis.gastos)}</p>
         </div>
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado histórico</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Resultado histórico (sin IVA)</p>
           <p className={`text-2xl font-semibold ${kpis.resultado >= 0 ? 'text-brand' : 'text-red-600'}`}>
             {formatearPrecio(kpis.resultado)}
           </p>

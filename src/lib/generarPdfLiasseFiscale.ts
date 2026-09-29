@@ -41,12 +41,15 @@ type CompteResultat = {
   resultadoExcepcional: number;
   resultadoAntesIS: number;
 };
-type BilanActivo = { tresoreria: number; creancesClients: number; inmovilizadoNeto: number; total: number };
+type BilanActivo = { tresoreria: number; creancesClients: number; creditoTva: number; inmovilizadoNeto: number; total: number };
 type BilanPasivo = {
   capitalSocial: number;
   reservas: number;
   resultadoEjercicio: number;
   dettesFiscales: number;
+  deudaTva: number;
+  avancesRecibidas: number;
+  compteCourantAssocie: number;
   dettesFournisseurs: number;
   total: number;
 };
@@ -125,7 +128,8 @@ export async function generarPdfLiasseFiscale(
     body: [
       ['ACTIF', ''],
       ['Trésorerie (512)', fmt(datos.bilanActivo.tresoreria)],
-      ['Créances clients', fmt(datos.bilanActivo.creancesClients)],
+      ['Créances clients (411)', fmt(datos.bilanActivo.creancesClients)],
+      ['Crédit de TVA', fmt(datos.bilanActivo.creditoTva)],
       ['Immobilisations (valeur nette)', fmt(datos.bilanActivo.inmovilizadoNeto)],
       ['Total actif', fmt(datos.bilanActivo.total)],
       ['PASSIF', ''],
@@ -133,6 +137,9 @@ export async function generarPdfLiasseFiscale(
       ['Réserves', fmt(datos.bilanPasivo.reservas)],
       ["Résultat de l'exercice", fmt(datos.bilanPasivo.resultadoEjercicio)],
       ['Dettes fiscales (IS)', fmt(datos.bilanPasivo.dettesFiscales)],
+      ['TVA à payer', fmt(datos.bilanPasivo.deudaTva)],
+      ['Avances et acomptes reçus (4191)', fmt(datos.bilanPasivo.avancesRecibidas)],
+      ["Compte courant d'associé (455)", fmt(datos.bilanPasivo.compteCourantAssocie)],
       ['Dettes fournisseurs (non suivies dans le CRM — voir note)', fmt(datos.bilanPasivo.dettesFournisseurs)],
       ['Total passif', fmt(datos.bilanPasivo.total)],
     ],

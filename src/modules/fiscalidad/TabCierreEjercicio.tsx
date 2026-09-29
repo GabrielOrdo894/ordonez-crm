@@ -11,11 +11,9 @@ import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
 import { generarPdfLiasseFiscale } from '../../lib/generarPdfLiasseFiscale';
 import { registrarDecision } from '../../lib/registroDecisiones';
-import { useComptaFrancia } from './useComptaFrancia';
+import { useLiasse } from './useLiasse';
 import { useEcheances } from './useEcheances';
-import { useEjercicioFiscal } from './useEjercicioFiscal';
 import { useFiscalConfig } from './useFiscalConfig';
-import { calcularBilanPasivo } from './calculos';
 import { fmt, fmtFecha } from './format';
 import { Faq } from './Faq';
 import { ResumenTitular } from './ResumenTitular';
@@ -56,12 +54,10 @@ export function TabCierreEjercicio() {
   const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
   const [generandoLiasse, setGenerandoLiasse] = useState(false);
 
-  const { is, resultadoNeto, capitalSocial, reservaLegal } = useEjercicioFiscal(anio);
-  const { compteResultat, bilanActivo, activos, cargando } = useComptaFrancia(anio);
+  const { compteResultat, bilanActivo, bilanPasivo, is, resultadoNeto, capitalSocial, reservaLegal, activos, cargando } = useLiasse(anio);
   const { echeances, marcarCompletada } = useEcheances();
   const { guardar: guardarFiscal } = useFiscalConfig();
 
-  const bilanPasivo = calcularBilanPasivo(resultadoNeto, reservaLegal, is, capitalSocial);
 
   const echeancesDelEjercicio = useMemo(
     () => echeances.filter((e) => e.titulo.includes(`ejercicio ${anio}`)),
@@ -110,12 +106,12 @@ export function TabCierreEjercicio() {
           [
             {
               clave: 'reserva_legal_acumulada',
-              valor: bilanPasivo.reservas,
+              valor: reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion,
               descripcion: `Actualizado automáticamente al aprobar las cuentas del ejercicio ${anio}`,
             },
           ],
           {
-            onSuccess: () => toast.success(`Reserva legal acumulada actualizada a ${fmt(bilanPasivo.reservas)} para el próximo ejercicio.`),
+            onSuccess: () => toast.success(`Reserva legal acumulada actualizada a ${fmt(reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion)} para el próximo ejercicio.`),
             onError: (err) => toast.error(`No se pudo actualizar la reserva legal acumulada: ${mensajeError(err)}`),
           },
         );

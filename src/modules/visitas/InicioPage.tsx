@@ -8,7 +8,6 @@ import {
   ComposedChart,
   Legend,
   Line,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,11 +38,9 @@ import { useToast } from '../../hooks/useToast';
 import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { calcularTotales, formatearPrecio, formatearPrecioEntero, formatearMiles } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio, formatearMiles } from '../finanzas/lineas';
 import { porcentajeIva } from '../finanzas/iva';
-import { useFiscalConfig } from '../fiscalidad/useFiscalConfig';
 import { useEcheances } from '../fiscalidad/useEcheances';
-import { limitesEjercicio } from '../fiscalidad/calculos';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
 import { ETAPAS_PIPELINE } from '../clientes/types';
 import { SELECT_SOLICITUDES, type Solicitud } from '../solicitudes/types';
@@ -206,7 +203,6 @@ export default function InicioPage() {
   const { abrirNuevaVisita, abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const { user, rol } = useAuth();
   const esMobil = useEsMobil();
-  const { config: configFiscal } = useFiscalConfig();
   const { echeances } = useEcheances();
   const toast = useToast();
   const confirmarConMotivo = useConfirmarConMotivo();
@@ -303,13 +299,17 @@ export default function InicioPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pagos_factura')
-        .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .select('fecha, monto, facturas!inner(pais, tipo_iva, tipo, eliminado_en, estructura_anterior)')
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;
       // Sin tipos de Database para el cliente de Supabase, TS infiere el embed factura_id→facturas
       // como array aunque en runtime PostgREST devuelve un único objeto (join many-to-one por FK).
-      return data as unknown as { fecha: string; monto: number; facturas: { pais: string | null } }[];
+      return data as unknown as {
+        fecha: string;
+        monto: number;
+        facturas: { pais: string | null; tipo_iva: string | null; tipo: string | null };
+      }[];
     },
   });
 
@@ -333,10 +333,11 @@ export default function InicioPage() {
     () => (vistaPais === 'todos' ? presupuestos : (presupuestos ?? []).filter((p) => p.pais === vistaPais)),
     [presupuestos, vistaPais],
   );
-  const gastosKpi = useMemo(
-    () => (vistaPais === 'todos' ? gastos : (gastos ?? []).filter((g) => g.pais === vistaPais)),
-    [gastos, vistaPais],
-  );
+  // Sin gastos pendientes de revisar: aún no son gasto real ni deducen IVA (auditoría 2026-09-29).
+  const gastosKpi = useMemo(() => {
+    const reales = (gastos ?? []).filter((g) => g.estado_gasto !== 'pendiente');
+    return vistaPais === 'todos' ? reales : reales.filter((g) => g.pais === vistaPais);
+  }, [gastos, vistaPais]);
   const pagosKpi = useMemo(
     () => (vistaPais === 'todos' ? pagos : (pagos ?? []).filter((p) => p.facturas.pais === vistaPais)),
     [pagos, vistaPais],
@@ -436,10 +437,6 @@ export default function InicioPage() {
     return conDatos.slice(-6);
   }, [datosGrafico, esMobil]);
 
-  const plafondTramo15 = useMemo(() => {
-    const ejercicio = limitesEjercicio(new Date().getFullYear());
-    return configFiscal('is_plafond_reduit', 42500) * (ejercicio.meses / 12);
-  }, [configFiscal]);
 
   const facturasUrgentes = useMemo(() => {
     const vencidas = (facturasKpi ?? []).filter((f) => f.estado_cobro === 'Vencida');
@@ -465,18 +462,33 @@ export default function InicioPage() {
     };
   }, [visitasKpi, presupuestosKpi, solicitudesResumen]);
 
+  // Un solo país cada vez (la TVA francesa y el IVA español nunca se compensan): Francia salvo en la
+  // vista España. Francia declara al COBRO, como el Asistente de IVA al que enlaza la tarjeta; España,
+  // a la emisión (auditoría 2026-09-29 — antes mezclaba los dos países y usaba la emisión).
+  const paisIva = vistaPais === 'España' ? 'España' : 'Francia';
   const resumenIva = useMemo(() => {
-    const repercutido = (facturasKpi ?? [])
-      .filter((f) => (f.fecha_factura ?? '').slice(0, 7) === hoyMesISO)
-      .reduce((s, f) => {
-        const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
-        return s + (totalConIva - totalSinIva);
-      }, 0);
-    const deducible = (gastosKpi ?? [])
-      .filter((g) => (g.fecha ?? '').slice(0, 7) === hoyMesISO)
+    const ivaFactura = (f: { lineas: Parameters<typeof calcularTotales>[0] }) => {
+      const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+      return totalConIva - totalSinIva;
+    };
+    const facturasPaisMes = (facturas ?? []).filter(
+      (f) => !f.estructura_anterior && f.pais === paisIva && (f.fecha_factura ?? '').slice(0, 7) === hoyMesISO,
+    );
+    const repercutido =
+      paisIva === 'Francia'
+        ? (pagos ?? [])
+            .filter((p) => p.facturas.pais === 'Francia' && p.facturas.tipo !== 'rectificativa' && p.fecha.slice(0, 7) === hoyMesISO)
+            .reduce((s, p) => {
+              const pct = porcentajeIva(p.facturas.tipo_iva);
+              return s + (pct > 0 ? p.monto - p.monto / (1 + pct / 100) : 0);
+            }, 0) +
+          facturasPaisMes.filter((f) => f.tipo === 'rectificativa').reduce((s, f) => s + ivaFactura(f), 0)
+        : facturasPaisMes.reduce((s, f) => s + ivaFactura(f), 0);
+    const deducible = (gastos ?? [])
+      .filter((g) => g.estado_gasto !== 'pendiente' && g.pais === paisIva && (g.fecha ?? '').slice(0, 7) === hoyMesISO)
       .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
     return { repercutido, deducible, saldo: repercutido - deducible };
-  }, [facturasKpi, gastosKpi, hoyMesISO]);
+  }, [facturas, pagos, gastos, paisIva, hoyMesISO]);
 
   const resultadoTotal = useMemo(() => {
     let ingresosSinIva = 0;
@@ -755,15 +767,6 @@ export default function InicioPage() {
               </>
             )}
             <Line dataKey="resultado" name="Resultado" stroke="#4b5563" strokeWidth={2} dot={{ r: 3 }} />
-            {rol === 'contable' && (
-              <ReferenceLine
-                y={plafondTramo15}
-                stroke="#dc2626"
-                strokeWidth={1.5}
-                strokeDasharray="4 4"
-                label={{ value: `Límite tramo 15% IS (${formatearPrecioEntero(plafondTramo15)})`, position: 'insideTopRight', fill: '#dc2626', fontSize: 11 }}
-              />
-            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -872,7 +875,7 @@ export default function InicioPage() {
         </div>
 
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <TarjetaHeader icon={Percent} badge="bg-violet-50 text-violet-600" titulo="IVA / TVA · este mes" to="/fiscalidad/tva" />
+          <TarjetaHeader icon={Percent} badge="bg-violet-50 text-violet-600" titulo={paisIva === 'Francia' ? 'TVA Francia · este mes' : 'IVA España · este mes'} to="/fiscalidad/tva" />
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Repercutido</span>
@@ -1069,7 +1072,7 @@ export default function InicioPage() {
         </div>
 
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
-          <TarjetaHeader icon={Percent} badge="bg-violet-50 text-violet-600" titulo="IVA / TVA · este mes" to="/fiscalidad/tva" />
+          <TarjetaHeader icon={Percent} badge="bg-violet-50 text-violet-600" titulo={paisIva === 'Francia' ? 'TVA Francia · este mes' : 'IVA España · este mes'} to="/fiscalidad/tva" />
           <div className="flex flex-col gap-1.5 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-500">Repercutido</span>

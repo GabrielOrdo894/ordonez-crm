@@ -21,7 +21,8 @@ import { calcularTotales, formatearMiles } from '../finanzas/lineas';
 import { porcentajeIva } from '../finanzas/iva';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Gasto } from '../finanzas/gastos/types';
-import { useComptaFrancia } from './useComptaFrancia';
+import { saldoNetoCuentas, useComptaFrancia } from './useComptaFrancia';
+import { useAsientosContables } from '../contabilidad/useAsientosContables';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
 import { useEjercicioFiscal } from './useEjercicioFiscal';
@@ -47,10 +48,11 @@ export function DashboardFiscal() {
   const anioActual = new Date().getFullYear();
   const { ejercicio, config, gerantConfig, remuneracionAnual, cotisacionesPeriodo, is } = useEjercicioFiscal(anioActual);
   const { bilanActivo } = useComptaFrancia(anioActual);
+  const { data: asientos } = useAsientosContables();
   const { echeances } = useEcheances();
 
   const progresoTramo = is.plafondReducido > 0 ? Math.min(100, (is.baseReducida / is.plafondReducido) * 100) : 0;
-  const evolucionAcumulada = useEvolucionAcumulada(anioActual, ejercicio, remuneracionAnual, config);
+  const evolucionAcumulada = useEvolucionAcumulada(anioActual, ejercicio, remuneracionAnual, config, gerantConfig?.remuneracion_desde ?? null);
 
   const hoyDate = new Date();
   const inicioMes = iso(new Date(hoyDate.getFullYear(), hoyDate.getMonth(), 1));
@@ -62,20 +64,6 @@ export function DashboardFiscal() {
   const inicioAnio = `${anioActual}-01-01`;
   const finAnio = `${anioActual}-12-31`;
 
-  const { data: facturas } = useQuery({
-    queryKey: ['facturas', 'francia', anioActual],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('facturas')
-        .select('*')
-        .eq('pais', 'Francia')
-        .is('eliminado_en', null)
-        .gte('fecha_factura', inicioAnio)
-        .lte('fecha_factura', finAnio);
-      if (error) throw error;
-      return data as Factura[];
-    },
-  });
   const { data: gastos } = useQuery({
     queryKey: ['gastos', 'francia', anioActual],
     queryFn: async () => {
@@ -131,8 +119,9 @@ export function DashboardFiscal() {
   });
 
   const tvaMes = useMemo(() => {
+    // Sin gastos pendientes de revisar: aún no deducen IVA (mismo criterio que el Asistente de IVA).
     const gastosMes = (gastos ?? []).filter(
-      (g) => g.pais === 'Francia' && g.fecha && g.fecha >= inicioMes && g.fecha <= finMes,
+      (g) => g.pais === 'Francia' && g.estado_gasto !== 'pendiente' && g.fecha && g.fecha >= inicioMes && g.fecha <= finMes,
     );
     const collecteePagos = (pagosMes ?? []).reduce((s, p) => {
       const pct = porcentajeIva(p.facturas.tipo_iva);
@@ -165,17 +154,16 @@ export function DashboardFiscal() {
     return Array.from({ length: 12 }, (_, mes) => {
       const desde = iso(new Date(anioActual, mes, 1));
       const hasta = iso(new Date(anioActual, mes + 1, 0));
-      const ingresosMes = (facturas ?? [])
-        .filter((f) => f.pais === 'Francia' && f.fecha_factura && f.fecha_factura >= desde && f.fecha_factura <= hasta)
-        .reduce((s, f) => s + calcularTotales(f.lineas).totalSinIva, 0);
-      const gastosMesHT = (gastos ?? [])
-        .filter((g) => g.pais === 'Francia' && g.fecha && g.fecha >= desde && g.fecha <= hasta)
-        .reduce((s, g) => s + (g.importe_base ?? 0), 0);
+      // Desde el libro diario (auditoría 2026-09-29): sin acomptes como venta, sin la factura de la
+      // etapa de autónomo (estructura_anterior, antes aparecía en abril) ni gastos pendientes.
+      const delMes = (asientos ?? []).filter((a) => a.fecha >= desde && a.fecha <= hasta);
+      const ingresosMes = -saldoNetoCuentas(delMes, ['7']);
+      const gastosMesHT = saldoNetoCuentas(delMes, ['6']) - saldoNetoCuentas(delMes, ['641', '645', '646', '695']);
       const beneficioMes = Math.max(0, ingresosMes - gastosMesHT);
       const cargaFiscal = calcularIS(beneficioMes, 1, config).total;
       return { mes: MESES[mes], ingresos: ingresosMes, gastos: gastosMesHT, cargaFiscal };
     });
-  }, [facturas, gastos, anioActual, config]);
+  }, [asientos, anioActual, config]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -339,7 +327,7 @@ export function DashboardFiscal() {
           },
           {
             q: '¿Por qué "TVA del mes" no coincide exactamente con la pestaña TVA?',
-            a: 'Esta tarjeta es un resumen rápido del mes en curso: suma la TVA de todas las facturas y gastos con fecha dentro del mes. La pestaña TVA hace la declaración CA3 mes a mes con más detalle (líneas A1-A3 por tipo de operación, crédito de TVA reportado de meses anteriores, exportación a CSV para la contabilidad) y puede dar una cifra ligeramente distinta si hay ajustes manuales o crédito arrastrado.',
+            a: 'Esta tarjeta es un resumen rápido del mes en curso con el mismo criterio que la declaración: la TVA collectée de los cobros del mes (no de las facturas emitidas) y la déductible de los gastos ya registrados. La pestaña TVA hace la CA3 completa (líneas por tipo de operación, autoliquidación intracomunitaria, rectificativas, crédito reportado de meses anteriores) y puede dar una cifra distinta si hay crédito arrastrado o compras intracomunitarias.',
           },
           {
             q: '¿Qué significa "crédito a favor" en la tarjeta de TVA?',

@@ -32,7 +32,7 @@ import type { Linea } from './lineas';
 import { FacturaPreview } from './facturas/FacturaPreview';
 import { FacturaForm } from './facturas/FacturaForm';
 import { RegistrarPagoModal } from './facturas/RegistrarPagoModal';
-import type { Factura } from './facturas/types';
+import { motivoNoPapeleraFactura, type Factura } from './facturas/types';
 import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './presupuestos/estadoCobro';
 
 export type TipoDocumento = 'presupuesto' | 'factura';
@@ -206,14 +206,26 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   const eliminarMutation = useMutation({
     mutationFn: async () => {
       const tabla = tipo === 'presupuesto' ? 'presupuestos' : 'facturas';
+      if (tipo === 'factura' && factura) {
+        const motivo = motivoNoPapeleraFactura(factura);
+        if (motivo) throw new Error(motivo);
+      }
       const { error } = await supabase
         .from(tabla)
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
         .eq('id', id);
       if (error) throw error;
+      // Misma anulación que la papelera de FacturasPage — desde aquí no se hacía y, al restaurar,
+      // la factura quedaba contabilizada dos veces (auditoría contable 2026-09-29). Por saldo neto:
+      // no inserta nada si no había asientos.
+      if (tipo === 'factura') {
+        await rectificarAsientosFacturaSiHaceFalta({ id }, 'creacion');
+        await rectificarAsientosFacturaSiHaceFalta({ id }, 'cobro');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [tipo === 'presupuesto' ? 'presupuestos' : 'facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(tipo === 'presupuesto' ? 'Presupuesto movido a la papelera' : 'Factura movida a la papelera');
       onClose();
     },
@@ -261,7 +273,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     },
     onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['pagos_factura', id] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
       queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
       refetchFactura();
       toast.success('Pagos eliminados, factura vuelve a Pendiente');

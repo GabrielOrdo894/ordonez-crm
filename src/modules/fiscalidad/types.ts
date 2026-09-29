@@ -36,6 +36,8 @@ export type NuevaEcheance = Omit<EcheanceFiscal, 'id' | 'completada' | 'completa
 export type GerantConfig = {
   id: number;
   remuneracion_anual: number;
+  // Primer mes en que se cobra la rémunération (null = desde el inicio del ejercicio).
+  remuneracion_desde: string | null;
   capital_social: number;
   compte_courant_medio: number;
   casado: boolean;
