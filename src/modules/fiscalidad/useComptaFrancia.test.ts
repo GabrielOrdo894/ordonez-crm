@@ -97,6 +97,6 @@ describe('calcularBilanActivo', () => {
   it('total es la suma de los componentes', () => {
     const asientos: AsientoContable[] = [{ cuenta: '512', debe: 300, haber: 0 }, { cuenta: '411', debe: 1100, haber: 0 }];
     const r = calcularBilanActivo(asientos, [activo], 2026);
-    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.inmovilizadoNeto);
+    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.capitalPorLiberar + r.inmovilizadoNeto);
   });
 });

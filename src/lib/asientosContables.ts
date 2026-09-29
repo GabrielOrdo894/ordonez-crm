@@ -15,6 +15,8 @@ const ETIQUETAS_CUENTA_EXTRA: Record<string, string> = {
   '44574': '44574 · TVA collectée en attente (encaissements)',
   '4191': '4191 · Clients — avances et acomptes reçus sur commandes',
   '455': '455 · Associés — comptes courants',
+  '467': '467 · Autres comptes débiteurs (capital déposé, en attente de libération)',
+  '1013': '1013 · Capital souscrit, appelé, versé',
   '44566': '44566 · TVA déductible sur autres biens et services',
   '471': '471 · Compte d’attente (sin clasificar)',
   '2801': '2801 · Amortissements des immobilisations (compte global)',

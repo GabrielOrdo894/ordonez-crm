@@ -41,7 +41,14 @@ type CompteResultat = {
   resultadoExcepcional: number;
   resultadoAntesIS: number;
 };
-type BilanActivo = { tresoreria: number; creancesClients: number; creditoTva: number; inmovilizadoNeto: number; total: number };
+type BilanActivo = {
+  tresoreria: number;
+  creancesClients: number;
+  creditoTva: number;
+  capitalPorLiberar: number;
+  inmovilizadoNeto: number;
+  total: number;
+};
 type BilanPasivo = {
   capitalSocial: number;
   reservas: number;
@@ -130,6 +137,7 @@ export async function generarPdfLiasseFiscale(
       ['Trésorerie (512)', fmt(datos.bilanActivo.tresoreria)],
       ['Créances clients (411)', fmt(datos.bilanActivo.creancesClients)],
       ['Crédit de TVA', fmt(datos.bilanActivo.creditoTva)],
+      ['Capital déposé, à libérer (467)', fmt(datos.bilanActivo.capitalPorLiberar)],
       ['Immobilisations (valeur nette)', fmt(datos.bilanActivo.inmovilizadoNeto)],
       ['Total actif', fmt(datos.bilanActivo.total)],
       ['PASSIF', ''],

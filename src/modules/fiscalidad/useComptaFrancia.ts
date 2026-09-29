@@ -61,6 +61,9 @@ export function calcularBilanActivo(asientos: AsientoContable[], activos: Activo
   const creancesClients = Math.max(0, saldoNetoCuentas(asientos, ['411']));
   // TVA: saldo deudor de las cuentas 445 = crédito a favor de la empresa.
   const creditoTva = Math.max(0, saldoNetoCuentas(asientos, ['445']));
+  // Capital aportado pero todavía bloqueado en el depósito de constitución (467) hasta que se libere
+  // a la cuenta de la EURL (decisión de Gabriel 2026-09-29).
+  const capitalPorLiberar = Math.max(0, saldoNetoCuentas(asientos, ['467']));
   // Un activo dado de baja antes del cierre del ejercicio ya salió del balance (asiento de baja,
   // ver registrarAsientoBajaInmovilizado en asientosContables.ts) — su VNC ya no debe sumar aquí.
   // Antes se seguía sumando valorNetoContable(a, anio), que se queda "congelado" en el valor que
@@ -75,8 +78,9 @@ export function calcularBilanActivo(asientos: AsientoContable[], activos: Activo
     tresoreria,
     creancesClients,
     creditoTva,
+    capitalPorLiberar,
     inmovilizadoNeto,
-    total: tresoreria + creancesClients + creditoTva + inmovilizadoNeto,
+    total: tresoreria + creancesClients + creditoTva + capitalPorLiberar + inmovilizadoNeto,
   };
 }
 

@@ -121,6 +121,7 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Trésorerie (512)" valor={bilanActivo.tresoreria} />
               <Fila label="Créances clients (411)" valor={bilanActivo.creancesClients} />
               <Fila label="Crédit de TVA" valor={bilanActivo.creditoTva} />
+              <Fila label="Capital déposé, à libérer (467)" valor={bilanActivo.capitalPorLiberar} />
               <Fila label="Immobilisations (valeur nette)" valor={bilanActivo.inmovilizadoNeto} />
               <Fila label="Total actif" valor={bilanActivo.total} negrita />
             </tbody>
