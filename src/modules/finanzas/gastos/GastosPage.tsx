@@ -54,6 +54,7 @@ export default function GastosPage() {
   const [gastoEnResumen, setGastoEnResumen] = useState<Gasto | null>(null);
   const [duplicandoDesde, setDuplicandoDesde] = useState<Gasto | null>(null);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
+  const [confirmandoPago, setConfirmandoPago] = useState<Gasto | null>(null);
   const [previsualizando, setPrevisualizando] = useState<string | null>(null);
   const { seleccion, toggleFila, toggleTodas, limpiar } = useSeleccionMultiple();
 
@@ -168,6 +169,15 @@ export default function GastosPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  // Kilometraje: se confirma directamente (sus datos los calcula el sistema). Cualquier otro pendiente
+  // (foto de ticket de /rapido, pago detectado por el banco) llega sin proveedor, cuenta o importe
+  // revisados — antes se confirmaba igual y entraba al libro diario incompleto; ahora abre el
+  // formulario, que valida los datos legales antes de registrarlo (validarGasto, 2026-09-29).
+  const registrarPago = (g: Gasto) => {
+    if (g.km != null) registrarPagoMutation.mutate(g);
+    else setConfirmandoPago(g);
+  };
+
   // Rechazar borra la fila sin dejar rastro (p.ej. porque la visita fue con la furgoneta, no con
   // el vehículo del cálculo) — nunca llegó a generar asiento, así que no hay nada que rectificar.
   const rechazarPendienteMutation = useMutation({
@@ -249,6 +259,9 @@ export default function GastosPage() {
 
   if (creandoNuevo) {
     return <GastoForm onClose={() => setCreandoNuevo(false)} gasto={null} />;
+  }
+  if (confirmandoPago) {
+    return <GastoForm onClose={() => setConfirmandoPago(null)} gasto={confirmandoPago} confirmarPago />;
   }
   if (gastoSeleccionado) {
     return <GastoForm onClose={() => setGastoSeleccionado(null)} gasto={gastoSeleccionado} />;
@@ -410,7 +423,7 @@ export default function GastosPage() {
                 const rapidas: AccionRapida[] =
                   g.estado_gasto === 'pendiente'
                     ? [
-                        { icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => registrarPagoMutation.mutate(g) },
+                        { icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => registrarPago(g) },
                         { icon: X, label: 'Rechazar', tono: 'peligro', onClick: () => rechazarPendienteMutation.mutate(g.id) },
                       ]
                     : [{ icon: Copy, label: 'Duplicar', tono: 'neutro', onClick: () => setDuplicandoDesde(g) }];
@@ -420,7 +433,7 @@ export default function GastosPage() {
                     menu={[
                       ...(g.estado_gasto === 'pendiente'
                         ? [
-                            { label: 'Registrar pago', onClick: () => registrarPagoMutation.mutate(g) },
+                            { label: 'Registrar pago', onClick: () => registrarPago(g) },
                             { label: 'Rechazar', onClick: () => rechazarPendienteMutation.mutate(g.id), destructivo: true },
                           ]
                         : []),

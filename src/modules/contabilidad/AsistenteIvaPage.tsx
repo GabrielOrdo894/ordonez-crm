@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Clock, Lock } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Clock, Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
 import { Select } from '../../components/ui/Select';
@@ -42,6 +43,9 @@ function generarUltimosMeses(hoy: Date, cantidad: number) {
 }
 
 type FacturaFr = {
+  id: string;
+  numero: string | null;
+  cliente_nombre: string | null;
   fecha_factura: string | null;
   tipo_iva: string | null;
   lineas: { es_incluido: boolean; total_sin_iva: number }[];
@@ -53,10 +57,14 @@ type FacturaFr = {
 type PagoFr = {
   fecha: string;
   monto: number;
-  facturas: { tipo_iva: string | null };
+  facturas: { id: string; numero: string | null; cliente_nombre: string | null; tipo_iva: string | null };
 };
 
 type GastoFr = {
+  id: string;
+  descripcion: string | null;
+  proveedor: string | null;
+  num_factura_proveedor: string | null;
   fecha: string | null;
   tipo_iva: string | null;
   cuenta_contable: string | null;
@@ -92,9 +100,65 @@ function fmt(n: number) {
   return `${formatearPrecio(n)}`;
 }
 
-type Fila = { linea: string; label: string; base?: number; taxe?: number; nota?: string };
+// Un documento que suma en una línea de la declaración — se muestra al desplegar la línea para
+// saber de dónde sale cada importe (petición de Gabriel 2026-09-29). La suma de los detalles de una
+// línea es exactamente su total.
+type Detalle = { clave: string; fecha: string | null; documento: string; tercero: string; base?: number; taxe?: number; facturaId?: string };
+type Fila = { linea: string; label: string; base?: number; taxe?: number; nota?: string; detalle?: Detalle[] };
+
+function detallePago(p: PagoFr, tasa?: number): Detalle {
+  const base = baseSinIvaDePago(p);
+  return {
+    clave: `pago-${p.facturas.id}-${p.fecha}-${p.monto}`,
+    fecha: p.fecha,
+    documento: `Cobro ${p.facturas.numero ?? ''}`.trim(),
+    tercero: p.facturas.cliente_nombre ?? '—',
+    base,
+    taxe: tasa != null ? base * tasa : undefined,
+    facturaId: p.facturas.id,
+  };
+}
+
+function detalleRectificativa(f: FacturaFr, tasa?: number): Detalle {
+  const base = baseFactura(f);
+  return {
+    clave: `rect-${f.id}`,
+    fecha: f.fecha_factura,
+    documento: `Rectificativa ${f.numero ?? ''}`.trim(),
+    tercero: f.cliente_nombre ?? '—',
+    base,
+    taxe: tasa != null ? base * tasa : undefined,
+    facturaId: f.id,
+  };
+}
+
+// `taxe`: 'iva' = IVA deducible del propio gasto; número = autoliquidación (base × tasa).
+function detalleGasto(g: GastoFr, taxe?: 'iva' | number): Detalle {
+  const base = g.importe_base ?? 0;
+  return {
+    clave: `gasto-${g.id}`,
+    fecha: g.fecha,
+    documento: g.num_factura_proveedor ? `Factura ${g.num_factura_proveedor}` : (g.descripcion ?? 'Gasto'),
+    tercero: g.proveedor ?? g.descripcion ?? '—',
+    base,
+    taxe: taxe === 'iva' ? (g.importe_iva ?? 0) : taxe != null ? base * taxe : undefined,
+  };
+}
+
+function fechaCorta(fecha: string | null) {
+  return fecha ? new Date(fecha).toLocaleDateString('es', { day: '2-digit', month: 'short' }) : '—';
+}
 
 function TablaSeccion({ columnaBase, columnaTaxe, filas }: { columnaBase?: string; columnaTaxe: string; filas: Fila[] }) {
+  const navigate = useNavigate();
+  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const alternar = (linea: string) =>
+    setAbiertas((prev) => {
+      const siguiente = new Set(prev);
+      if (siguiente.has(linea)) siguiente.delete(linea);
+      else siguiente.add(linea);
+      return siguiente;
+    });
   return (
     <table className="w-full border-collapse text-sm mb-3">
       <thead>
@@ -106,14 +170,58 @@ function TablaSeccion({ columnaBase, columnaTaxe, filas }: { columnaBase?: strin
         </tr>
       </thead>
       <tbody>
-        {filas.map((f) => (
-          <tr key={f.linea} className="border-t border-gray-100">
-            <td className="py-1.5 text-brand font-semibold">{f.linea}</td>
-            <td className="py-1.5 text-gray-700">{f.label}</td>
-            {columnaBase && <td className="py-1.5 text-right text-gray-600">{f.base != null ? fmt(f.base) : '—'}</td>}
-            <td className="py-1.5 text-right text-gray-900 font-medium">{f.taxe != null ? fmt(f.taxe) : '—'}</td>
-          </tr>
-        ))}
+        {filas.map((f) => {
+          const desplegable = (f.detalle?.length ?? 0) > 0;
+          const abierta = desplegable && abiertas.has(f.linea);
+          return (
+            <Fragment key={f.linea}>
+              <tr
+                className={`border-t border-gray-100 ${desplegable ? 'cursor-pointer hover:bg-brand-light' : ''}`}
+                onClick={desplegable ? () => alternar(f.linea) : undefined}
+              >
+                <td className="py-1.5 text-brand font-semibold">{f.linea}</td>
+                <td className="py-1.5 text-gray-700">
+                  <span className="inline-flex items-center gap-1">
+                    {f.label}
+                    {desplegable && (
+                      <span className="inline-flex items-center text-xs text-gray-400">
+                        {abierta ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        {f.detalle!.length}
+                      </span>
+                    )}
+                  </span>
+                </td>
+                {columnaBase && <td className="py-1.5 text-right text-gray-600">{f.base != null ? fmt(f.base) : '—'}</td>}
+                <td className="py-1.5 text-right text-gray-900 font-medium">{f.taxe != null ? fmt(f.taxe) : '—'}</td>
+              </tr>
+              {abierta &&
+                f.detalle!.map((d, i) => (
+                  <tr key={`${d.clave}-${i}`} className="bg-gray-50 text-xs">
+                    <td></td>
+                    <td className="py-1 pl-4 text-gray-600">
+                      <span className="text-gray-400 mr-2">{fechaCorta(d.fecha)}</span>
+                      {d.facturaId ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/finanzas/facturas', { state: { verDocId: d.facturaId, verDocTipo: 'factura' } })}
+                          className="text-brand hover:underline"
+                        >
+                          {d.documento}
+                        </button>
+                      ) : (
+                        d.documento
+                      )}
+                      <span className="text-gray-400"> · {d.tercero}</span>
+                    </td>
+                    {columnaBase && <td className="py-1 text-right text-gray-500">{d.base != null ? fmt(d.base) : '—'}</td>}
+                    <td className="py-1 text-right text-gray-700">
+                      {columnaBase ? (d.taxe != null ? fmt(d.taxe) : '—') : fmt(d.taxe ?? d.base ?? 0)}
+                    </td>
+                  </tr>
+                ))}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -200,7 +308,7 @@ export default function AsistenteIvaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pagos_factura')
-        .select('fecha, monto, facturas!inner(tipo_iva)')
+        .select('fecha, monto, facturas!inner(id, numero, cliente_nombre, tipo_iva)')
         .eq('facturas.pais', 'Francia')
         .eq('facturas.estructura_anterior', false)
         .is('facturas.eliminado_en', null)
@@ -220,7 +328,7 @@ export default function AsistenteIvaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('facturas')
-        .select('fecha_factura, tipo_iva, lineas')
+        .select('id, numero, cliente_nombre, fecha_factura, tipo_iva, lineas')
         .is('eliminado_en', null)
         .eq('pais', 'Francia')
         .eq('estructura_anterior', false)
@@ -237,8 +345,11 @@ export default function AsistenteIvaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('gastos')
-        .select('fecha, tipo_iva, cuenta_contable, importe_base, importe_iva')
+        .select('id, descripcion, proveedor, num_factura_proveedor, fecha, tipo_iva, cuenta_contable, importe_base, importe_iva')
         .eq('pais', 'Francia')
+        // Un gasto pendiente de revisar todavía no está contabilizado (ni tiene asiento): no deduce
+        // IVA hasta que se registra como pagado.
+        .eq('estado_gasto', 'pagado')
         .gte('fecha', inicioMes)
         .lte('fecha', finMes);
       if (error) throw error;
@@ -287,17 +398,19 @@ export default function AsistenteIvaPage() {
     // intracomunitario o importación, así que ninguno de los dos aporta nada aquí — su IVA solo
     // entra por taxe17/taxe24 (autoliquidación), sin duplicarse. Si algún día se permite editar
     // importe_iva a mano en esos casos, esto habría que revisarlo.
-    const iva19 = gs
-      .filter((g) => g.cuenta_contable && CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable))
-      .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
-    const iva20Gastos = gs
-      .filter(
-        (g) =>
-          g.tipo_iva !== 'INTRACOM' &&
-          g.tipo_iva !== 'IMPORTACION' &&
-          (!g.cuenta_contable || !CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable)),
-      )
-      .reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+    const gastosImmo = gs.filter((g) => g.cuenta_contable && CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable));
+    const iva19 = gastosImmo.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+    const gastosOtros = gs.filter(
+      (g) =>
+        g.tipo_iva !== 'INTRACOM' &&
+        g.tipo_iva !== 'IMPORTACION' &&
+        (!g.cuenta_contable || !CUENTAS_IMMOBILISATIONS.includes(g.cuenta_contable)),
+    );
+    const iva20Gastos = gastosOtros.reduce((s, g) => s + (g.importe_iva ?? 0), 0);
+
+    const detalle08 = [...pagos20.map((p) => detallePago(p, TASA_ESTANDAR)), ...rect20.map((f) => detalleRectificativa(f, TASA_ESTANDAR))];
+    const detalle9B = [...pagos10.map((p) => detallePago(p, TASA_REDUCIDA_10)), ...rect10.map((f) => detalleRectificativa(f, TASA_REDUCIDA_10))];
+    const conIva = (g: GastoFr) => (g.importe_iva ?? 0) !== 0;
     const iva20 = iva20Gastos + taxe17 + taxe24;
     const iva22 = creditoAnterior;
     const iva23 = iva19 + iva20 + iva22;
@@ -308,26 +421,36 @@ export default function AsistenteIvaPage() {
 
     return {
       seccionA_taxadas: [
-        { linea: 'A1', label: 'Ventes, prestations de services', base: baseA1 },
+        {
+          linea: 'A1',
+          label: 'Ventes, prestations de services',
+          base: baseA1,
+          detalle: [...detalle08, ...detalle9B].map((d) => ({ ...d, taxe: undefined })),
+        },
         // Revisado 2026-08-11: A3 (servicios intracomunitarios) siempre 0 a propósito por ahora
         // — GastoForm.tsx solo tiene un checkbox "intracomunitario" sin distinguir bienes de
         // servicios, así que todo gasto intracom cae en B2 (bienes). Si algún día se compra un
         // servicio a un proveedor de otro país UE (ej. software, consultoría), habría que añadir
         // esa distinción al formulario de gastos para que A3 refleje datos reales.
         { linea: 'A3', label: 'Achats de prestations de services intracommunautaires', base: 0 },
-        { linea: 'B2', label: 'Acquisitions intra-communautaires', base: baseB2 },
-        { linea: 'A4', label: 'Importations (autoliquidation, hors UE)', base: baseA4 },
+        { linea: 'B2', label: 'Acquisitions intra-communautaires', base: baseB2, detalle: gastosIntracom.map((g) => detalleGasto(g)) },
+        { linea: 'A4', label: 'Importations (autoliquidation, hors UE)', base: baseA4, detalle: gastosImportacion.map((g) => detalleGasto(g)) },
         { linea: 'B5', label: 'Régularisations', base: 0 },
       ] as Fila[],
       seccionA_noTaxadas: [
         { linea: 'E1', label: 'Exportations hors UE', base: 0 },
-        { linea: 'E2', label: 'Autres opérations non imposables', base: baseE2 },
+        {
+          linea: 'E2',
+          label: 'Autres opérations non imposables',
+          base: baseE2,
+          detalle: [...pagosExentos.map((p) => detallePago(p)), ...rectExentas.map((f) => detalleRectificativa(f))],
+        },
         { linea: 'F2', label: 'Livraisons intracommunautaires (Ventes B to B)', base: 0 },
       ] as Fila[],
       tvaBruteFrance: [
-        { linea: '08', label: 'Taux normal 20 %', base: base08, taxe: taxe08 },
+        { linea: '08', label: 'Taux normal 20 %', base: base08, taxe: taxe08, detalle: detalle08 },
         { linea: '09', label: 'Taux réduit 5,5 %', base: 0, taxe: 0 },
-        { linea: '9B', label: 'Taux réduit 10 %', base: base9B, taxe: taxe9B },
+        { linea: '9B', label: 'Taux réduit 10 %', base: base9B, taxe: taxe9B, detalle: detalle9B },
       ] as Fila[],
       tvaBruteDom: [
         { linea: '10', label: 'Taux normal 8,5 % (DOM)', base: 0, taxe: 0 },
@@ -336,12 +459,36 @@ export default function AsistenteIvaPage() {
       recapitulatif: [
         { linea: '15', label: 'TVA antérieurement déduite à reverser', taxe: 0 },
         { linea: '16', label: 'Total de la TVA brute due (lignes 08 à 5B)', taxe: taxe16 },
-        { linea: '17', label: 'Dont TVA sur acquisitions intracommunautaires', taxe: taxe17 },
+        {
+          linea: '17',
+          label: 'Dont TVA sur acquisitions intracommunautaires',
+          taxe: taxe17,
+          detalle: gastosIntracom.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+        },
       ] as Fila[],
       tvaDeductible: [
-        { linea: '19', label: 'Biens constituant des immobilisations', taxe: iva19 },
-        { linea: '20', label: 'Autres biens et services', taxe: iva20 },
-        { linea: '24', label: 'Dont TVA déductible sur importations', taxe: taxe24 },
+        {
+          linea: '19',
+          label: 'Biens constituant des immobilisations',
+          taxe: iva19,
+          detalle: gastosImmo.filter(conIva).map((g) => detalleGasto(g, 'iva')),
+        },
+        {
+          linea: '20',
+          label: 'Autres biens et services',
+          taxe: iva20,
+          detalle: [
+            ...gastosOtros.filter(conIva).map((g) => detalleGasto(g, 'iva')),
+            ...gastosIntracom.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+            ...gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+          ],
+        },
+        {
+          linea: '24',
+          label: 'Dont TVA déductible sur importations',
+          taxe: taxe24,
+          detalle: gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+        },
         { linea: '21', label: 'Autre TVA à déduire', taxe: 0 },
         { linea: '22', label: 'Report du crédit de la précédente déclaration', taxe: iva22 },
         { linea: '23', label: 'Total TVA déductible (lignes 19 à 2C)', taxe: iva23 },

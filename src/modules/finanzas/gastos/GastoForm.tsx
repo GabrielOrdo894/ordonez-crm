@@ -23,6 +23,7 @@ import { MapsAutocomplete } from '../../google/MapsAutocomplete';
 import type { LugarSeleccionado } from '../../google/MapsAutocomplete';
 import { hoyLocalIso } from '../../../lib/fechas';
 import { formatearPrecio } from '../lineas';
+import { mensajeFaltanDatos, validarGasto } from './validarGasto';
 
 // Cuentas del grupo "Immobilisations" — comprar un activo así se enlaza automáticamente con la
 // tabla `inmovilizado` al guardar (ver guardarMutation), en vez de dejarlo como un paso manual
@@ -137,9 +138,12 @@ type GastoFormProps = {
   // el importe se trata como total con IVA, igual que el resto del formulario.
   prefill?: { fecha?: string; descripcion?: string; importeTotal?: number };
   onGuardado?: (id: string) => void;
+  // "Registrar pago" de un gasto pendiente (ticket de /rapido, gasto creado por el banco): al guardar
+  // pasa a 'pagado' y se contabiliza, igual que el botón de la lista, pero tras completar los datos.
+  confirmarPago?: boolean;
 };
 
-export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }: GastoFormProps) {
+export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, confirmarPago = false }: GastoFormProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => {
@@ -348,8 +352,28 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     setAdjunto({ path, url: data.signedUrl, nombre: file.name, tipo: file.type });
   };
 
+  // Un gasto que sigue pendiente de revisar puede guardarse incompleto (no se contabiliza todavía);
+  // todo lo que acaba 'pagado' — nuevo, editado o confirmado — debe tener sus datos legales.
+  const estadoFinal: Gasto['estado_gasto'] = confirmarPago ? 'pagado' : (gasto?.estado_gasto ?? 'pagado');
+
   const guardarMutation = useMutation({
     mutationFn: async () => {
+      if (estadoFinal === 'pagado') {
+        const faltan = validarGasto({
+          fecha: form.fecha,
+          importe_base: importeBase,
+          importe_iva: importeIvaDeducible,
+          tipo_iva: form.tipo_iva,
+          cuenta_contable: form.cuenta_contable || null,
+          proveedor: form.proveedor || null,
+          num_factura_proveedor: form.num_factura_proveedor || null,
+          adjunto_url: adjunto?.path ?? null,
+          km: form.es_kilometrico ? form.km : null,
+          proveedorIdentificador: proveedores?.find((p) => p.id === form.proveedor_id)?.identificador ?? null,
+        });
+        if (faltan.length > 0) throw new Error(mensajeFaltanDatos(faltan));
+      }
+
       // Enlace con Inmovilizado — antes de guardar el gasto, para poder incluir su id en el mismo
       // insert/update en vez de un segundo paso separado. Si falla, el gasto entero no se guarda
       // (el usuario puede reintentar) — mejor eso que un gasto de inmovilizado sin activo vinculado
@@ -415,7 +439,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
         // "Registrar pago" en GastosPage, nunca un efecto colateral de corregir un campo (bug
         // real corregido 2026-08-18: editar un gasto de kilometraje pendiente lo aprobaba y
         // contabilizaba en silencio, sin pasar por esa revisión).
-        estado_gasto: gasto?.estado_gasto ?? 'pagado',
+        estado_gasto: estadoFinal,
       };
 
       if (gasto) {
@@ -430,7 +454,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
     onSuccess: async (id) => {
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      toast.success(gasto ? 'Gasto actualizado' : 'Gasto registrado');
+      toast.success(confirmarPago ? 'Gasto registrado como pagado' : gasto ? 'Gasto actualizado' : 'Gasto registrado');
       if (esInmovilizado) {
         queryClient.invalidateQueries({ queryKey: ['inmovilizado'] });
         toast.success('Activo sincronizado en Fiscalidad → Inmovilizado');
@@ -443,7 +467,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
       // dos con lógica distinta, y se espera (await) el resultado antes de cerrar el formulario —
       // si no, un fallo de red puede perderse en silencio si el usuario navega justo después de ver
       // "Gasto guardado" (mismo hallazgo real que en FacturaForm.tsx, auditoría 2026-09-08).
-      const yaContabilizable = !(gasto && gasto.estado_gasto === 'pendiente');
+      const yaContabilizable = estadoFinal === 'pagado';
       if (id && yaContabilizable) {
         try {
           await rectificarAsientos('gasto', id, 'creacion');
@@ -506,9 +530,15 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado }
         <ProveedorForm variante="inline" open onClose={() => setCreandoProveedor(false)} proveedor={null} onCreado={handleProveedorCreado} />
       ) : (
         <>
-          <h1 className="text-xl font-bold text-gray-900 mb-1">{gasto ? 'Editar gasto' : 'Nuevo gasto'}</h1>
+          <h1 className="text-xl font-bold text-gray-900 mb-1">
+            {confirmarPago ? 'Completar y registrar gasto' : gasto ? 'Editar gasto' : 'Nuevo gasto'}
+          </h1>
           <p className="text-sm text-gray-500 mb-6">
-            {gasto ? 'Modifica los datos del gasto y su justificante.' : 'Registra un nuevo gasto y adjunta su justificante.'}
+            {confirmarPago
+              ? 'Completa los datos que falten: al guardar, el gasto queda registrado como pagado y pasa a la contabilidad.'
+              : gasto
+                ? 'Modifica los datos del gasto y su justificante.'
+                : 'Registra un nuevo gasto y adjunta su justificante.'}
           </p>
 
           {!gasto && (

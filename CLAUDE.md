@@ -1020,3 +1020,16 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   caducado, `getSession()` devuelve null y salía el login — ahora usa la sesión guardada **solo si es de hoy**
   (`crm_sesion_fecha`), para no saltarse el cierre a medianoche; tras medianoche sin red sigue saliendo el
   login. Sin probar todavía en un móvil real.
+- **Datos legales obligatorios en Gastos y desglose del Asistente de IVA** (2026-09-29, petición de Gabriel):
+  `validarGasto()` (`finanzas/gastos/validarGasto.ts`, con tests) se aplica a todo gasto que acaba `pagado`
+  (nuevo, editado o confirmado): fecha, cuenta, importe > 0, proveedor y justificante siempre; nº de factura
+  del proveedor y su SIRET/nº TVA/NIF (campo `identificador` de su ficha) solo si pasa de 150 € HT o es
+  intracomunitario/importación (umbral francés de factura simplificada, decisión de Gabriel). Kilometraje y
+  amortizaciones (681) solo piden fecha, cuenta e importe. Un gasto pendiente puede guardarse incompleto
+  (no se contabiliza). "Registrar pago" de un pendiente que no es de kilometraje (ticket de `/rapido`, pago
+  detectado por el banco) ya no lo confirma directamente: abre `GastoForm` con `confirmarPago`, que valida
+  y, al guardar, lo pasa a pagado y genera su asiento. En el Asistente de IVA, las líneas con datos (A1, B2,
+  A4, E2, 08, 9B, 17, 19, 20, 24) se despliegan al pulsarlas con los cobros/rectificativas (enlace a la
+  factura) o gastos que las componen; la suma del desglose es el total de la línea. El Asistente ya no lee
+  gastos `pendiente` (no están contabilizados). La pantalla "Iniciar planning" usa ahora las zonas de
+  Configuración en vez de una lista fija sin Biarritz/Ciboure/Biriatou/Guéthary.

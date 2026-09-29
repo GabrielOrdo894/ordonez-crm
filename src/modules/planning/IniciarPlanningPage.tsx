@@ -13,9 +13,8 @@ import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
+import { useCatalogosVisitas } from '../visitas/useCatalogosVisitas';
 
-const ZONAS_ES = ['Irún', 'Hondarribia', 'Donostia/San Sebastián', 'Rentería', 'Bera de Bidasoa', 'Otro ES'];
-const ZONAS_FR = ['Hendaye', 'Urrugne', 'Saint-Jean-de-Luz', 'Bayonne', 'Autre FR'];
 
 function zonaDefault(pais: string) {
   return pais === 'España' ? 'Irún' : pais === 'Francia' ? 'Hendaye' : '';
@@ -69,6 +68,9 @@ function TarjetaPresupuesto({ p, onClick }: { p: Presupuesto; onClick: () => voi
 export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCrear, creando }: IniciarPlanningPageProps) {
   const navigate = useNavigate();
   const [modo, setModo] = useState<'presupuesto' | 'cliente'>('presupuesto');
+  // Zonas del catálogo de Configuración — antes una lista fija sin Biarritz, Ciboure, Biriatou ni
+  // Guéthary, así que una visita de Biarritz creada desde aquí acababa en "Autre FR" (2026-09-29).
+  const catalogos = useCatalogosVisitas();
   const [buscarPresupuesto, setBuscarPresupuesto] = useState('');
   const [buscarCliente, setBuscarCliente] = useState('');
   const [listaClienteAbierta, setListaClienteAbierta] = useState(false);
@@ -328,7 +330,7 @@ export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCre
                 />
                 <Select
                   label="Zona"
-                  options={(clienteNuevo.pais === 'España' ? ZONAS_ES : ZONAS_FR).map((v) => ({ value: v, label: v }))}
+                  options={(clienteNuevo.pais === 'España' ? catalogos.zonasEs : catalogos.zonasFr).map((v) => ({ value: v, label: v }))}
                   value={clienteNuevo.zona}
                   onChange={(e) => setClienteNuevo((c) => ({ ...c, zona: e.target.value }))}
                 />
