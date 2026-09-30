@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
-import { estadoSeguimiento, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { estadoSeguimiento, SELECT_RESPUESTAS_PRESUPUESTO, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { normalizarTelefono } from '../clientes/types';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
@@ -202,9 +202,7 @@ export function useNotificaciones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
-        )
+        .select(SELECT_RESPUESTAS_PRESUPUESTO)
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null)
         .order('ultima_respuesta_cliente_fecha', { ascending: false });
@@ -510,7 +508,17 @@ export function useNotificaciones() {
       });
     }
 
-    const solicitudesConRespuesta = (solicitudes ?? []).filter((s) => s.estado === 'Nueva' && s.mensaje_enviado_en);
+    // Respuestas de clientes: no se avisa si la visita ya está cerrada (Realizada/Cancelada) — a
+    // partir de ahí la conversación ya no interesa aquí (Gabriel, 2026-09-30).
+    const estadoVisitaPorId = new Map((visitas ?? []).map((v) => [v.id, v.estado]));
+    const visitaCerrada = (visitaId: string | null) => {
+      const estado = visitaId ? estadoVisitaPorId.get(visitaId) : null;
+      return estado === 'Realizada' || estado === 'Cancelada';
+    };
+
+    const solicitudesConRespuesta = (solicitudes ?? []).filter(
+      (s) => s.estado === 'Nueva' && s.mensaje_enviado_en && !visitaCerrada(s.visita_id),
+    );
     for (const s of solicitudesConRespuesta) {
       lista.push({
         id: `solicitud-respuesta-${s.id}`,
@@ -521,7 +529,15 @@ export function useNotificaciones() {
       });
     }
 
-    const seguimientosNuevos = (seguimientos ?? []).filter((p) => estadoSeguimiento(p) === 'Nueva');
+    // Un presupuesto ya Aceptado/Rechazado cuenta igual como cerrado (hay orientativos sin visita
+    // propia: la visita cuelga del presupuesto definitivo).
+    const seguimientosNuevos = (seguimientos ?? []).filter(
+      (p) =>
+        estadoSeguimiento(p) === 'Nueva' &&
+        !visitaCerrada(p.visita_id) &&
+        p.estado !== 'Aceptado' &&
+        p.estado !== 'Rechazado',
+    );
     for (const p of seguimientosNuevos) {
       lista.push({
         id: `seguimiento-nuevo-${p.id}`,

@@ -1084,3 +1084,9 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     Facturas muestra "Facturado" (no "Ingresos") y sin estructura_anterior; la tarjeta de IVA de Inicio es de un
     solo país y por cobro; los gastos pendientes no cuentan en ningún total. La purga RGPD **ya no borra gastos ni
     justificantes** (se conservan 10 años): los desvincula de la visita y anonimiza la descripción del kilometraje.
+- **Avisos de respuestas de clientes solo con la visita abierta** (2026-09-30, petición de Gabriel): la
+  campana (`useNotificaciones.ts`) ya no avisa de "Respuesta de cliente a revisar" (presupuestos) ni de
+  "Respuesta de cliente a solicitud" si la visita vinculada está Realizada/Cancelada, ni si el presupuesto ya
+  está Aceptado/Rechazado — salían siempre los mismos 13 avisos, y su vista en Solicitudes ya no existe desde
+  el 2026-09-16. El select de `['presupuestos', 'respuestas-pendientes']` vive ahora en
+  `SELECT_RESPUESTAS_PRESUPUESTO` (`solicitudes/types.ts`), compartido por Sidebar y notificaciones.

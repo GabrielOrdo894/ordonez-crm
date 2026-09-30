@@ -46,6 +46,11 @@ export const TIPO_SOLICITUD_LABEL: Record<TipoSolicitud, string> = {
 export const SELECT_SOLICITUDES =
   '*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero)';
 
+// Mismo motivo que SELECT_SOLICITUDES, para la queryKey ['presupuestos', 'respuestas-pendientes']
+// (Sidebar y notificaciones la comparten).
+export const SELECT_RESPUESTAS_PRESUPUESTO =
+  'id, numero, cliente_nombre, cliente_email, idioma, visita_id, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado';
+
 export type Solicitud = {
   id: string;
   created_at: string;
@@ -94,6 +99,7 @@ export type PresupuestoConRespuesta = {
   // SolicitudesPage.tsx porque antes "Marcar como Aceptado/Rechazado" cambiaba este campo sin que
   // se reflejara visualmente en ningún sitio de esa tabla (confusión real de Gabriel, 2026-08-20).
   estado: string;
+  visita_id: string | null;
   ultima_respuesta_cliente_resumen: string | null;
   ultima_respuesta_cliente_fecha: string | null;
   ultima_respuesta_revisada: boolean;

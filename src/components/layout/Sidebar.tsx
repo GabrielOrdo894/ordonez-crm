@@ -49,7 +49,7 @@ import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
 import {
-  SELECT_SOLICITUDES,
+  SELECT_RESPUESTAS_PRESUPUESTO, SELECT_SOLICITUDES,
   type PresupuestoConRespuesta,
   type PresupuestoPendienteEnvio,
   type Solicitud,
@@ -268,9 +268,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select(
-          'id, numero, cliente_nombre, cliente_email, idioma, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, mensaje_seguimiento_generado, mensaje_seguimiento_enviado, mensaje_seguimiento_enviado_en, seguimiento_concluido, estado',
-        )
+        .select(SELECT_RESPUESTAS_PRESUPUESTO)
         .is('eliminado_en', null)
         .not('ultima_respuesta_cliente_fecha', 'is', null)
         .order('ultima_respuesta_cliente_fecha', { ascending: false });
