@@ -12,6 +12,7 @@ import { calcularIndemnizacionKm } from '../finanzas/gastos/baremoKilometrico';
 import { formatearPrecio } from '../finanzas/lineas';
 import { SeccionFotosObra, SeccionTicket } from './seccionesMedia';
 import { AvisoCola } from './AvisoCola';
+import { AjusteHuella } from './AjusteHuella';
 import { encolar, esErrorDeRed, mensajeError, type EnvioKm } from './colaOffline';
 import { useCopiaLocal, textoCopia } from './copiaLocal';
 import { direccionDesdeCoordenadas, enviarKm } from './envios';
@@ -133,6 +134,7 @@ export default function RapidoPage() {
       <div className="flex-1 w-full max-w-md mx-auto px-4 py-4 flex flex-col gap-4">
         {seccion === null ? (
           <div className="flex flex-col gap-3">
+            <AjusteHuella variante="aviso" />
             {SECCIONES.map((s) => (
               <button
                 key={s.id}
@@ -174,6 +176,7 @@ export default function RapidoPage() {
           <LayoutDashboard size={16} />
           Ir al CRM completo
         </button>
+        <AjusteHuella variante="pie" />
       </footer>
     </div>
   );

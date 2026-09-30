@@ -896,7 +896,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (2026-09-30, decisión de Gabriel: iniciar sesión una vez y no volver a pedirla): `esTelefono()` en
   `src/lib/sesionTelefono.ts` (pantalla táctil con lado corto < 768 px — la pantalla física, no el ancho
   de la ventana) desactiva el cierre de `App.tsx`. El ordenador sigue cerrando la sesión a medianoche. En
-  el teléfono dura hasta cerrarla a mano, cambiar la contraseña o borrar los datos de la app. Sin probar todavía en un móvil real
+  el teléfono dura hasta cerrarla a mano, cambiar la contraseña o borrar los datos de la app.
+  **Desbloqueo con huella** (mismo día, `src/lib/bloqueoHuella.ts`, `PantallaBloqueo.tsx`,
+  `rapido/AjusteHuella.tsx`): opcional, se activa desde `/rapido` (aviso "¿Activar desbloqueo con huella?" y
+  línea al pie para quitarlo). Con ella activada, `App.tsx` muestra `PantallaBloqueo` al abrir la app y al
+  volver tras más de 5 minutos en segundo plano; tras un login con contraseña no se pide. WebAuthn con el
+  autenticador del móvil (`userVerification: 'required'`), solo en el cliente — es un candado local contra
+  quien coja el móvil desbloqueado, no una verificación del servidor. "Entrar con contraseña" hace
+  `signOut({ scope: 'local' })` (funciona sin red) y lleva al login. Sin probar todavía en un móvil real
   ni el permiso de ubicación ni la instalación; verificado solo tipado/lint/build.
   **Ampliación del mismo día:** en móvil (ancho < 768 px, `useEsMobil`) la pantalla principal del CRM ES
   `/rapido`: `InicioSegunDispositivo` en `App.tsx` redirige `/` → `/rapido` salvo que se haya pulsado

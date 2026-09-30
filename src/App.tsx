@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
@@ -9,6 +9,8 @@ import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import { useEsMobil } from './hooks/useEsMobil';
 import { quiereCrmCompletoEnMovil } from './lib/crmCompletoMovil';
 import { esTelefono } from './lib/sesionTelefono';
+import { huellaActivada, MINUTOS_SIN_BLOQUEO } from './lib/bloqueoHuella';
+import PantallaBloqueo from './modules/auth/PantallaBloqueo';
 
 const CLAVE_FECHA_SESION = 'crm_sesion_fecha';
 
@@ -93,11 +95,36 @@ export default function App() {
     return () => clearTimeout(timeoutId);
   }, [session]);
 
+  // Desbloqueo con huella en el teléfono (ver bloqueoHuella.ts): al abrir la app y al volver tras más
+  // de MINUTOS_SIN_BLOQUEO en segundo plano. Tras un login con contraseña no se pide.
+  const [bloqueado, setBloqueado] = useState(() => esTelefono() && huellaActivada());
+  useEffect(() => {
+    if (!loading && !session) setBloqueado(false);
+  }, [loading, session]);
+  useEffect(() => {
+    if (!esTelefono()) return;
+    let ocultaDesde: number | null = null;
+    const alCambiarVisibilidad = () => {
+      if (document.visibilityState === 'hidden') {
+        ocultaDesde = Date.now();
+        return;
+      }
+      if (ocultaDesde !== null && Date.now() - ocultaDesde > MINUTOS_SIN_BLOQUEO * 60_000 && huellaActivada()) {
+        setBloqueado(true);
+      }
+      ocultaDesde = null;
+    };
+    document.addEventListener('visibilitychange', alCambiarVisibilidad);
+    return () => document.removeEventListener('visibilitychange', alCambiarVisibilidad);
+  }, []);
+
   if (loading) return null;
 
   if (recuperandoContrasena) return <NuevaContrasenaPage onListo={contrasenaActualizada} />;
 
   if (!session) return <LoginPage />;
+
+  if (bloqueado) return <PantallaBloqueo onDesbloqueado={() => setBloqueado(false)} />;
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
