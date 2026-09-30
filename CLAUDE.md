@@ -892,8 +892,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (hoy y próximas, con enlace a Maps, `tel:` y ficha). Entrada "Acciones rápidas" en el Sidebar bajo
   Inicio. `public/sw.js` es un service worker mínimo (red primero para el HTML, caché primero para
   `assets/` e `icons/`, nada de Supabase/Google) registrado en `main.tsx` solo en producción — sin él la
-  app instalada no abría sin cobertura. **La sesión sigue caducando a medianoche también en la app
-  instalada** (no se tocó a propósito, decisión pendiente de Gabriel). Sin probar todavía en un móvil real
+  app instalada no abría sin cobertura. **En el teléfono la sesión ya no caduca a medianoche**
+  (2026-09-30, decisión de Gabriel: iniciar sesión una vez y no volver a pedirla): `esTelefono()` en
+  `src/lib/sesionTelefono.ts` (pantalla táctil con lado corto < 768 px — la pantalla física, no el ancho
+  de la ventana) desactiva el cierre de `App.tsx`. El ordenador sigue cerrando la sesión a medianoche. En
+  el teléfono dura hasta cerrarla a mano, cambiar la contraseña o borrar los datos de la app. Sin probar todavía en un móvil real
   ni el permiso de ubicación ni la instalación; verificado solo tipado/lint/build.
   **Ampliación del mismo día:** en móvil (ancho < 768 px, `useEsMobil`) la pantalla principal del CRM ES
   `/rapido`: `InicioSegunDispositivo` en `App.tsx` redirige `/` → `/rapido` salvo que se haya pulsado
@@ -1019,7 +1022,8 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   envío y "Descartar". La cola solo se procesa con `/rapido` abierta. `useAuth.ts`: sin red y con el token
   caducado, `getSession()` devuelve null y salía el login — ahora usa la sesión guardada **solo si es de hoy**
   (`crm_sesion_fecha`), para no saltarse el cierre a medianoche; tras medianoche sin red sigue saliendo el
-  login. Sin probar todavía en un móvil real.
+  login — salvo en el teléfono (2026-09-30), donde no hay cierre a medianoche y vale la sesión guardada de
+  cualquier día. Sin probar todavía en un móvil real.
 - **Datos legales obligatorios en Gastos y desglose del Asistente de IVA** (2026-09-29, petición de Gabriel):
   `validarGasto()` (`finanzas/gastos/validarGasto.ts`, con tests) se aplica a todo gasto que acaba `pagado`
   (nuevo, editado o confirmado): fecha, cuenta, importe > 0, proveedor y justificante siempre; nº de factura

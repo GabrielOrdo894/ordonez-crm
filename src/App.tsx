@@ -8,6 +8,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import { useEsMobil } from './hooks/useEsMobil';
 import { quiereCrmCompletoEnMovil } from './lib/crmCompletoMovil';
+import { esTelefono } from './lib/sesionTelefono';
 
 const CLAVE_FECHA_SESION = 'crm_sesion_fecha';
 
@@ -72,8 +73,9 @@ export default function App() {
   // forma indefinida. Comprueba al cargar (si la fecha guardada ya no es hoy, expulsa al momento —
   // cubre el caso de un dispositivo cerrado que pasó la medianoche sin la app abierta) y programa
   // además un cierre en cuanto llegue la próxima medianoche si la pestaña sigue abierta.
+  // En el teléfono no se aplica: allí la sesión queda abierta (ver sesionTelefono.ts).
   useEffect(() => {
-    if (!session) return;
+    if (!session || esTelefono()) return;
     const hoy = fechaLocalHoy();
     const fechaGuardada = localStorage.getItem(CLAVE_FECHA_SESION);
     if (fechaGuardada && fechaGuardada !== hoy) {

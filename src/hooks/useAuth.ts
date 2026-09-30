@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isAuthRetryableFetchError, type Session, type User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { esTelefono } from '../lib/sesionTelefono';
 import { useToast } from './useToast';
 
 export type Rol = 'admin' | 'gestion' | 'contable';
@@ -8,13 +9,14 @@ export type Rol = 'admin' | 'gestion' | 'contable';
 // App móvil abierta sin cobertura (2026-09-28): el token de acceso dura 1 h y Supabase no puede
 // renovarlo sin red, así que getSession() devuelve null y salía el login aunque la sesión siguiera
 // guardada — y sin red no se puede iniciar sesión. En ese caso (y solo si la sesión es de hoy, para
-// no saltarse el cierre a medianoche de App.tsx) se usa la sesión guardada para poder abrir
-// /rapido y dejar envíos en la cola; las llamadas a Supabase fallan igual hasta que vuelve la red.
+// no saltarse el cierre a medianoche de App.tsx; en el teléfono no hay cierre a medianoche, así que
+// vale siempre) se usa la sesión guardada para poder abrir /rapido y dejar envíos en la cola; las
+// llamadas a Supabase fallan igual hasta que vuelve la red.
 function sesionGuardadaSinConexion(): Session | null {
   try {
     const hoy = new Date();
     const hoyIso = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-    if (localStorage.getItem('crm_sesion_fecha') !== hoyIso) return null;
+    if (!esTelefono() && localStorage.getItem('crm_sesion_fecha') !== hoyIso) return null;
     const ref = new URL(import.meta.env.VITE_SUPABASE_URL as string).hostname.split('.')[0];
     const guardada = localStorage.getItem(`sb-${ref}-auth-token`);
     const sesion = guardada ? (JSON.parse(guardada) as Session) : null;
