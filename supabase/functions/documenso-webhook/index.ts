@@ -10,6 +10,7 @@
 // firmado/Aceptado ya guardado, que es lo importante.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
+import { codificarCabeceraMime } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -92,32 +93,6 @@ async function descargarYGuardarPdfFirmado(
 // supabase/functions/notificar-visita (duplicado a propósito, un Edge Function no puede importar
 // código de otro, ver más arriba). ---
 
-// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
-// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
-// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
-// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
-// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
-// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
-// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
-// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
-// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
-function codificarCabeceraMime(texto: string): string {
-  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
-  const enc = new TextEncoder();
-  const trozos: string[] = [];
-  let actual = '';
-  for (const ch of texto) {
-    if (enc.encode(actual + ch).length > 45) {
-      trozos.push(actual);
-      actual = ch;
-    } else {
-      actual += ch;
-    }
-  }
-  if (actual) trozos.push(actual);
-  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
-}
-
 async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -172,14 +147,14 @@ function htmlAvisoFirmaCliente(opts: { fr: boolean; nombre: string; numero: stri
   const t = opts.fr
     ? {
         eyebrow: 'Devis signé',
-        saludo: `Bonjour${opts.nombre ? ' ' + opts.nombre : ''},`,
+        saludo: `Bonjour${opts.nombre ? ' ' + esc(opts.nombre) : ''},`,
         intro: `Nous confirmons la réception de votre signature électronique du devis <strong>${esc(opts.numero)}</strong>.`,
         boton: 'Télécharger ma copie signée',
         firma: 'Cordialement,<br/>L\'équipe Reformas Ordoñez',
       }
     : {
         eyebrow: 'Presupuesto firmado',
-        saludo: `Hola${opts.nombre ? ' ' + opts.nombre : ''},`,
+        saludo: `Hola${opts.nombre ? ' ' + esc(opts.nombre) : ''},`,
         intro: `Confirmamos que hemos recibido tu firma electrónica del presupuesto <strong>${esc(opts.numero)}</strong>.`,
         boton: 'Descargar mi copia firmada',
         firma: 'Un saludo,<br/>El equipo de Reformas Ordoñez',
@@ -240,7 +215,7 @@ async function avisarFirmaPorEmail(
 ): Promise<void> {
   const asunto = `Presupuesto ${presupuesto.numero ?? ''} firmado — ${presupuesto.cliente_nombre ?? 'cliente'}`;
   const cuerpo = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#111827">
-    <p><strong>${presupuesto.cliente_nombre ?? 'El cliente'}</strong> ha firmado electrónicamente el presupuesto <strong>${
+    <p><strong>${esc(presupuesto.cliente_nombre ?? 'El cliente')}</strong> ha firmado electrónicamente el presupuesto <strong>${
       presupuesto.numero ?? ''
     }</strong> con Documenso${firmaNombre ? ` (firmado por ${firmaNombre})` : ''}.</p>
     <p>El presupuesto ya se ha marcado como Aceptado en el CRM, y el PDF firmado está disponible para descargar desde su ficha.</p>
@@ -313,6 +288,24 @@ Deno.serve(async (req: Request) => {
     });
     if (errorEventoIgnorado) console.error('No se pudo registrar el evento de firma ignorada:', errorEventoIgnorado.message);
     return jsonResponse({ ok: true, ignorado: 'presupuesto ya estaba Rechazado, no se sobrescribe' });
+  }
+
+  // Firma de un enlace que ya no es el vigente (se regeneró el enlace tras cambiar el presupuesto):
+  // no acepta el presupuesto con unas líneas que el cliente no firmó (auditoría 2026-10-01). Solo se
+  // compara cuando el payload trae un id de envelope de la API v2 ('envelope_…'); con un id numérico
+  // antiguo no hay forma de saberlo y se mantiene el comportamiento anterior.
+  if (
+    envelopeId?.startsWith('envelope_') &&
+    presupuesto.documenso_envelope_id &&
+    envelopeId !== presupuesto.documenso_envelope_id
+  ) {
+    const { error: errorEventoAntiguo } = await supabase.from('documento_eventos').insert({
+      documento_tipo: 'presupuesto',
+      documento_id: presupuesto.id,
+      evento: `Firma recibida en un enlace ANTERIOR (${envelopeId}) — IGNORADA: el presupuesto se modificó después. Revisar a mano con el cliente.`,
+    });
+    if (errorEventoAntiguo) console.error('No se pudo registrar el evento de firma antigua:', errorEventoAntiguo.message);
+    return jsonResponse({ ok: true, ignorado: 'firma de un envelope que ya no es el vigente' });
   }
 
   const { error: updateError } = await supabase

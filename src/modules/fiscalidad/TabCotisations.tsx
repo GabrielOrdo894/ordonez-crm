@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { hoyLocalIso } from '../../lib/fechas';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FileText, PiggyBank, Landmark } from 'lucide-react';
 import { Input } from '../../components/ui/Input';
@@ -40,7 +41,7 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
   const [generandoAttestation, setGenerandoAttestation] = useState(false);
   const [tipoCC, setTipoCC] = useState<'aportacion' | 'devolucion'>('aportacion');
   const [importeCC, setImporteCC] = useState(0);
-  const [fechaCC, setFechaCC] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fechaCC, setFechaCC] = useState(() => hoyLocalIso());
   const [generandoCC, setGenerandoCC] = useState(false);
   const toast = useToast();
 

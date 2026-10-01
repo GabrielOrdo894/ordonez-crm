@@ -33,6 +33,7 @@ import {
 import { NavLink } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { useAuth } from '../../hooks/useAuth';
 import { useTema, TEMAS, ZONAS_HORARIAS_AUTO, type ZonaHorariaAuto } from '../../hooks/useTema';
 import { Input } from '../../components/ui/Input';
@@ -252,6 +253,7 @@ function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentifi
 
 export default function ConfiguracionPage() {
   const toast = useToast();
+  const confirmar = useConfirmar();
   const { user } = useAuth();
   const { tema, modo, zonaHorariaAuto, setTema, setModo, setZonaHorariaAuto } = useTema();
   const queryClient = useQueryClient();
@@ -463,8 +465,20 @@ export default function ConfiguracionPage() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  // Logo guardado en el servidor: no se borra del bucket hasta que se guarda el nuevo (antes se
+  // borraba al subir el nuevo y, si no se pulsaba Guardar, el CRM se quedaba sin logo — auditoría
+  // 2026-10-01; el mismo fallo ya se corrigió en la portada).
+  const logoGuardado = ((config?.datos ?? {}) as { logo_url?: string }).logo_url ?? '';
   const guardarLogoMutation = useMutation({
-    mutationFn: () => guardarDatos({ logo_url: logoUrl }),
+    mutationFn: async () => {
+      const anterior = logoGuardado;
+      await guardarDatos({ logo_url: logoUrl });
+      const pathAnterior = anterior && anterior !== logoUrl ? pathEmpresaDesdeUrl(anterior) : null;
+      if (pathAnterior) {
+        const { error: errorBorrado } = await supabase.storage.from('empresa').remove([pathAnterior]);
+        if (errorBorrado) console.warn('No se pudo borrar el logo anterior en Storage:', errorBorrado.message);
+      }
+    },
     ...alGuardar('Logo guardado', 'actualizó el logo del CRM en Configuración.'),
   });
 
@@ -602,7 +616,14 @@ export default function ConfiguracionPage() {
   // sie.pays-basque@dgfip.finances.gouv.fr, ya en la lista negra, seguía "Nueva").
   const borrarSolicitudesListaNegra = async (listaNegra: string[]) => {
     if (listaNegra.length === 0) return;
-    const { data: solicitudesExistentes, error: errorSolicitudes } = await supabase.from('solicitudes').select('id, email');
+    // Nunca las que ya llevan a una visita o un presupuesto, y siempre confirmando cuántas se borran:
+    // un dominio como "@gmail.com" borraba de golpe y sin aviso solicitudes reales (auditoría
+    // 2026-10-01).
+    const { data: solicitudesExistentes, error: errorSolicitudes } = await supabase
+      .from('solicitudes')
+      .select('id, email')
+      .is('visita_id', null)
+      .is('presupuesto_vinculado_id', null);
     if (errorSolicitudes) throw errorSolicitudes;
     const coincide = (email: string | null) => {
       if (!email) return false;
@@ -611,6 +632,13 @@ export default function ConfiguracionPage() {
     };
     const ids = (solicitudesExistentes ?? []).filter((s) => coincide(s.email)).map((s) => s.id);
     if (ids.length === 0) return;
+    const seguir = await confirmar({
+      titulo: 'Borrar solicitudes de la lista negra',
+      mensaje: `${ids.length} solicitud(es) sin visita ni presupuesto coinciden con la lista negra y se borrarán definitivamente. ¿Continuar?`,
+      textoConfirmar: `Borrar ${ids.length}`,
+      peligroso: true,
+    });
+    if (!seguir) return;
     const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().in('solicitud_id', ids);
     if (errorFunnel) throw errorFunnel;
     const { error: errorBorrado } = await supabase.from('solicitudes').delete().in('id', ids);
@@ -654,10 +682,9 @@ export default function ConfiguracionPage() {
     const { data } = supabase.storage.from('empresa').getPublicUrl(path);
     setLogoUrl(data.publicUrl);
     toast.success('Logo subido — pulsa Guardar para confirmar');
-    // Cada subida usaba un nombre con Date.now() distinto — sin borrar el anterior, el bucket
-    // acumulaba un archivo huérfano por cada cambio de logo (bug real corregido 2026-08-18).
-    // Best-effort: un fallo aquí no debe impedir usar el logo recién subido.
-    const pathAnterior = pathEmpresaDesdeUrl(logoAnteriorUrl);
+    // Solo se borra aquí un logo subido en esta edición y sin guardar; el guardado se borra al
+    // guardar el nuevo (guardarLogoMutation).
+    const pathAnterior = logoAnteriorUrl !== logoGuardado ? pathEmpresaDesdeUrl(logoAnteriorUrl) : null;
     if (pathAnterior) {
       const { error: errorBorrado } = await supabase.storage.from('empresa').remove([pathAnterior]);
       if (errorBorrado) console.warn('No se pudo borrar el logo anterior en Storage:', errorBorrado.message);

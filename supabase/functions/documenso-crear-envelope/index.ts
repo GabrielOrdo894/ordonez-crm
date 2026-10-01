@@ -3,28 +3,12 @@
 // Invocada por el frontend vía supabase.functions.invoke('documenso-crear-envelope')
 // desde src/lib/documenso.ts.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
-// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
-// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
-// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 // Autoalojado desde 2026-09-14 (antes app.documenso.com de pago, límite de 5 firmas/mes agotado) —
 // ver docs/tecnico/documenso.md.
@@ -65,7 +49,7 @@ function extraerSigningUrl(recipientes: Recipient[] | undefined, email: string):
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
     const apiKey = Deno.env.get('DOCUMENSO_API_KEY');
@@ -86,18 +70,18 @@ Deno.serve(async (req: Request) => {
     // un segundo email de firma real al mismo cliente (bug real corregido 2026-08-11). Si ya hay
     // un envelope guardado y no se pide explícitamente "regenerar" (botón "Generar nuevo enlace"),
     // se reutiliza el existente en vez de crear otro.
-    if (!regenerar) {
-      const { data: existente, error: errorExistente } = await supabase
-        .from('presupuestos')
-        .select('documenso_envelope_id, documenso_signing_url, firmado')
-        .eq('id', presupuestoId)
-        .maybeSingle();
-      if (errorExistente) return jsonResponse({ error: errorExistente.message }, 500);
-      if (existente?.firmado) return jsonResponse({ error: 'Este presupuesto ya está firmado' }, 409);
-      if (existente?.documenso_envelope_id && existente?.documenso_signing_url) {
-        return jsonResponse({ signingUrl: existente.documenso_signing_url, envelopeId: existente.documenso_envelope_id });
-      }
+    const { data: existente, error: errorExistente } = await supabase
+      .from('presupuestos')
+      .select('documenso_envelope_id, documenso_signing_url, firmado')
+      .eq('id', presupuestoId)
+      .maybeSingle();
+    if (errorExistente) return jsonResponse({ error: errorExistente.message }, 500);
+    // También al regenerar: un presupuesto firmado no se vuelve a mandar a firmar.
+    if (existente?.firmado) return jsonResponse({ error: 'Este presupuesto ya está firmado' }, 409);
+    if (!regenerar && existente?.documenso_envelope_id && existente?.documenso_signing_url) {
+      return jsonResponse({ signingUrl: existente.documenso_signing_url, envelopeId: existente.documenso_envelope_id });
     }
+    const envelopeAnterior: string | null = existente?.documenso_envelope_id ?? null;
 
     const pdfBytes = base64ABytes(pdfBase64);
 
@@ -165,7 +149,25 @@ Deno.serve(async (req: Request) => {
       .eq('id', presupuestoId);
     if (updateError) return jsonResponse({ error: updateError.message }, 500);
 
-    return jsonResponse({ signingUrl, envelopeId });
+    // El enlace anterior se cancela en Documenso: antes seguía activo y el cliente podía firmar la
+    // versión antigua (con el precio antiguo) y dejar el presupuesto aceptado con las líneas nuevas
+    // (auditoría 2026-10-01). Si la cancelación falla, el webhook igualmente ignora firmas de un
+    // envelope que no sea el vigente.
+    let avisoCancelacion: string | null = null;
+    if (envelopeAnterior && envelopeAnterior !== envelopeId) {
+      try {
+        await llamarDocumenso('/envelope/cancel', apiKey, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ envelopeId: envelopeAnterior, reason: 'Sustituido por una versión actualizada del presupuesto' }),
+        });
+      } catch (errorCancelar) {
+        avisoCancelacion = `No se pudo cancelar el enlace anterior en Documenso: ${errorCancelar instanceof Error ? errorCancelar.message : String(errorCancelar)}`;
+        console.error(avisoCancelacion);
+      }
+    }
+
+    return jsonResponse({ signingUrl, envelopeId, avisoCancelacion });
   } catch (err) {
     return jsonResponse({ error: err instanceof Error ? err.message : 'Error desconocido al conectar con Documenso' }, 500);
   }

@@ -253,7 +253,7 @@ function construirEventoPayload(v: EventoVisita, hora: string, fotosUrls: string
 
 export async function crearEventoVisita(v: EventoVisita): Promise<string | null> {
   if (!v.fecha_visita || !v.hora_visita) return null;
-  const token = await obtenerAccessToken();
+  let token = await obtenerAccessToken();
 
   // Supabase/PostgREST devuelve las columnas `time` como "HH:MM:SS" — hay que recortar
   // los segundos antes de componer el dateTime ISO, si no la API de Google la rechaza.
@@ -261,11 +261,18 @@ export async function crearEventoVisita(v: EventoVisita): Promise<string | null>
   const fotosUrls = await urlsFotosPrevias(v.fotos_previas);
   const evento = construirEventoPayload(v, hora, fotosUrls);
 
-  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(evento),
-  });
+  const hacerPost = (t: string) =>
+    fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(evento),
+    });
+  // Mismo reintento con token renovado que actualizar/eliminar (auditoría 2026-10-01).
+  let res = await hacerPost(token);
+  if (res.status === 401) {
+    token = await obtenerAccessToken(true);
+    res = await hacerPost(token);
+  }
 
   if (!res.ok) {
     const detalle = await res.text().catch(() => '');

@@ -48,6 +48,9 @@ export async function insertarGastoKilometricoPendiente(opts: {
   etiqueta: string;
   km: number | null;
   visitaId: string | null;
+  // Id fijo del gasto (envíos de la cola offline de /rapido): reintentar el mismo envío no crea un
+  // segundo gasto si el primero llegó a guardarse pero se perdió la respuesta.
+  id?: string;
 }): Promise<void> {
   const { fecha, etiqueta, km, visitaId } = opts;
   const importeBase = km != null ? calcularIndemnizacionKm(km, CV_VEHICULO_DEFECTO) : 0;
@@ -74,6 +77,8 @@ export async function insertarGastoKilometricoPendiente(opts: {
     estado_gasto: 'pendiente',
   };
 
-  const { error } = await supabase.from('gastos').insert(nuevo);
-  if (error) throw error;
+  const fila: NuevoGasto & { id?: string } = opts.id ? { ...nuevo, id: opts.id } : nuevo;
+  const { error } = await supabase.from('gastos').insert(fila);
+  // 23505 con id fijo: ese mismo envío ya se guardó en un intento anterior.
+  if (error && !(opts.id && error.code === '23505')) throw error;
 }

@@ -63,8 +63,20 @@ function limpio(texto: string): string {
   return texto.replace(/[\t\r\n]+/g, ' ').trim();
 }
 
+// Fecha (AAAAMMJJ) de un instante en hora de París — ValidDate es la fecha de validación de la
+// escritura en la contabilidad, no la fecha UTC del servidor.
+function fechaParisFec(instante: string): string {
+  const partes = new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(instante));
+  return partes.replace(/-/g, '');
+}
+
 // Cada escritura (EcritureNum) es un lote insertado a la vez para un documento, una fecha y un
-// pago — siempre cuadrado. Numeración correlativa por diario dentro del ejercicio, en orden de fecha.
+// pago — siempre cuadrado. Numeración correlativa por diario dentro del ejercicio en ORDEN DE
+// VALIDACIÓN (created_at), como pide el art. A47 A-1 LPF: así es irreversible — una escritura nueva
+// siempre recibe el número siguiente, aunque lleve una fecha anterior. Antes se numeraba por
+// EcritureDate y una corrección con fecha atrasada renumeraba todas las posteriores entre una
+// exportación y otra (auditoría 2026-10-01).
 export function construirFec(
   asientos: AsientoFec[],
   ejercicio: { inicio: string; fin: string },
@@ -79,7 +91,7 @@ export function construirFec(
     else lotes.set(clave, [a]);
   }
   const ordenados = Array.from(lotes.values()).sort(
-    (x, y) => x[0].fecha.localeCompare(y[0].fecha) || x[0].created_at.localeCompare(y[0].created_at),
+    (x, y) => x[0].created_at.localeCompare(y[0].created_at) || x[0].fecha.localeCompare(y[0].fecha),
   );
 
   const contadores = new Map<string, number>();
@@ -107,7 +119,7 @@ export function construirFec(
           importeFec(a.haber),
           '',
           '',
-          fechaFec(a.created_at),
+          fechaParisFec(a.created_at),
           '',
           '',
         ].join('\t'),

@@ -16,20 +16,8 @@
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts y el cálculo de distancia
 // (Distance Matrix con fallback Haversine) de notificar-visita/index.ts.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
-import { CV_VEHICULO_DEFECTO, CUENTA_KILOMETRICO, tarifaPorCv } from '../_shared/baremoKilometrico.ts';
-
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
+import { CV_VEHICULO_DEFECTO, CUENTA_KILOMETRICO, calcularIndemnizacionKm } from '../_shared/baremoKilometrico.ts';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -105,17 +93,21 @@ function kmIdaYVueltaEstimado(oficina: Oficina, lat: number, lng: number): numbe
   return Math.round(lineaRecta * 1.3 * 2 * 10) / 10;
 }
 
-async function calcularKmIdaYVuelta(lat: number, lng: number): Promise<number> {
+// Distancia real por carretera; si Google no responde desde el servidor, estimación en línea recta
+// ×1,3. La estimación se marca en la descripción del gasto ("km estimados, revisar") para que al
+// confirmarlo en Gastos se vea que no es la ruta real — antes no se distinguía y el importe podía
+// diferir del calculado en el navegador sin que nadie lo supiera (auditoría 2026-10-01).
+async function calcularKmIdaYVuelta(lat: number, lng: number): Promise<{ km: number; estimado: boolean }> {
   const apiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
   if (apiKey) {
     try {
       const real = await kmIdaYVueltaReal(OFICINA_FR, lat, lng, apiKey);
-      if (real != null) return real;
+      if (real != null) return { km: real, estimado: false };
     } catch {
-      // sigue al fallback de abajo
+      // sigue a la estimación
     }
   }
-  return kmIdaYVueltaEstimado(OFICINA_FR, lat, lng);
+  return { km: kmIdaYVueltaEstimado(OFICINA_FR, lat, lng), estimado: true };
 }
 
 type VisitaPendiente = {
@@ -139,20 +131,28 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
 
   const ahora = Date.now();
   const pasadas = (visitas ?? []).filter((v: { fecha_visita: string; hora_visita: string | null }) => {
-    const hora = (v.hora_visita ?? '00:00').slice(0, 5);
+    // Sin hora, se da por hecha al terminar el día (antes contaba como las 00:00 y se marcaba
+    // Realizada a la 01:00 del mismo día — auditoría 2026-10-01).
+    const hora = (v.hora_visita ?? '23:00').slice(0, 5);
     return instanteEnParis(v.fecha_visita, hora) + UNA_HORA_MS < ahora;
   }) as (VisitaPendiente & { hora_visita: string | null })[];
 
   if (pasadas.length === 0) return { completadas: 0, gastosCreados: 0 };
 
-  const { error: errorUpdate } = await supabase
+  // .eq('estado','Pendiente') otra vez en el UPDATE: una visita cancelada (o ya completada desde el
+  // navegador, AppLayout) entre la lectura y la escritura no se toca, y solo las filas que este
+  // proceso cambió reciben nota y kilometraje (auditoría 2026-10-01: había notas duplicadas).
+  const { data: actualizadas, error: errorUpdate } = await supabase
     .from('visitas')
     .update({ estado: 'Realizada' })
-    .in('id', pasadas.map((v) => v.id));
+    .in('id', pasadas.map((v) => v.id))
+    .eq('estado', 'Pendiente')
+    .select('id');
   if (errorUpdate) throw new Error(`marcar realizada: ${errorUpdate.message}`);
+  const idsActualizadas = new Set((actualizadas ?? []).map((v) => v.id as string));
 
   let gastosCreados = 0;
-  for (const v of pasadas) {
+  for (const v of pasadas.filter((p) => idsActualizadas.has(p.id))) {
     const { error: errorNota } = await supabase
       .from('notas_cliente')
       .insert({ visita_id: v.id, tipo: 'sistema', texto: 'Visita marcada automáticamente como realizada (pasó 1 hora desde la hora prevista)', autor: 'Sistema' });
@@ -169,11 +169,15 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
     }
     if (existente && existente.length > 0) continue;
 
-    const km = v.lat != null && v.lng != null ? await calcularKmIdaYVuelta(v.lat, v.lng) : null;
-    const importeBase = km != null ? Math.round(km * tarifaPorCv(CV_VEHICULO_DEFECTO) * 100) / 100 : 0;
+    const ruta = v.lat != null && v.lng != null ? await calcularKmIdaYVuelta(v.lat, v.lng) : null;
+    const km = ruta?.km ?? null;
+    // Misma fórmula del barème que el navegador (calcularIndemnizacionKm), no km × tarifa a secas.
+    const importeBase = km != null ? Math.round(calcularIndemnizacionKm(km, CV_VEHICULO_DEFECTO) * 100) / 100 : 0;
     const { error: errorGasto } = await supabase.from('gastos').insert({
       fecha: v.fecha_visita,
-      descripcion: `Indemnité kilométrique — visita ${v.nombre} ${v.apellidos}${km != null ? ` (${km} km)` : ' (km pendiente de completar)'}`,
+      descripcion: `Indemnité kilométrique — visita ${v.nombre} ${v.apellidos}${
+        km != null ? ` (${km} km${ruta?.estimado ? ' estimados, revisar' : ''})` : ' (km pendiente de completar)'
+      }`,
       categoria: '6251 · Voyages et déplacements',
       pais: 'Francia',
       cuenta_contable: CUENTA_KILOMETRICO,
@@ -189,7 +193,7 @@ async function autocompletarVisitas(supabase: SupabaseClient): Promise<{ complet
     else gastosCreados++;
   }
 
-  return { completadas: pasadas.length, gastosCreados };
+  return { completadas: idsActualizadas.size, gastosCreados };
 }
 
 async function rechazarPresupuestosCaducados(supabase: SupabaseClient): Promise<number> {
@@ -209,40 +213,62 @@ async function rechazarPresupuestosCaducados(supabase: SupabaseClient): Promise<
   // un presupuesto firmado por el cliente justo en el hueco entre leer y escribir (p.ej. vía
   // documenso-webhook) podía sobrescribirse a Rechazado (condición de carrera real, corregida
   // 2026-08-18).
-  const { error: errorUpdate } = await supabase
+  const { data: rechazados, error: errorUpdate } = await supabase
     .from('presupuestos')
     .update({ estado: 'Rechazado' })
     .in('id', ids)
-    .eq('estado', 'Pendiente');
+    .eq('estado', 'Pendiente')
+    .select('id');
   if (errorUpdate) throw new Error(`rechazar presupuestos: ${errorUpdate.message}`);
+  // Solo los que este proceso cambió de verdad reciben evento (antes también los que se habían
+  // firmado en el hueco entre leer y escribir — auditoría 2026-10-01).
+  const idsRechazados = (rechazados ?? []).map((p: { id: string }) => p.id);
 
-  for (const id of ids) {
+  for (const id of idsRechazados) {
     const { error: errorEvento } = await supabase
       .from('documento_eventos')
       .insert({ documento_tipo: 'presupuesto', documento_id: id, evento: 'Marcado como Rechazado (caducado sin respuesta)' });
     if (errorEvento) console.error(`rechazarPresupuestosCaducados: no se pudo insertar documento_eventos de ${id}:`, errorEvento.message);
     const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'presupuesto_rechazado', presupuesto_id: id });
-    if (errorFunnel) console.error(`rechazarPresupuestosCaducados: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
+    if (errorFunnel && errorFunnel.code !== '23505') console.error(`rechazarPresupuestosCaducados: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
   }
 
-  return ids.length;
+  return idsRechazados.length;
 }
 
 const CATORCE_DIAS_MS = 14 * 24 * 60 * 60 * 1000;
 
 async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise<number> {
   const limite = new Date(Date.now() - CATORCE_DIAS_MS).toISOString();
-  const { data: solicitudes, error } = await supabase
+  const { data: candidatas, error } = await supabase
     .from('solicitudes')
-    .select('id')
+    .select('id, created_at, mensaje_enviado_en, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, reabierta_en')
     .in('estado', ['Nueva', 'Enviada'])
     .is('visita_id', null)
     .is('presupuesto_vinculado_id', null)
     .lt('created_at', limite);
   if (error) throw new Error(`solicitudes: ${error.message}`);
-  if (!solicitudes || solicitudes.length === 0) return 0;
-
-  const ids = solicitudes.map((s: { id: string }) => s.id);
+  // 14 días desde la ÚLTIMA actividad (creación, nuestro mensaje, respuesta del cliente o reapertura),
+  // no desde la creación, y nunca con una respuesta del cliente sin revisar: antes se cerraba una
+  // solicitud a la que el cliente acababa de contestar (auditoría 2026-10-01).
+  type Candidata = {
+    id: string;
+    created_at: string;
+    mensaje_enviado_en: string | null;
+    ultima_respuesta_cliente_fecha: string | null;
+    ultima_respuesta_revisada: boolean | null;
+    reabierta_en: string | null;
+  };
+  const ids = ((candidatas ?? []) as Candidata[])
+    .filter((s) => s.ultima_respuesta_revisada !== false)
+    .filter((s) => {
+      const ultima = [s.created_at, s.mensaje_enviado_en, s.ultima_respuesta_cliente_fecha, s.reabierta_en]
+        .filter((f): f is string => !!f)
+        .reduce((max, f) => (f > max ? f : max));
+      return ultima < limite;
+    })
+    .map((s) => s.id);
+  if (ids.length === 0) return 0;
   // Mismos filtros repetidos en el UPDATE que en el SELECT (no solo .in('id', ids)) — misma razón
   // que rechazarPresupuestosCaducados: evita pisar una solicitud que se vinculó a una visita o un
   // presupuesto justo en el hueco entre leer y escribir.
@@ -257,9 +283,11 @@ async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise
 
   // Esta etapa representa solicitudes que no llegaron a concretar una visita, no un rechazo
   // posterior a una visita ya realizada.
+  // Índice único parcial (etapa, solicitud_id): si el evento ya existía, el insert falla con 23505
+  // sin duplicar, y eso no es un error.
   for (const id of ids) {
     const { error: errorFunnel } = await supabase.from('funnel_eventos').insert({ etapa: 'solicitud_descartada', solicitud_id: id });
-    if (errorFunnel) console.error(`marcarSolicitudesNoConcretadas: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
+    if (errorFunnel && errorFunnel.code !== '23505') console.error(`marcarSolicitudesNoConcretadas: no se pudo insertar funnel_eventos de ${id}:`, errorFunnel.message);
   }
 
   return ids.length;
@@ -267,7 +295,7 @@ async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 

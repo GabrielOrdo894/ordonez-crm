@@ -112,19 +112,26 @@ export function AppLayout() {
 
   const autocompletarVisitasMutation = useMutation({
     mutationFn: async (visitasAMarcar: Visita[]) => {
-      const { error } = await supabase
+      // Solo las que siguen Pendiente en el momento del UPDATE: con dos pestañas abiertas (o el cron
+      // automatizaciones-crm a la vez) cada visita la completa un único proceso, sin notas ni
+      // kilometraje duplicados, y una visita cancelada entretanto no se toca (auditoría 2026-10-01).
+      const { data: actualizadas, error } = await supabase
         .from('visitas')
         .update({ estado: 'Realizada' })
         .in(
           'id',
           visitasAMarcar.map((v) => v.id),
-        );
+        )
+        .eq('estado', 'Pendiente')
+        .select('id');
       if (error) throw error;
-      for (const v of visitasAMarcar) {
-        await notaSistema(
-          v.id,
-          'Visita marcada automáticamente como realizada (pasó 1 hora desde la hora prevista)',
-        );
+      const ids = new Set((actualizadas ?? []).map((v) => v.id as string));
+      for (const v of visitasAMarcar.filter((x) => ids.has(x.id))) {
+        try {
+          await notaSistema(v.id, 'Visita marcada automáticamente como realizada (pasó 1 hora desde la hora prevista)');
+        } catch (error) {
+          console.error(`No se pudo anotar la visita ${v.id}:`, error);
+        }
         try {
           await crearGastoKilometricoPendiente(v);
         } catch (error) {
@@ -145,7 +152,7 @@ export function AppLayout() {
       (v) =>
         v.estado === 'Pendiente' &&
         v.fecha_visita &&
-        new Date(`${v.fecha_visita}T${(v.hora_visita ?? '00:00').slice(0, 5)}:00`).getTime() +
+        new Date(`${v.fecha_visita}T${(v.hora_visita ?? '23:00').slice(0, 5)}:00`).getTime() +
           UNA_HORA_MS <
           ahora,
     );

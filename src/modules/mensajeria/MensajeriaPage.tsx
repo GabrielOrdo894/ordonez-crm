@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Layers, Send, Star, FileEdit, Archive, Trash2, Paperclip, PenSquare, Search, User as UserIcon, X } from 'lucide-react';
+import { useUrlsFirmadas } from './adjuntosFirmados';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -51,6 +52,7 @@ export default function MensajeriaPage() {
   const [asunto, setAsunto] = useState('');
   const [texto, setTexto] = useState('');
   const [adjuntos, setAdjuntos] = useState<{ url: string; nombre: string }[]>([]);
+  const { data: firmadasCompose } = useUrlsFirmadas(adjuntos.map((a) => a.url));
   const [subiendo, setSubiendo] = useState(false);
   const [hiloId, setHiloId] = useState<string | null>(null);
   const { seleccion, toggleFila, toggleTodas, limpiar: limpiarSeleccion } = useSeleccionMultiple();
@@ -262,9 +264,9 @@ export default function MensajeriaPage() {
         continue;
       }
       const extension = file.name.split('.').pop() ?? 'jpg';
-      // crypto.randomUUID() en vez de Date.now()+Math.random() (~20 bits de entropía) — este bucket
-      // es público, así que un nombre adivinable exponía adjuntos de mensajes privados a quien
-      // conociera aproximadamente la hora de envío (hallazgo real, revisión 2026-08-12).
+      // crypto.randomUUID(): nombre no adivinable (revisión 2026-08-12). El bucket es privado desde
+      // 2026-10-01; la URL se guarda con formato público solo como identificador de la ruta y se
+      // firma al mostrarla (adjuntosFirmados.ts).
       const path = `${crypto.randomUUID()}.${extension}`;
       const { error } = await supabase.storage.from('mensajes_adjuntos').upload(path, file, { contentType: file.type });
       if (error) {
@@ -508,7 +510,7 @@ export default function MensajeriaPage() {
                     className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 text-gray-700 px-2 py-1 rounded-sm text-xs"
                   >
                     <Paperclip size={12} />
-                    <a href={a.url} target="_blank" rel="noreferrer" className="hover:underline max-w-[140px] truncate">
+                    <a href={firmadasCompose?.get(a.url) ?? a.url} target="_blank" rel="noreferrer" className="hover:underline max-w-[140px] truncate">
                       {a.nombre}
                     </a>
                     <button type="button" onClick={() => quitarAdjunto(a.url)} className="text-gray-400 hover:text-red-600">

@@ -199,11 +199,15 @@ export function ConexionBancoPanel() {
     } catch {
       esperado = null;
     }
-    if (esperado && esperado !== state) {
-      toast.error('La respuesta del banco no corresponde a esta conexión. Vuelve a intentarlo.');
+    // Falla cerrado: sin el state guardado al iniciar la conexión desde aquí (enlace abierto en otra
+    // pestaña, o recibido de un tercero) no se vincula nada — si no, alguien podía conectar el CRM a
+    // SU cuenta bancaria con un enlace con su propio code (auditoría 2026-10-01).
+    if (!code) return;
+    if (!esperado || esperado !== state) {
+      toast.error('La respuesta del banco no corresponde a una conexión iniciada desde este navegador. Vuelve a conectar el banco.');
       return;
     }
-    if (code) crearSesionMutation.mutate(code);
+    crearSesionMutation.mutate(code);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle } from 'lucide-react';
+import { congelarTerminosCondiciones } from '../../lib/terminos';
 import { supabase } from '../../lib/supabase';
 import { camposContactoFaltantes } from '../../lib/datosContacto';
 import { useAuth } from '../../hooks/useAuth';
@@ -233,9 +234,18 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   });
 
   const cambiarEstadoMutation = useMutation({
+    // Mismos efectos que el cambio de estado desde la lista de presupuestos (auditoría 2026-10-01:
+    // desde aquí no se congelaban los T&C al aceptar ni quedaba nota de sistema).
     mutationFn: async (estado: string) => {
+      if (presupuesto?.firmado && (estado === 'Borrador' || estado === 'Pendiente')) {
+        throw new Error('Este presupuesto está firmado por el cliente: no puede volver a ' + estado + '.');
+      }
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', id);
       if (error) throw error;
+      if (estado === 'Aceptado' && presupuesto) await congelarTerminosCondiciones(presupuesto);
+      if (presupuesto?.visita_id) {
+        await notaSistema(presupuesto.visita_id, `Presupuesto ${presupuesto.numero} marcado como ${estado} por ${nombreUsuarioActual}`);
+      }
       await registrarEvento('presupuesto', id, `Marcado como ${estado}`);
       await registrarEtapaPresupuestoConBackfill(estado, id);
     },
@@ -268,28 +278,17 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   const quitarPagoMutation = useMutation({
     mutationFn: async () => {
       if (!factura) return;
-      await vaciarPagosFactura([id]);
-      await registrarEvento('factura', id, 'Pagos revertidos — vuelve a Pendiente');
+      await vaciarPagosFactura([id], nombreUsuarioActual);
+      await registrarEvento('factura', id, 'Pagos anulados — vuelve a Pendiente');
     },
-    onSuccess: async () => {
+    onSuccess: () => toast.success('Pagos anulados, la factura vuelve a Pendiente'),
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
       queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
       refetchFactura();
-      toast.success('Pagos eliminados, factura vuelve a Pendiente');
-      // Antes esta acción solo tocaba `facturas` — dejaba el asiento de cobro contabilizado para
-      // siempre en el libro diario (asientos_contables es insert-only) y filas huérfanas en
-      // pagos_factura, un duplicado sin corregir de la misma lógica ya arreglada en
-      // FacturasPage.tsx (hallazgo real, auditoría 2026-09-08). Ahora reutiliza exactamente la
-      // misma función.
-      if (factura) {
-        try {
-          await rectificarAsientosFacturaSiHaceFalta(factura, 'cobro');
-          queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-        } catch (error) {
-          toast.warning(`Pagos revertidos, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
-        }
-      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -581,9 +580,20 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                 : []),
               ...(tipo === 'factura' && factura
                 ? ([
-                    factura.estado_cobro === 'Cobrada' || factura.estado_cobro === 'Cobrada parcialmente'
-                      ? { label: 'Vaciar pagos registrados', onClick: () => quitarPagoMutation.mutate() }
-                      : { label: 'Registrar pago', onClick: () => setRegistrandoPago(true) },
+                    {
+                      label:
+                        factura.tipo === 'rectificativa'
+                          ? 'Reembolsos al cliente'
+                          : factura.estado_cobro === 'Cobrada'
+                            ? 'Ver pagos'
+                            : 'Registrar pago',
+                      onClick: () => setRegistrandoPago(true),
+                    },
+                    {
+                      label: 'Anular todos los pagos',
+                      onClick: () => quitarPagoMutation.mutate(),
+                      oculto: !(factura.monto_pagado ?? 0),
+                    },
                     {
                       label: 'Cancelar reseña automática',
                       onClick: () => cancelarResenaAutoMutation.mutate(),

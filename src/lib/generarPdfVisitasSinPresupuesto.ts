@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf';
+import { hoyLocalIso } from './fechas';
 import { cargarConfigCompleta, GRIS_BORDE, GRIS_TEXTO, hexARgb, oscurecerHex, piePaginaNumerado, totalPaginasPdf } from './pdfEmpresa';
 import { configPlantillaDesde } from '../modules/finanzas/DocumentoPreview';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
@@ -152,6 +153,6 @@ export async function generarPdfVisitasSinPresupuesto(visitas: Visita[]): Promis
     piePaginaNumerado(doc, margen, 'CRM interno — Reformas Ordoñez', i, totalPaginas);
   }
 
-  const fechaArchivo = new Date().toISOString().slice(0, 10);
+  const fechaArchivo = hoyLocalIso();
   doc.save(`visitas_sin_presupuesto_${fechaArchivo}.pdf`);
 }

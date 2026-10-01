@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { registrarEventoFunnel } from '../../lib/funnelTracking';
 import { registrarEvento } from '../../lib/eventos';
-import { fechaVisitaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, hoyLocalIso } from '../../lib/fechas';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { useDebounced } from '../../hooks/useDebounced';
@@ -105,6 +105,27 @@ export function PlanningObraDetalle({
     JSON.stringify({ nombre_obra: proyectoInicial.nombre_obra, fases: proyectoInicial.fases }),
   );
   const avisoConflictoMostradoRef = useRef(false);
+
+  // Al salir (botón Volver, cambiar de pantalla) antes de que pasen los 600 ms del debounce, los
+  // últimos cambios se perdían: se guardan aquí si no coinciden con lo último enviado (auditoría
+  // 2026-10-01).
+  const ultimoLocalRef = useRef({ nombre_obra: nombreObraLocal, fases: fasesLocal });
+  ultimoLocalRef.current = { nombre_obra: nombreObraLocal, fases: fasesLocal };
+  useEffect(() => {
+    const proyectoId = proyecto.id;
+    return () => {
+      const pendiente = ultimoLocalRef.current;
+      if (JSON.stringify(pendiente) === ultimoConocidoServidorRef.current) return;
+      void supabase
+        .from('proyectos')
+        .update(pendiente)
+        .eq('id', proyectoId)
+        .then(({ error }) => {
+          if (error) console.error('No se pudieron guardar los últimos cambios del planning:', error.message);
+        });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (primerRenderRef.current) {
@@ -241,7 +262,7 @@ export function PlanningObraDetalle({
       ? diasInclusive(inicioCalculadoLocal, finPrevistoLocal)
       : null;
   const seccionesLocal = useMemo(() => agruparPorSeccion(fasesLocal), [fasesLocal]);
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyLocalIso();
   const faseAtrasada = (f: FaseObra) => !f.completada && !!f.fecha_fin && f.fecha_fin < hoyISO;
 
   return (

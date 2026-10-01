@@ -20,23 +20,7 @@
 //
 // Ver docs/producto/bloque6-solicitudes-seguimiento.md y docs/negocio/directrices-respuesta-clientes.md.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
-
-// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
-// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
-// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
-// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 type GmailHeader = { name: string; value: string };
 type GmailMessagePart = {
@@ -560,7 +544,7 @@ async function revisarRespuestasPresupuestos(token: string, supabase: SupabaseCl
 async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient, log: string[]) {
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
-    .select('id, email, fuente, created_at, ultima_respuesta_cliente_fecha')
+    .select('id, email, fuente, created_at, ultima_respuesta_cliente_fecha, reabierta_en')
     .eq('estado', 'Nueva')
     .not('email', 'is', null);
 
@@ -590,9 +574,11 @@ async function revisarEnviosSolicitudes(token: string, supabase: SupabaseClient,
     // solicitud. Nos quedamos con el más antiguo de los correos NUESTROS posteriores a esa fecha
     // — si solo hay correos anteriores (respuesta vieja, o cliente recurrente con historial
     // previo), no cuenta como respuesta a lo que el cliente dijo ahora.
-    const desde = s.ultima_respuesta_cliente_fecha && s.ultima_respuesta_cliente_fecha > s.created_at
-      ? s.ultima_respuesta_cliente_fecha
-      : s.created_at;
+    // Si se reabrió a mano ("Marcar como Nueva"), cuenta desde ese momento: si no, el correo
+    // antiguo la volvía a marcar Enviada en la siguiente pasada (auditoría 2026-10-01).
+    const desde = [s.created_at, s.ultima_respuesta_cliente_fecha, s.reabierta_en]
+      .filter((f): f is string => !!f)
+      .reduce((max, f) => (f > max ? f : max));
     let fechaEnvio: string | null = null;
     let threadIdEnvio: string | null = null;
     for (const { id, threadId } of mensajes) {
@@ -659,12 +645,15 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
     .select('id, nombre, gmail_thread_id, ultima_respuesta_cliente_fecha, ultima_respuesta_revisada, respuesta_programada_en')
-    .eq('estado', 'Enviada')
+    // También las Aceptadas (visita ya agendada) de los últimos 60 días: los cambios de cita y las
+    // cancelaciones llegan por ese mismo hilo y antes no se vigilaban (auditoría 2026-10-01).
+    .in('estado', ['Enviada', 'Aceptada'])
+    .gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString())
     .is('presupuesto_vinculado_id', null)
     .not('gmail_thread_id', 'is', null);
 
   if (error) {
-    log.push(`Error leyendo solicitudes Enviada: ${error.message}`);
+    log.push(`Error leyendo solicitudes Enviada/Aceptada: ${error.message}`);
     return 0;
   }
   log.push(`Solicitudes enviadas con hilo de Gmail a revisar: ${solicitudes.length}.`);
@@ -756,7 +745,7 @@ async function revisarRespuestasProgramadas(token: string, supabase: SupabaseCli
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
     .select('id, email, ultima_respuesta_cliente_fecha, respuesta_programada_en')
-    .eq('estado', 'Enviada')
+    .in('estado', ['Enviada', 'Aceptada'])
     .eq('ultima_respuesta_revisada', false)
     .not('email', 'is', null);
 
@@ -888,10 +877,15 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
   const threadIds = [...new Set(mensajes.map((m) => m.threadId))];
   log.push(`Conversaciones directas: ${threadIds.length} hilo(s) con mensajes nuestros (últimos 60 días).`);
 
-  const [{ data: solicitudesTracked }, { data: presupuestosTracked }] = await Promise.all([
+  const [{ data: solicitudesTracked, error: errorSolTracked }, { data: presupuestosTracked, error: errorPresTracked }] = await Promise.all([
     supabase.from('solicitudes').select('gmail_thread_id').not('gmail_thread_id', 'is', null),
     supabase.from('presupuestos').select('gmail_thread_id').not('gmail_thread_id', 'is', null).is('eliminado_en', null),
   ]);
+  // Sin la lista de hilos ya registrados se crearían solicitudes duplicadas: mejor no seguir.
+  if (errorSolTracked || errorPresTracked) {
+    log.push(`Conversaciones directas omitidas: no se pudieron leer los hilos ya registrados (${(errorSolTracked ?? errorPresTracked)!.message}).`);
+    return 0;
+  }
   const hilosYaTracked = new Set<string>([
     ...((solicitudesTracked ?? []) as { gmail_thread_id: string }[]).map((s) => s.gmail_thread_id),
     ...((presupuestosTracked ?? []) as { gmail_thread_id: string }[]).map((p) => p.gmail_thread_id),
@@ -1125,16 +1119,56 @@ async function detectarPresupuestosEnviadosPorEmail(token: string, supabase: Sup
   return marcados;
 }
 
+// Una sola ejecución a la vez y como mucho una cada INTERVALO_MINIMO_MS: el CRM la lanza al abrir
+// varias pantallas y dos pasadas simultáneas agotaban la cuota por minuto de Gmail (8 errores 500
+// el 2026-09-30) y podían duplicar eventos del embudo (auditoría 2026-10-01). Mismo lock de fila
+// que automatizaciones-crm.
+const NOMBRE_LOCK = 'revisar-gmail';
+const INTERVALO_MINIMO_MS = 2 * 60 * 1000;
+const LOCK_ATASCADO_MS = 10 * 60 * 1000;
+
+// forzar (botón "Comprobar Gmail"): sin intervalo mínimo, pero nunca dos a la vez.
+async function intentarAdquirirLock(supabase: SupabaseClient, forzar: boolean): Promise<boolean> {
+  const ahora = Date.now();
+  const haceIntervalo = new Date(forzar ? ahora : ahora - INTERVALO_MINIMO_MS).toISOString();
+  const haceAtasco = new Date(ahora - LOCK_ATASCADO_MS).toISOString();
+  const { data, error } = await supabase
+    .from('automatizacion_lock')
+    .update({ corriendo: true, iniciado_en: new Date(ahora).toISOString() })
+    .eq('nombre', NOMBRE_LOCK)
+    .or(`and(corriendo.eq.false,iniciado_en.lt.${haceIntervalo}),iniciado_en.lt.${haceAtasco}`)
+    .select('nombre')
+    .maybeSingle();
+  if (error) throw new Error(`lock: ${error.message}`);
+  return !!data;
+}
+
+async function liberarLock(supabase: SupabaseClient) {
+  const { error } = await supabase.from('automatizacion_lock').update({ corriendo: false }).eq('nombre', NOMBRE_LOCK);
+  if (error) console.error('revisar-gmail: no se pudo liberar el lock:', error.message);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   const log: string[] = [];
+  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  try {
+    const forzar = !!(await req.json().catch(() => ({})))?.forzar;
+    if (!(await intentarAdquirirLock(supabase, forzar))) {
+      return jsonResponse({ ok: true, omitido: 'Ya se está revisando o se revisó hace menos de 2 minutos' });
+    }
+  } catch (err) {
+    console.error('revisar-gmail error:', err);
+    return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
+  }
   try {
     const token = await obtenerAccessToken();
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    const { data: empresaRow } = await supabase.from('empresa_config').select('datos').eq('id', 1).maybeSingle();
+    const { data: empresaRow, error: errorEmpresa } = await supabase.from('empresa_config').select('datos').eq('id', 1).maybeSingle();
+    // Sin la lista negra no se ingiere nada: se colarían como solicitudes correos excluidos.
+    if (errorEmpresa) throw new Error(`No se pudo leer la configuración (lista negra): ${errorEmpresa.message}`);
     const listaNegra = Array.isArray(empresaRow?.datos?.solicitudes_emails_excluidos)
       ? (empresaRow.datos.solicitudes_emails_excluidos as string[])
       : [];
@@ -1157,5 +1191,7 @@ Deno.serve(async (req: Request) => {
     console.error('revisar-gmail error:', err);
     log.push(String(err instanceof Error ? err.message : err));
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err), log }, 500);
+  } finally {
+    await liberarLock(supabase);
   }
 });

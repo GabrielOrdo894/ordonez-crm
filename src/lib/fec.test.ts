@@ -48,3 +48,26 @@ describe('utilidades FEC', () => {
     expect(Array.from(codificarLatin9('é€'))).toEqual([0xe9, 0xa4]);
   });
 });
+
+describe('FEC — numeración estable (auditoría 2026-10-01)', () => {
+  it('una escritura nueva con fecha atrasada recibe el número siguiente y no renumera las anteriores', () => {
+    const tardia: AsientoFec[] = [
+      { ...base, id: '7', fecha: '2026-09-01', cuenta: '411', debe: 0, haber: 10, documento_id: 'f2', created_at: '2026-10-01T09:00:00Z' },
+      { ...base, id: '8', fecha: '2026-09-01', cuenta: '706', debe: 10, haber: 0, documento_id: 'f2', created_at: '2026-10-01T09:00:00Z' },
+    ];
+    const filas = construirFec([...asientos, ...tardia], { inicio: '2026-07-01', fin: '2026-12-31' }, new Map())
+      .split('\r\n')
+      .filter(Boolean)
+      .map((l) => l.split('\t'));
+    expect(filas.find((f) => f[3] === '20260924')?.[2]).toBe('VE00001');
+    expect(filas.find((f) => f[3] === '20260901')?.[2]).toBe('VE00002');
+  });
+
+  it('ValidDate en hora de París', () => {
+    const tarde: AsientoFec[] = [
+      { ...base, id: '9', fecha: '2026-09-30', cuenta: '411', debe: 1, haber: 0, documento_id: 'f3', created_at: '2026-09-30T23:30:00Z' },
+    ];
+    const fila = construirFec(tarde, { inicio: '2026-07-01', fin: '2026-12-31' }, new Map()).split('\r\n')[1].split('\t');
+    expect(fila[15]).toBe('20261001');
+  });
+});

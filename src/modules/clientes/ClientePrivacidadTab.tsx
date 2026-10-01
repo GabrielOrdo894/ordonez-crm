@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { hoyLocalIso } from '../../lib/fechas';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Download, ShieldAlert } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -8,6 +9,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { normalizarTelefono } from './types';
+import { eliminarEventoVisita } from '../../lib/googleCalendar';
 import type { Cliente } from './types';
 
 // solicitudes no cuelga de visita_id (llega antes de que exista una visita) — se localiza por
@@ -25,6 +27,34 @@ function datosContactoCliente(cliente: Cliente) {
       .map((e) => e.toLowerCase()),
   );
   return { telefonos, emails };
+}
+
+// Todo lo del cliente, no solo lo que cuelga de sus visitas activas (auditoría 2026-10-01): antes la
+// purga y la exportación dejaban fuera sus visitas en la papelera (con sus notas, presupuestos y
+// galería) y los presupuestos/facturas sin visita (orientativos, facturas manuales). Se localiza por
+// teléfono normalizado o email, igual que las solicitudes.
+async function resolverAlcanceCliente(cliente: Cliente, visitaIdsActivas: string[]) {
+  const { telefonos, emails } = datosContactoCliente(cliente);
+  const coincide = (tel: string | null | undefined, email: string | null | undefined) =>
+    (!!tel && telefonos.has(normalizarTelefono(tel))) || (!!email && emails.has(email.toLowerCase()));
+  const [visitas, presupuestos, facturas] = await Promise.all([
+    supabase.from('visitas').select('id, telefono, email'),
+    supabase.from('presupuestos').select('id, visita_id, cliente_tel, cliente_email'),
+    supabase.from('facturas').select('id, visita_id, cliente_tel, cliente_email'),
+  ]);
+  if (visitas.error) throw new Error(`visitas: ${visitas.error.message}`);
+  if (presupuestos.error) throw new Error(`presupuestos: ${presupuestos.error.message}`);
+  if (facturas.error) throw new Error(`facturas: ${facturas.error.message}`);
+  const visitaIds = new Set(visitaIdsActivas);
+  for (const v of visitas.data ?? []) if (coincide(v.telefono, v.email)) visitaIds.add(v.id as string);
+  const delCliente = (d: { visita_id: string | null; cliente_tel: string | null; cliente_email: string | null }) =>
+    (!!d.visita_id && visitaIds.has(d.visita_id)) || coincide(d.cliente_tel, d.cliente_email);
+  return {
+    visitaIds: [...visitaIds],
+    presupuestoIds: (presupuestos.data ?? []).filter(delCliente).map((p) => p.id as string),
+    facturaIds: (facturas.data ?? []).filter(delCliente).map((f) => f.id as string),
+    claves: [...telefonos, ...emails],
+  };
 }
 
 async function buscarSolicitudesCliente(cliente: Cliente) {
@@ -58,14 +88,16 @@ function descargarJson(nombreArchivo: string, datos: unknown) {
 // visita_id, más documento_eventos/movimientos_banco/pagos_factura que cuelgan de
 // presupuesto_id/factura_id/gasto_id, más solicitudes (localizadas por teléfono/email, no por
 // visita_id) y sus funnel_eventos.
-async function recopilarDatosCliente(cliente: Cliente, visitaIds: string[]) {
+async function recopilarDatosCliente(cliente: Cliente, visitaIdsActivas: string[]) {
+  const alcance = await resolverAlcanceCliente(cliente, visitaIdsActivas);
+  const visitaIds = alcance.visitaIds;
   const [visitas, notas, proyectos, presupuestos, facturas, gastos, solicitudes] =
     await Promise.all([
       supabase.from('visitas').select('*').in('id', visitaIds),
       supabase.from('notas_cliente').select('*').in('visita_id', visitaIds),
       supabase.from('proyectos').select('*').in('visita_id', visitaIds),
-      supabase.from('presupuestos').select('*').in('visita_id', visitaIds),
-      supabase.from('facturas').select('*').in('visita_id', visitaIds),
+      supabase.from('presupuestos').select('*').in('id', alcance.presupuestoIds),
+      supabase.from('facturas').select('*').in('id', alcance.facturaIds),
       supabase.from('gastos').select('*').in('visita_id', visitaIds),
       buscarSolicitudesCliente(cliente).then((data) => ({
         data,
@@ -203,19 +235,38 @@ function pathGaleriaDesdeUrl(url: string): string | null {
   return idx === -1 ? null : url.slice(idx + marca.length);
 }
 
-async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
-  const [presus, facs, gas, solicitudesCliente] = await Promise.all([
-    supabase.from('presupuestos').select('id').in('visita_id', visitaIds),
-    supabase.from('facturas').select('id').in('visita_id', visitaIds),
+async function purgarDatosCliente(cliente: Cliente, visitaIdsActivas: string[]) {
+  const alcance = await resolverAlcanceCliente(cliente, visitaIdsActivas);
+  const visitaIds = alcance.visitaIds;
+  const presupuestoIds = alcance.presupuestoIds;
+  const facturaIds = alcance.facturaIds;
+  const [gas, solicitudesCliente, visitasCompletas] = await Promise.all([
     supabase.from('gastos').select('id, adjunto_url').in('visita_id', visitaIds),
     buscarSolicitudesCliente(cliente),
+    supabase.from('visitas').select('id, google_event_id, fotos_previas').in('id', visitaIds),
   ]);
-  if (presus.error) throw new Error(`presupuestos: ${presus.error.message}`);
-  if (facs.error) throw new Error(`facturas: ${facs.error.message}`);
   if (gas.error) throw new Error(`gastos: ${gas.error.message}`);
+  if (visitasCompletas.error) throw new Error(`visitas: ${visitasCompletas.error.message}`);
 
-  const presupuestoIds = (presus.data ?? []).map((p) => p.id as string);
-  const facturaIds = (facs.data ?? []).map((f) => f.id as string);
+  // Fotos y PDF de la casa del cliente (bucket privado fotos-visita) y eventos de Google Calendar,
+  // que llevan nombre, teléfono, dirección y enlaces a esas fotos (auditoría 2026-10-01: no se
+  // borraban). Best-effort, como el resto de Storage: un fallo no aborta la purga.
+  const rutasFotosVisita = (visitasCompletas.data ?? [])
+    .flatMap((v) => (v.fotos_previas as { path: string }[] | null) ?? [])
+    .map((f) => f.path)
+    .filter(Boolean);
+  if (rutasFotosVisita.length > 0) {
+    const { error: errorFotos } = await supabase.storage.from('fotos-visita').remove(rutasFotosVisita);
+    if (errorFotos) console.warn('No se pudieron borrar todas las fotos de visita en Storage:', errorFotos.message);
+  }
+  for (const v of visitasCompletas.data ?? []) {
+    if (!v.google_event_id) continue;
+    try {
+      await eliminarEventoVisita(v.google_event_id as string);
+    } catch (error) {
+      console.warn('No se pudo borrar un evento de Google Calendar del cliente:', (error as Error).message);
+    }
+  }
 
   // galeria puede colgar de visita_id, presupuesto_id O factura_id (ver mismo comentario en
   // recopilarDatosCliente) — buscar solo por visita_id dejaba fotos reales sin purgar ni borrar de
@@ -296,9 +347,17 @@ async function purgarDatosCliente(cliente: Cliente, visitaIds: string[]) {
   await pasoBorrado('proyectos', () =>
     supabase.from('proyectos').delete().in('visita_id', visitaIds),
   );
-  await pasoBorrado('presupuestos', () =>
-    supabase.from('presupuestos').delete().in('visita_id', visitaIds),
-  );
+  if (presupuestoIds.length) {
+    await pasoBorrado('proyectos (por presupuesto)', () =>
+      supabase.from('proyectos').delete().in('presupuesto_id', presupuestoIds),
+    );
+    await pasoBorrado('presupuestos', () => supabase.from('presupuestos').delete().in('id', presupuestoIds));
+  }
+  if (alcance.claves.length) {
+    await pasoBorrado('etiquetas del cliente', () =>
+      supabase.from('cliente_etiquetas').delete().in('clave', alcance.claves),
+    );
+  }
   if (facturaIds.length) {
     await pasoBorrado('facturas (anonimizado RGPD)', () =>
       supabase
@@ -348,7 +407,7 @@ export function ClientePrivacidadTab({ cliente, visitaIds, onPurgado }: ClienteP
   const exportarMutation = useMutation({
     mutationFn: () => recopilarDatosCliente(cliente, visitaIds),
     onSuccess: (datos) => {
-      const fecha = new Date().toISOString().slice(0, 10);
+      const fecha = hoyLocalIso();
       descargarJson(
         `datos-${cliente.apellidos.toLowerCase().replace(/\s+/g, '-')}-${fecha}.json`,
         datos,

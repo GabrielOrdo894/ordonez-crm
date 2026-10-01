@@ -4,11 +4,10 @@ import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
-import { siguienteNumero } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { registrarEventoFunnel } from '../../../lib/funnelTracking';
 import { congelarTerminosCondicionesPorId } from '../../../lib/terminos';
-import { recontabilizarFactura } from '../../../lib/pagosFactura';
+import { recontabilizarFactura, cargarAcomptesDeducibles, pagosActivosDe } from '../../../lib/pagosFactura';
 import { generarPdfFactura, notasLegales } from '../../../lib/generarPdfFactura';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
@@ -37,14 +36,17 @@ import {
   porcentajeIva,
   paisDesdeTipoIva,
   validarLineas,
-  lineaDeduccionAcomptes,
+  lineasDeduccionAcomptes,
   lineasRectificativa,
+  totalConIvaFactura,
+  fraccionTvaExigibleRectificativa,
   tituloDocumentoFactura,
+  textoEstadoDocumentoFactura,
 } from './types';
 import type { Factura, NuevaFactura, Linea, TipoFactura } from './types';
 import type { Presupuesto } from '../presupuestos/types';
 import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
-import { formatearPrecio } from '../lineas';
+import { formatearPrecio, admitePrecioNegativo } from '../lineas';
 
 // Fechas en hora local y aritmética de días sin zona horaria (src/lib/fechas.ts): la versión local
 // anterior restaba un día al vencimiento — "7 días" guardaba 6 y el selector salía vacío
@@ -157,19 +159,10 @@ export function FacturaForm({
   // Anticipos (acompte) ya facturados de este mismo presupuesto — para mostrar el resumen
   // "Acomptes versés / Reste à payer" en la vista previa de la factura final (Total HT/TTC intactos,
   // el descuento se muestra como resumen, no como línea negativa en la tabla de conceptos).
+  // Incluye las rectificativas de esos acomptes (restan lo ya anulado) y su estructura_anterior.
   const { data: acomptesPrevios } = useQuery({
     queryKey: ['facturas', 'acomptes_previos', form.presupuesto_id, factura?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('facturas')
-        .select('numero, lineas')
-        .eq('presupuesto_id', form.presupuesto_id!)
-        .eq('tipo', 'acompte')
-        .neq('id', factura?.id ?? '00000000-0000-0000-0000-000000000000')
-        .is('eliminado_en', null);
-      if (error) throw error;
-      return data as { numero: string | null; lineas: Linea[] }[];
-    },
+    queryFn: () => cargarAcomptesDeducibles(form.presupuesto_id!, factura?.id ?? null),
     enabled: !!form.presupuesto_id && form.tipo === 'normal',
   });
 
@@ -325,10 +318,8 @@ export function FacturaForm({
     if (deduccionAcomptesAgregadaRef.current) return;
     deduccionAcomptesAgregadaRef.current = true;
     setForm((f) => {
-      const textoDeduccion = f.idioma === 'Français' ? 'Déduction acompte(s)' : 'Deducción de anticipo(s)';
-      if (f.lineas.some((l) => l.designacion === textoDeduccion)) return f;
-      const deduccion = lineaDeduccionAcomptes(acomptesPrevios, f.tipo_iva, f.idioma);
-      return { ...f, lineas: [...f.lineas, deduccion] };
+      if (f.lineas.some((l) => admitePrecioNegativo(l.referencia))) return f;
+      return { ...f, lineas: [...f.lineas, ...lineasDeduccionAcomptes(acomptesPrevios, f.tipo_iva, f.idioma)] };
     });
   }, [acomptesPrevios, factura, desdePresupuesto, lineaAcompte]);
 
@@ -381,10 +372,51 @@ export function FacturaForm({
   const porcentaje = porcentajeIva(form.tipo_iva);
   const { totalConIva, totalSinIva } = useMemo(() => calcularTotales(form.lineas), [form.lineas]);
 
+  // Factura ya numerada: importes, fecha, IVA, país, cliente y tipo quedan fijos (también en la base
+  // de datos, trigger proteger_factura_emitida). Se corrige con una rectificativa — art. 242 nonies A
+  // ann. II CGI / RD 1619/2012 (auditoría 2026-10-01: antes se podía reescribir entera).
+  const emitida = !!factura?.numero;
+
+  const avisar = (texto: string, error: unknown) => toast.warning(`${texto}: ${(error as Error).message}`);
+
   const guardarMutation = useMutation({
     mutationFn: async () => {
+      if (factura) {
+        // Solo campos sin efecto fiscal. Los derivados (estado/monto/fecha de pago) y los de reseñas
+        // los mantienen otros procesos: reenviarlos desde aquí pisaba cambios hechos mientras el
+        // formulario estaba abierto.
+        const { error } = await supabase
+          .from('facturas')
+          .update({
+            titulo: form.titulo || null,
+            cliente_email: form.cliente_email || null,
+            cliente_tel: form.cliente_tel || null,
+            fecha_vence: form.fecha_vence,
+            metodo_pago: form.metodo_pago,
+            nota: notaActivada ? form.nota || null : null,
+          })
+          .eq('id', factura.id);
+        if (error) throw error;
+        return { id: factura.id, numero: factura.numero, esNueva: false };
+      }
+
+      // Rectificativa: parte de su TVA que corrige TVA ya cobrada de la original (fijada al emitirla).
+      let fraccion_tva_exigible: number | null = null;
+      if (form.tipo === 'rectificativa' && facturaOriginal) {
+        const cobradoOriginal = (await pagosActivosDe(facturaOriginal.id))
+          .filter((p) => p.fecha <= form.fecha_factura)
+          .reduce((s, p) => s + p.monto, 0);
+        fraccion_tva_exigible = fraccionTvaExigibleRectificativa(
+          calcularTotales(form.lineas).totalConIva,
+          totalConIvaFactura(facturaOriginal),
+          cobradoOriginal,
+        );
+      }
+
       const nueva: NuevaFactura = {
-        numero: factura?.numero ?? null,
+        // El número lo asigna la base de datos en el mismo INSERT (trigger asignar_numero_factura):
+        // serie por emisor y tipo, orden cronológico y sin huecos si el guardado falla.
+        numero: null,
         titulo: form.titulo || null,
         tipo: form.tipo,
         factura_original_id: form.factura_original_id,
@@ -402,107 +434,84 @@ export function FacturaForm({
         lineas: form.lineas,
         metodo_pago: form.metodo_pago,
         nota: notaActivada ? form.nota || null : null,
-        estado_cobro: form.estado_cobro,
+        estado_cobro: form.tipo === 'rectificativa' ? 'Aplicada' : 'Pendiente',
         estructura_anterior: form.estructura_anterior,
-        fecha_pago: factura?.fecha_pago ?? null,
-        monto_pagado: factura?.monto_pagado ?? null,
-        resena_canal: factura?.resena_canal ?? null,
-        resena_token: factura?.resena_token ?? null,
-        resena_enviado_en: factura?.resena_enviado_en ?? null,
-        resena_clic_en: factura?.resena_clic_en ?? null,
-        resena_cortesia_enviada_en: factura?.resena_cortesia_enviada_en ?? null,
-        resena_auto_estado: factura?.resena_auto_estado ?? null,
-        resena_auto_programada_en: factura?.resena_auto_programada_en ?? null,
+        fraccion_tva_exigible,
+        fecha_pago: null,
+        monto_pagado: null,
+        resena_canal: null,
+        resena_token: null,
+        resena_enviado_en: null,
+        resena_clic_en: null,
+        resena_cortesia_enviada_en: null,
+        resena_auto_estado: null,
+        resena_auto_programada_en: null,
       };
-
-      if (factura) {
-        const { error } = await supabase.from('facturas').update(nueva).eq('id', factura.id);
-        if (error) throw error;
-        // Ver mismo criterio y comentario en RegistrarPagoModal.tsx (2026-09-16).
-        if (factura.estado_cobro !== 'Cobrada' && form.estado_cobro === 'Cobrada' && form.presupuesto_id) {
-          if (form.tipo === 'acompte') {
-            await registrarEventoFunnel('primer_acompte_cobrado', { presupuestoId: form.presupuesto_id });
-          } else if (form.tipo === 'normal') {
-            await registrarEventoFunnel('factura_final_cobrada', { presupuestoId: form.presupuesto_id });
-          }
-        }
-        return { id: factura.id, numero: factura.numero, esNueva: false };
-      }
-
-      const secuencia =
-        form.tipo === 'acompte' ? 'seq_factura_acompte' : form.tipo === 'rectificativa' ? 'seq_factura_rectificativa' : 'seq_factura';
-      const numero = await siguienteNumero(secuencia);
-      const { data, error } = await supabase
-        .from('facturas')
-        .insert({ ...nueva, numero })
-        .select()
-        .single();
+      const { data, error } = await supabase.from('facturas').insert(nueva).select().single();
       if (error) throw error;
+      const creada = data as Factura;
+      const numero = creada.numero ?? '';
 
-      if (form.visita_id) {
-        await notaSistema(form.visita_id, `Factura ${numero} creada por ${nombreUsuarioActual}`);
+      // El asiento va justo después del INSERT y antes de todo lo accesorio: si algo de lo accesorio
+      // falla, la factura no se queda sin contabilizar (así se perdió el de AC-2026-0021).
+      try {
+        await recontabilizarFactura(creada);
+      } catch (error) {
+        avisar(`Factura ${numero} creada, pero no se pudo registrar en el libro diario (aparecerá en el aviso de documentos sin asiento)`, error);
       }
-      await registrarEvento('factura', data.id, 'Factura creada');
-      if (form.factura_original_id) {
-        await registrarEvento('factura', form.factura_original_id, `Rectificada por la factura ${numero}`);
+
+      try {
+        if (form.visita_id) {
+          await notaSistema(form.visita_id, `Factura ${numero} creada por ${nombreUsuarioActual}`);
+        }
+        await registrarEvento('factura', creada.id, 'Factura creada');
+        if (form.factura_original_id) {
+          await registrarEvento('factura', form.factura_original_id, `Rectificada por la factura ${numero}`);
+        }
+      } catch (error) {
+        avisar(`Factura ${numero} creada, pero falló la nota o el historial`, error);
       }
       if (form.presupuesto_id) {
-        const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : form.tipo === 'rectificativa' ? 'rectificativa' : 'completa/final';
-        await registrarEvento('presupuesto', form.presupuesto_id, `Factura ${numero} generada (${tipoTexto})`);
-        // Tener una factura implica que el presupuesto se aceptó, aunque nadie lo marcara a mano
-        // (p.ej. facturas creadas directamente) — filtro .eq('estado','Pendiente') para no tocar
-        // ni re-registrar el evento de funnel si ya estaba Aceptado, y sobre todo para no
-        // reactivar un presupuesto que se había Rechazado explícitamente (bug real corregido
-        // 2026-08-18: el filtro anterior era .neq('estado','Aceptado'), que sí lo reactivaba).
-        const { data: aceptado, error: errorAceptar } = await supabase
-          .from('presupuestos')
-          .update({ estado: 'Aceptado' })
-          .eq('id', form.presupuesto_id)
-          .eq('estado', 'Pendiente')
-          .select('id')
-          .maybeSingle();
-        if (errorAceptar) {
-          toast.warning(`Factura creada, pero no se pudo marcar el presupuesto como Aceptado: ${errorAceptar.message}`);
-        } else if (aceptado) {
-          await registrarEventoFunnel('presupuesto_aceptado', { presupuestoId: form.presupuesto_id });
-          await congelarTerminosCondicionesPorId(form.presupuesto_id);
+        try {
+          const tipoTexto = form.tipo === 'acompte' ? 'anticipo' : form.tipo === 'rectificativa' ? 'rectificativa' : 'completa/final';
+          await registrarEvento('presupuesto', form.presupuesto_id, `Factura ${numero} generada (${tipoTexto})`);
+          // Tener una factura implica que el presupuesto se aceptó, aunque nadie lo marcara a mano —
+          // filtro .eq('estado','Pendiente') para no reactivar uno Rechazado (bug corregido 2026-08-18).
+          const { data: aceptado, error: errorAceptar } = await supabase
+            .from('presupuestos')
+            .update({ estado: 'Aceptado' })
+            .eq('id', form.presupuesto_id)
+            .eq('estado', 'Pendiente')
+            .select('id')
+            .maybeSingle();
+          if (errorAceptar) throw errorAceptar;
+          if (aceptado) {
+            await registrarEventoFunnel('presupuesto_aceptado', { presupuestoId: form.presupuesto_id });
+            await congelarTerminosCondicionesPorId(form.presupuesto_id);
+          }
+        } catch (error) {
+          avisar(`Factura ${numero} creada, pero no se pudo actualizar el presupuesto`, error);
         }
       }
-      return { id: data.id as string, numero: numero as string, esNueva: true };
-    },
-    onSuccess: async (resultado) => {
-      await sincronizarPipelineCliente(form.cliente_tel);
-      queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
-      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      toast.success(factura ? 'Factura actualizada' : 'Factura creada');
-      // Se corrige siempre el asiento de emisión desde cero: rectificarAsientos no hace nada si
-      // nunca existió (caso normal de una factura nueva), así que es seguro e idempotente llamarlo
-      // también al crear, en vez de mantener dos ramas (nueva/editada) con lógica distinta. Se
-      // espera (await) el resultado antes de cerrar el formulario — si no, un fallo de red puede
-      // perderse en silencio si el usuario cierra el modal o navega justo después de ver "Factura
-      // creada" (hallazgo real, auditoría 2026-09-08: AC-2026-0021 se quedó sin ningún asiento
-      // porque este paso se disparaba sin esperar su resultado, "fire and forget").
       try {
-        // Emisión y cobros juntos (ver recontabilizarFactura): un cambio de tipo de IVA, país o
-        // estructura_anterior deja también los cobros coherentes.
-        await recontabilizarFactura({
-          id: resultado.id,
-          numero: resultado.numero,
-          cliente_nombre: form.cliente_nombre || null,
-          fecha_factura: form.fecha_factura,
-          lineas: form.lineas,
-          tipo: form.tipo,
-          tipo_iva: form.tipo_iva,
-          pais: form.pais,
-          estructura_anterior: form.estructura_anterior,
-        });
+        await sincronizarPipelineCliente(form.cliente_tel);
       } catch (error) {
-        toast.warning(`Factura guardada, pero no se pudo actualizar el libro diario: ${(error as Error).message}`);
+        avisar(`Factura ${numero} creada, pero no se pudo actualizar el pipeline`, error);
       }
+      return { id: creada.id, numero, esNueva: true };
+    },
+    onSuccess: () => {
+      toast.success(factura ? 'Factura actualizada' : 'Factura creada');
       onClose();
     },
     onError: (error) => toast.error(error.message),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['factura'] });
+      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
+      queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+    },
   });
 
   const handleGuardar = () => {
@@ -512,11 +521,17 @@ export function FacturaForm({
       );
       return;
     }
-    const mensaje = validarLineas(form.lineas, form.tipo === 'rectificativa');
-    if (mensaje) {
-      toast.error(mensaje);
-      setErroresVisibles(true);
-      return;
+    if (!emitida) {
+      // Datos mínimos de una factura (FR y ES): fecha, cliente y su dirección.
+      if (!form.fecha_factura) return toast.error('Falta la fecha de la factura.');
+      if (!form.cliente_nombre.trim()) return toast.error('Falta el nombre del cliente.');
+      if (!form.cliente_dir.trim()) return toast.error('Falta la dirección del cliente (obligatoria en la factura).');
+      const mensaje = validarLineas(form.lineas, form.tipo === 'rectificativa');
+      if (mensaje) {
+        toast.error(mensaje);
+        setErroresVisibles(true);
+        return;
+      }
     }
     guardarMutation.mutate();
   };
@@ -576,8 +591,7 @@ export function FacturaForm({
   const devisAsociadoNumero = desdePresupuesto?.numero ?? presupuestoOrigen?.numero ?? null;
 
   const estadoCanonico = form.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
-  const estadoDocumento =
-    idiomaCorto === 'fr' ? (estadoCanonico === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonico;
+  const estadoDocumento = textoEstadoDocumentoFactura(form.estado_cobro, idiomaCorto);
 
   return (
     <div>
@@ -600,6 +614,13 @@ export function FacturaForm({
 
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         <div className="flex-1 min-w-0 w-full bg-surface border border-gray-200 rounded-sm p-4 space-y-5">
+          {emitida && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-sm px-3 py-2">
+              Factura ya emitida: los importes, la fecha, el IVA, el país y el cliente no se pueden cambiar. Para
+              corregirlos, crea una factura rectificativa desde el menú de la factura.
+            </p>
+          )}
+
           {esManual && (
             <div>
               <Select
@@ -638,20 +659,22 @@ export function FacturaForm({
               Cliente
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input label="Nombre" value={form.cliente_nombre} onChange={(e) => setForm((f) => ({ ...f, cliente_nombre: e.target.value }))} />
+              <Input label="Nombre" disabled={emitida} value={form.cliente_nombre} onChange={(e) => setForm((f) => ({ ...f, cliente_nombre: e.target.value }))} />
               <Input label="Teléfono" value={form.cliente_tel} onChange={(e) => setForm((f) => ({ ...f, cliente_tel: e.target.value }))} />
               <div className="col-span-2">
-                <Input label="Dirección" value={form.cliente_dir} onChange={(e) => setForm((f) => ({ ...f, cliente_dir: e.target.value }))} />
+                <Input label="Dirección" disabled={emitida} value={form.cliente_dir} onChange={(e) => setForm((f) => ({ ...f, cliente_dir: e.target.value }))} />
               </div>
               <Input label="Email" value={form.cliente_email} onChange={(e) => setForm((f) => ({ ...f, cliente_email: e.target.value }))} />
               <Select
                 label="Idioma del documento"
+                disabled={emitida}
                 options={[{ value: 'Español', label: 'Español' }, { value: 'Français', label: 'Français' }]}
                 value={form.idioma}
                 onChange={(e) => setForm((f) => ({ ...f, idioma: e.target.value }))}
               />
               <Select
                 label="País (datos de empresa a mostrar)"
+                disabled={emitida}
                 options={[{ value: 'España', label: 'España' }, { value: 'Francia', label: 'Francia' }]}
                 value={form.pais}
                 onChange={(e) => {
@@ -673,7 +696,7 @@ export function FacturaForm({
               Condiciones
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input label="Fecha factura" type="date" value={form.fecha_factura} onChange={(e) => setForm((f) => ({ ...f, fecha_factura: e.target.value }))} />
+              <Input label="Fecha factura" type="date" disabled={emitida} value={form.fecha_factura} onChange={(e) => setForm((f) => ({ ...f, fecha_factura: e.target.value }))} />
               <div>
                 <Select
                   label="Vencimiento"
@@ -686,6 +709,7 @@ export function FacturaForm({
                 <p className="text-xs text-gray-400 mt-1">→ {form.fecha_vence}</p>
               </div>
               <SelectorIva
+                disabled={emitida}
                 pais={form.pais}
                 value={form.tipo_iva}
                 onChange={(nuevoTipo) =>
@@ -720,6 +744,7 @@ export function FacturaForm({
               <label className="flex items-center gap-2 text-sm text-gray-700 mt-3">
                 <input
                   type="checkbox"
+                  disabled={emitida}
                   checked={form.estructura_anterior}
                   onChange={(e) => setForm((f) => ({ ...f, estructura_anterior: e.target.checked }))}
                 />
@@ -761,6 +786,9 @@ export function FacturaForm({
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-1 mb-3">
               Líneas
             </p>
+            {emitida ? (
+              <p className="text-sm text-gray-500">Las líneas de una factura emitida no se pueden modificar (se ven en la vista previa).</p>
+            ) : (
             <LineasEditor
               lineas={form.lineas}
               porcentajeIva={porcentaje}
@@ -769,6 +797,7 @@ export function FacturaForm({
               idioma={idiomaCorto}
               permitirCantidadNegativa={form.tipo === 'rectificativa'}
             />
+            )}
           </section>
         </div>
 

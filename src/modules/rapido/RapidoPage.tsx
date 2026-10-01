@@ -433,9 +433,23 @@ function SeccionKilometraje() {
       const [direccion, km] = sinConexion
         ? [direccionConocida, null]
         : await Promise.all([direccionConocida ?? direccionDesdeCoordenadas(lat, lng), calcularKmIdaYVuelta({ lat, lng })]);
+      // Con cobertura se buscan también las visitas de hoy ya Realizadas: el autocompletado las marca
+      // así una hora después y les genera su kilometraje, y antes desde aquí salía "no coincide con
+      // ninguna visita" y se creaba un segundo gasto por el mismo desplazamiento (auditoría 2026-10-01).
+      let candidatas = (visitas ?? []).filter((v) => v.fecha_visita === hoy);
+      if (!sinConexion) {
+        const { data: deHoy, error: errorHoy } = await supabase
+          .from('visitas')
+          .select('*')
+          .is('eliminado_en', null)
+          .eq('fecha_visita', hoy)
+          .in('estado', ['Pendiente', 'Realizada']);
+        if (errorHoy) throw errorHoy;
+        candidatas = (deHoy ?? []) as Visita[];
+      }
       const visita =
-        (visitas ?? []).find(
-          (v) => v.fecha_visita === hoy && v.lat != null && v.lng != null && distanciaMetros({ lat, lng }, { lat: v.lat, lng: v.lng }) <= RADIO_VISITA_METROS,
+        candidatas.find(
+          (v) => v.lat != null && v.lng != null && distanciaMetros({ lat, lng }, { lat: v.lat, lng: v.lng }) <= RADIO_VISITA_METROS,
         ) ?? null;
       setPropuesta({ lat, lng, direccion: direccion ?? (sinConexion ? null : `${lat.toFixed(5)}, ${lng.toFixed(5)}`), km, visita, sinConexion });
     } catch (err) {

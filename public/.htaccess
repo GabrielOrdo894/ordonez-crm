@@ -17,6 +17,11 @@
   RewriteEngine On
   RewriteBase /crm/
   RewriteRule ^index\.html$ - [L]
+  # Un fichero de assets/ o icons/ que no existe (chunk de un despliegue anterior) devuelve 404, no
+  # el index.html: si no, el service worker del móvil lo guardaba como si fuera el JavaScript y esa
+  # pantalla quedaba rota para siempre (auditoría 2026-10-01).
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^(assets|icons)/ - [R=404,L]
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /crm/index.html [L]

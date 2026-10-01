@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { hoyLocalIso } from '../../lib/fechas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Sparkles, Trash2, Boxes } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
@@ -35,7 +36,7 @@ type FormState = {
 };
 
 function vacio(): FormState {
-  return { descripcion: '', cuenta_pcg: CUENTAS_INMOVILIZADO[0]?.value ?? '2183', fecha_adquisicion: new Date().toISOString().slice(0, 10), valor_adquisicion: 0, duracion_anios: 5 };
+  return { descripcion: '', cuenta_pcg: CUENTAS_INMOVILIZADO[0]?.value ?? '2183', fecha_adquisicion: hoyLocalIso(), valor_adquisicion: 0, duracion_anios: 5 };
 }
 
 function ActivoForm({ open, onClose, activo }: { open: boolean; onClose: () => void; activo?: ActivoInmovilizado | null }) {
@@ -179,7 +180,7 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
       textoConfirmar: 'Dar de baja',
     });
     if (!confirmado) return;
-    const fechaBaja = new Date().toISOString().slice(0, 10);
+    const fechaBaja = hoyLocalIso();
     const { error } = await supabase.from('inmovilizado').update({ dado_de_baja_en: fechaBaja }).eq('id', activo.id);
     if (error) {
       toast.error(error.message);
@@ -190,11 +191,23 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
     // absoluto (hallazgo real, auditoría 2026-09-21). Best-effort: si falla, el activo ya quedó
     // marcado como baja (lo importante para dejar de amortizar), así que se avisa pero no se revierte.
     const anioBaja = Number(fechaBaja.slice(0, 4));
+    // Con la fecha de baja ya puesta: si no, la amortización contaba el año de la baja entero hasta
+    // diciembre. Y antes de la baja se generan las dotaciones que falten (también la complementaria
+    // del año de la baja, hasta la fecha de baja): si no, 28xx quedaba deudor y faltaba el 681
+    // (auditoría 2026-10-01). Las de un periodo ya cerrado no se pueden generar: se avisa.
+    const activoBaja = { ...activo, dado_de_baja_en: fechaBaja };
+    for (let anio = Number(activo.fecha_adquisicion.slice(0, 4)); anio <= anioBaja; anio++) {
+      try {
+        await generarDotacionEjercicio(activoBaja, anio, anio === anioBaja ? fechaBaja : undefined);
+      } catch (errorDotacion) {
+        toast.warning(`No se pudo generar la dotación de ${anio}: ${(errorDotacion as Error).message}`);
+      }
+    }
     try {
       await registrarAsientoBajaInmovilizado(
-        activo,
-        amortizacionAcumulada(activo, anioBaja),
-        valorNetoContable(activo, anioBaja),
+        activoBaja,
+        amortizacionAcumulada(activoBaja, anioBaja),
+        valorNetoContable(activoBaja, anioBaja),
         fechaBaja,
       );
     } catch (errorAsiento) {

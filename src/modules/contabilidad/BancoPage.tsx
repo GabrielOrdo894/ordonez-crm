@@ -14,8 +14,8 @@ import { GastoForm } from '../finanzas/gastos/GastoForm';
 import { VincularFacturaModal } from './VincularFacturaModal';
 import { ConexionBancoPanel } from './ConexionBancoPanel';
 import type { MovimientoBanco } from './types';
-import { rectificarAsientos } from '../../lib/asientosContables';
-import { totalConIvaFactura, estadoCobroDePagos } from '../finanzas/facturas/types';
+import { anularPagoFactura } from '../../lib/pagosFactura';
+import { useAuth } from '../../hooks/useAuth';
 import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 
 const FILTROS = ['Todos', 'Pendiente', 'Vinculado', 'Ignorado'] as const;
@@ -25,6 +25,8 @@ const VARIANTE_ESTADO = { Pendiente: 'pendiente', Vinculado: 'realizada', Ignora
 
 export default function BancoPage() {
   const toast = useToast();
+  const { user } = useAuth();
+  const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -65,31 +67,11 @@ export default function BancoPage() {
   // que corregirlo aparte en Gastos — un gasto no tiene un "pago" que reversar de la misma forma.
   const deshacerMutation = useMutation({
     mutationFn: async (m: MovimientoBanco) => {
+      // anularPagoFactura (pagosFactura.ts) reversa el asiento de ese pago, lo marca anulado (no se
+      // puede borrar: sus asientos lo referencian) y recalcula la factura. Antes se intentaba borrar
+      // después de reversar: el borrado fallaba y el libro quedaba a medias (auditoría 2026-10-01).
       if (m.factura_id && m.pago_id) {
-        const { data: factura, error: errorFactura } = await supabase
-          .from('facturas')
-          .select('id, pais, estructura_anterior, lineas')
-          .eq('id', m.factura_id)
-          .single();
-        if (errorFactura) throw errorFactura;
-        if (factura.pais === 'Francia' && !factura.estructura_anterior) {
-          await rectificarAsientos('factura', factura.id, 'cobro', m.pago_id);
-        }
-        const { error: errorBorrar } = await supabase.from('pagos_factura').delete().eq('id', m.pago_id);
-        if (errorBorrar) throw errorBorrar;
-        const { data: pagosRestantes, error: errorPagos } = await supabase
-          .from('pagos_factura')
-          .select('fecha, monto')
-          .eq('factura_id', factura.id);
-        if (errorPagos) throw errorPagos;
-        const totalPagado = Math.round((pagosRestantes ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
-        const estado_cobro = estadoCobroDePagos(totalPagado, totalConIvaFactura(factura));
-        const ultimaFecha = (pagosRestantes ?? []).reduce<string | null>((max, p) => (!max || p.fecha > max ? p.fecha : max), null);
-        const { error: errorUpdateFactura } = await supabase
-          .from('facturas')
-          .update({ monto_pagado: totalPagado > 0 ? totalPagado : null, fecha_pago: ultimaFecha, estado_cobro })
-          .eq('id', factura.id);
-        if (errorUpdateFactura) throw errorUpdateFactura;
+        await anularPagoFactura({ id: m.factura_id }, m.pago_id, nombreUsuarioActual);
       }
       const { error } = await supabase
         .from('movimientos_banco')

@@ -2,7 +2,7 @@ export type { Linea } from '../lineas';
 export { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, validarLineas } from '../lineas';
 export { TIPOS_IVA, porcentajeIva, paisDesdeTipoIva } from '../iva';
 
-import { lineaVacia, calcularLinea } from '../lineas';
+import { lineaVacia, calcularLinea, REFERENCIA_ACOMPTE_ANTERIOR } from '../lineas';
 import { porcentajeIva } from '../iva';
 import type { Linea } from '../lineas';
 
@@ -54,13 +54,21 @@ export type Factura = {
   // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de
   // IVA, el Resultado ni los dashboards.
   estructura_anterior: boolean;
+  // Solo rectificativas (2026-10-01): parte de su TVA que corrige TVA ya exigible (cobrada) de la
+  // factura original — va a 44571 y a la línea 21 de la CA3. El resto anula TVA que seguía en
+  // espera (44574) y nunca se declaró. Se fija al emitirla (fraccionTvaExigibleRectificativa).
+  fraccion_tva_exigible?: number | null;
   eliminado_en?: string | null;
   eliminado_por?: string | null;
 };
 
 export type NuevaFactura = Omit<Factura, 'id' | 'created_at'>;
 
-export const ESTADOS_COBRO = ['Pendiente', 'Cobrada', 'Cobrada parcialmente', 'Vencida'] as const;
+// 'Aplicada'/'Reembolsada' solo para rectificativas (2026-10-01): una nota de crédito no se cobra —
+// queda 'Aplicada' y pasa a 'Reembolsada' cuando se registra la devolución del dinero al cliente.
+// Antes salían 'Pendiente' para siempre y contaban como pendientes de cobro.
+export const ESTADOS_COBRO = ['Pendiente', 'Cobrada', 'Cobrada parcialmente', 'Vencida', 'Aplicada', 'Reembolsada'] as const;
+export type EstadoCobro = (typeof ESTADOS_COBRO)[number];
 export const METODOS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Cheque', 'Domiciliación'];
 
 // Un pago real registrado contra una factura (2026-09-08) — reemplaza a monto_pagado/fecha_pago
@@ -79,16 +87,42 @@ export type PagoFactura = {
   monto: number;
   creado_por: string | null;
   created_at: string;
+  // Anulación lógica (2026-10-01): un pago contabilizado no se borra — sus asientos lo referencian
+  // por pago_id. Todas las lecturas filtran anulado_en is null.
+  anulado_en?: string | null;
+  anulado_por?: string | null;
 };
 
 export function totalConIvaFactura(f: Pick<Factura, 'lineas'>): number {
   return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0);
 }
 
-export function estadoCobroDePagos(totalPagado: number, totalFactura: number): (typeof ESTADOS_COBRO)[number] {
-  if (totalPagado <= 0.01) return 'Pendiente';
-  if (totalPagado >= totalFactura - 0.01) return 'Cobrada';
-  return 'Cobrada parcialmente';
+// Estado derivado de los pagos. Con fecha de vencimiento pasada, una factura sin cobrar del todo es
+// 'Vencida' (antes ningún proceso la marcaba así y el aviso de impagos nunca saltaba — auditoría
+// 2026-10-01; el cron marcar_facturas_vencidas hace lo mismo cada día en la base de datos).
+export function estadoCobroDePagos(
+  totalPagado: number,
+  totalFactura: number,
+  opciones: { tipo?: TipoFactura | null; fechaVence?: string | null; hoy?: string } = {},
+): EstadoCobro {
+  if (opciones.tipo === 'rectificativa') {
+    return Math.abs(totalPagado) >= Math.abs(totalFactura) - 0.01 && Math.abs(totalPagado) > 0.01 ? 'Reembolsada' : 'Aplicada';
+  }
+  if (totalPagado >= totalFactura - 0.01 && totalPagado > 0.01) return 'Cobrada';
+  if (opciones.fechaVence && opciones.hoy && opciones.fechaVence < opciones.hoy) return 'Vencida';
+  return totalPagado <= 0.01 ? 'Pendiente' : 'Cobrada parcialmente';
+}
+
+// Parte de la TVA de una rectificativa que corrige TVA ya exigible: lo que la rectificativa anula
+// por encima de lo que la factura original aún tenía pendiente de cobro. Una rectificativa de una
+// factura no cobrada solo anula TVA en espera (nunca declarada, régimen de TVA sur encaissements):
+// deducirla en la línea 21 de la CA3 declaraba TVA de menos (auditoría 2026-10-01).
+export function fraccionTvaExigibleRectificativa(totalRectificativa: number, totalOriginal: number, cobradoOriginal: number): number {
+  const anulado = Math.abs(totalRectificativa);
+  if (anulado < 0.005) return 1;
+  const pendienteOriginal = Math.max(0, Math.abs(totalOriginal) - cobradoOriginal);
+  const exigible = Math.max(0, anulado - pendienteOriginal);
+  return Math.round(Math.min(1, exigible / anulado) * 1000000) / 1000000;
 }
 
 // Título del documento en el PDF/vista previa según el tipo de factura — compartido entre
@@ -97,6 +131,20 @@ export function tituloDocumentoFactura(tipo: TipoFactura, idiomaCorto: 'es' | 'f
   if (tipo === 'acompte') return idiomaCorto === 'fr' ? "FACTURE D'ACOMPTE" : 'FACTURA DE ANTICIPO';
   if (tipo === 'rectificativa') return idiomaCorto === 'fr' ? 'FACTURE RECTIFICATIVE' : 'FACTURA RECTIFICATIVA';
   return idiomaCorto === 'fr' ? 'FACTURE' : 'FACTURA';
+}
+
+// Estado que se imprime en la factura (PDF y vista previa). Antes toda factura no cobrada del todo
+// salía como "Borrador/Brouillon", también las ya enviadas al cliente (auditoría 2026-10-01).
+export function textoEstadoDocumentoFactura(estado: string, idiomaCorto: 'es' | 'fr'): string {
+  const textos: Record<string, [string, string]> = {
+    Cobrada: ['Pagada', 'Payée'],
+    'Cobrada parcialmente': ['Pagada parcialmente', 'Partiellement payée'],
+    Vencida: ['Vencida', 'Échue'],
+    Aplicada: ['Aplicada', 'Appliquée'],
+    Reembolsada: ['Reembolsada', 'Remboursée'],
+  };
+  const [es, fr] = textos[estado] ?? ['Pendiente de pago', 'En attente de paiement'];
+  return idiomaCorto === 'fr' ? fr : es;
 }
 
 // Copia las líneas de la factura original con la cantidad en negativo, para una factura
@@ -133,6 +181,25 @@ export function lineaDeduccionAcomptes(
     },
     porcentajeIva(tipoIva),
   );
+}
+
+// Factura final con acomptes previos: una línea de deducción por emisor. Los de la EURL (ref.
+// 'ACOMPTE') saldan el anticipo de 4191; los de la estructura anterior (ref. 'ACOMPTE_ANT') no
+// pasaron nunca por 4191 de la EURL — esa parte de la obra la facturó otro emisor, así que reduce
+// la venta (706) de la EURL. Antes los dos iban a 4191: con Bea Vangheluwe, 706 habría salido
+// inflado en 14.279,63 € y 4191 deudor para siempre (auditoría 2026-10-01). Las rectificativas de
+// un acompte entran con sus líneas negativas y restan lo ya anulado.
+export function lineasDeduccionAcomptes(
+  documentos: { numero: string | null; lineas: Linea[]; estructura_anterior?: boolean | null }[],
+  tipoIva: string | null,
+  idioma: string,
+): Linea[] {
+  const eurl = documentos.filter((d) => !d.estructura_anterior);
+  const anteriores = documentos.filter((d) => d.estructura_anterior);
+  const lineas: Linea[] = [];
+  if (eurl.length > 0) lineas.push(lineaDeduccionAcomptes(eurl, tipoIva, idioma));
+  if (anteriores.length > 0) lineas.push({ ...lineaDeduccionAcomptes(anteriores, tipoIva, idioma), referencia: REFERENCIA_ACOMPTE_ANTERIOR });
+  return lineas.filter((l) => Math.abs(l.total_sin_iva) >= 0.005);
 }
 
 // Una factura de Francia de la EURL ya está contabilizada y numerada: la ley no permite hacerla

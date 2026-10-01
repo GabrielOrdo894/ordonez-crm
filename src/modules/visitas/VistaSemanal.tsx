@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
-import { actualizarEventoVisita } from '../../lib/googleCalendar';
+import { sincronizarGoogleCalendarVisita } from '../../lib/googleCalendar';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { sumarMinutos, minutosEntre, minutosDesdeMedianoche } from '../../lib/horas';
@@ -130,25 +130,27 @@ export function VistaSemanal({ visitas, onVer }: VistaSemanalProps) {
         ? minutosEntre(visita.hora_visita ?? hora, visita.hora_fin_visita)
         : DURACION_DEFECTO_MIN;
       const horaFin = sumarMinutos(hora, duracion);
+      if (horaFin <= hora) throw new Error('La visita no puede terminar después de medianoche.');
+      if (visita.estado !== 'Pendiente') throw new Error('Solo se pueden mover visitas pendientes.');
       const { error } = await supabase
         .from('visitas')
         .update({ fecha_visita: fecha, hora_visita: hora, hora_fin_visita: horaFin })
         .eq('id', visita.id);
       if (error) throw error;
-      return { fecha, hora };
+      return { fecha, hora, horaFin };
     },
-    onSuccess: async ({ fecha, hora }, { visita }) => {
-      if (visita.google_event_id) {
-        actualizarEventoVisita(visita.google_event_id, {
-          ...visita,
-          fecha_visita: fecha,
-          hora_visita: hora,
-        }).catch((error) =>
-          toast.warning(
-            `Visita movida, pero no se sincronizó con Google Calendar: ${error.message}`,
-          ),
-        );
-      }
+    onSuccess: async ({ fecha, hora, horaFin }, { visita }) => {
+      // Misma vía que Reprogramar: con la hora de fin nueva (antes se mandaba la antigua y Google
+      // rechazaba el evento o lo dejaba en la hora vieja), crea el evento si no existía y avisa al
+      // equipo del cambio (auditoría 2026-10-01).
+      const avisos = await sincronizarGoogleCalendarVisita({
+        visitaId: visita.id,
+        googleEventId: visita.google_event_id,
+        visita: { ...visita, fecha_visita: fecha, hora_visita: hora, hora_fin_visita: horaFin },
+        notificar: true,
+        motivoNotificacion: 'reprogramacion',
+      });
+      avisos.forEach((aviso) => toast.warning(`Visita movida, pero ${aviso.charAt(0).toLowerCase()}${aviso.slice(1)}`));
       await notaSistema(
         visita.id,
         `Visita reprogramada a ${fecha} ${hora} (arrastrada en el calendario) por ${nombreUsuarioActual}`,

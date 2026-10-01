@@ -21,24 +21,12 @@
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts (duplicado a propósito: una Edge
 // Function no puede importar de otra en el despliegue vía MCP).
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -175,7 +163,7 @@ async function programarNuevas(supabase: SupabaseClient, diasEspera: number): Pr
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   const urlBase = Deno.env.get('SUPABASE_URL')!;
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

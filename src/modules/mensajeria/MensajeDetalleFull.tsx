@@ -2,6 +2,7 @@ import { ArrowLeft, Archive, ArchiveRestore, Info, Mail, Paperclip, Reply, Star,
 import { Button } from '../../components/ui/Button';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import { adjuntosDe, esDestacado, esImagen, type MensajeEquipo } from './types';
+import { useUrlsFirmadas } from './adjuntosFirmados';
 
 function fechaLarga(iso: string) {
   return new Date(iso).toLocaleString('es', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -49,6 +50,8 @@ export function MensajeDetalleFull({
       ? m.destinatario_ids.map((id) => (id === userId ? 'ti' : (nombrePorId.get(id) ?? 'alguien'))).join(', ')
       : 'todo el equipo';
   const raiz = hilo[0] ?? m;
+  const { data: firmadas } = useUrlsFirmadas(hilo.flatMap((msg) => adjuntosDe(msg).map((a) => a.url)));
+  const urlDe = (url: string) => firmadas?.get(url) ?? url;
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col md:h-[calc(100vh-140px)]">
@@ -148,7 +151,7 @@ export function MensajeDetalleFull({
                       {adjuntos.map((a) => (
                         <a
                           key={a.url}
-                          href={a.url}
+                          href={urlDe(a.url)}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-1.5 text-xs text-brand hover:underline w-fit"
@@ -162,7 +165,7 @@ export function MensajeDetalleFull({
                       {adjuntos
                         .filter((a) => esImagen(a.nombre))
                         .map((a) => (
-                          <img key={a.url} src={a.url} alt="" className="max-h-72 rounded-sm" />
+                          <img key={a.url} src={urlDe(a.url)} alt="" className="max-h-72 rounded-sm" />
                         ))}
                     </div>
                   </div>

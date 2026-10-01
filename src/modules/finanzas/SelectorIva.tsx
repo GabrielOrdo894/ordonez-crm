@@ -5,9 +5,10 @@ type SelectorIvaProps = {
   pais: string;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 };
 
-export function SelectorIva({ pais, value, onChange }: SelectorIvaProps) {
+export function SelectorIva({ pais, value, onChange, disabled }: SelectorIvaProps) {
   const [abierto, setAbierto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -29,8 +30,9 @@ export function SelectorIva({ pais, value, onChange }: SelectorIvaProps) {
       </label>
       <button
         type="button"
+        disabled={disabled}
         onClick={() => setAbierto((a) => !a)}
-        className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm text-left bg-surface focus:border-brand focus:outline-none"
+        className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm text-left bg-surface focus:border-brand focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
       >
         {etiquetaCortaIva(value)}
       </button>

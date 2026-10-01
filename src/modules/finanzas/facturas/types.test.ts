@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { lineaDeduccionAcomptes, lineasRectificativa } from './types';
+import {
+  lineaDeduccionAcomptes,
+  lineasDeduccionAcomptes,
+  lineasRectificativa,
+  estadoCobroDePagos,
+  fraccionTvaExigibleRectificativa,
+  textoEstadoDocumentoFactura,
+} from './types';
+import { validarLineas } from '../lineas';
 import { calcularLinea, lineaVacia } from '../lineas';
 
 function acompteDe(totalSinIva: number, numero: string) {
@@ -83,5 +91,49 @@ describe('lineasRectificativa', () => {
 
   it('sin líneas, devuelve un array vacío', () => {
     expect(lineasRectificativa([], 'IVA_21')).toEqual([]);
+  });
+});
+
+describe('auditoría 2026-10-01', () => {
+  it('lineasDeduccionAcomptes separa los acomptes de la estructura anterior', () => {
+    const lineas = lineasDeduccionAcomptes(
+      [
+        { ...acompteDe(5000, 'AC-20'), estructura_anterior: true },
+        { ...acompteDe(10000, 'AC-21'), estructura_anterior: false },
+      ],
+      'IVA_21',
+      'Français',
+    );
+    expect(lineas.map((l) => [l.referencia, l.precio_unit])).toEqual([
+      ['ACOMPTE', -10000],
+      ['ACOMPTE_ANT', -5000],
+    ]);
+    expect(validarLineas(lineas)).toBeNull();
+  });
+
+  it('una rectificativa de un acompte resta lo ya anulado de la deducción', () => {
+    const rect = { numero: 'R-1', lineas: lineasRectificativa(acompteDe(1000, 'AC-1').lineas, 'IVA_21') };
+    const [linea] = lineasDeduccionAcomptes([acompteDe(3000, 'AC-1'), rect], 'IVA_21', 'Español');
+    expect(linea.precio_unit).toBe(-2000);
+  });
+
+  it('estadoCobroDePagos: vencida, cobrada y rectificativas', () => {
+    expect(estadoCobroDePagos(0, 100, { fechaVence: '2026-09-30', hoy: '2026-10-01' })).toBe('Vencida');
+    expect(estadoCobroDePagos(50, 100, { fechaVence: '2026-10-30', hoy: '2026-10-01' })).toBe('Cobrada parcialmente');
+    expect(estadoCobroDePagos(100, 100, { fechaVence: '2026-09-30', hoy: '2026-10-01' })).toBe('Cobrada');
+    expect(estadoCobroDePagos(0, -100, { tipo: 'rectificativa' })).toBe('Aplicada');
+    expect(estadoCobroDePagos(-100, -100, { tipo: 'rectificativa' })).toBe('Reembolsada');
+  });
+
+  it('fraccionTvaExigibleRectificativa: solo corrige TVA de lo ya cobrado', () => {
+    expect(fraccionTvaExigibleRectificativa(-1100, 1100, 0)).toBe(0);
+    expect(fraccionTvaExigibleRectificativa(-1100, 1100, 1100)).toBe(1);
+    expect(fraccionTvaExigibleRectificativa(-550, 1100, 550)).toBe(0);
+    expect(fraccionTvaExigibleRectificativa(-1100, 1100, 550)).toBe(0.5);
+  });
+
+  it('textoEstadoDocumentoFactura nunca imprime "Borrador" en una factura emitida', () => {
+    expect(textoEstadoDocumentoFactura('Pendiente', 'fr')).toBe('En attente de paiement');
+    expect(textoEstadoDocumentoFactura('Cobrada', 'es')).toBe('Pagada');
   });
 });

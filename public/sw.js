@@ -6,7 +6,10 @@
 // Los datos legales de la pantalla rápida se guardan aparte en localStorage (ver RapidoPage.tsx).
 // Sin precache: el index.html se refresca en cada visita con red, y como los assets llevan hash
 // un despliegue nuevo nunca sirve un chunk viejo como si fuera el actual.
-const CACHE = 'crm-shell-v1';
+// v2 (2026-10-01): descarta copias de la v1 que pudieran tener un index.html guardado como chunk.
+const CACHE = 'crm-shell-v2';
+// Los chunks con hash de cada despliegue se acumulaban sin límite (~4 MB por despliegue).
+const MAX_ENTRADAS = 250;
 const SHELL = new URL('index.html', self.registration.scope).href;
 
 self.addEventListener('install', () => {
@@ -50,9 +53,12 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ||
           fetch(peticion).then((respuesta) => {
-            if (respuesta.ok) {
+            // Nunca se guarda un HTML bajo una URL de assets/icons (sería el index.html devuelto por
+            // un chunk que ya no existe).
+            const tipo = respuesta.headers.get('content-type') ?? '';
+            if (respuesta.ok && !tipo.includes('text/html')) {
               const copia = respuesta.clone();
-              caches.open(CACHE).then((cache) => cache.put(peticion, copia));
+              caches.open(CACHE).then((cache) => cache.put(peticion, copia).then(() => recortarCache(cache)));
             }
             return respuesta;
           }),
@@ -60,3 +66,14 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// Borra las entradas más antiguas (Cache API las devuelve en orden de inserción) por encima del
+// máximo, sin tocar el index.html.
+function recortarCache(cache) {
+  return cache.keys().then((claves) => {
+    const assets = claves.filter((c) => c.url !== SHELL);
+    const sobran = assets.length - MAX_ENTRADAS;
+    if (sobran <= 0) return undefined;
+    return Promise.all(assets.slice(0, sobran).map((c) => cache.delete(c)));
+  });
+}

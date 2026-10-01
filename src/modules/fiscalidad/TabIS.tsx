@@ -1,14 +1,7 @@
-import { useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Scale, FileText } from 'lucide-react';
 import { TOOLTIP_STYLE } from '../../lib/chartStyles';
-import { useToast } from '../../hooks/useToast';
-import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
-import { mensajeError } from '../../lib/mensajeError';
-import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
-import { registrarDecision } from '../../lib/registroDecisiones';
-import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
@@ -27,9 +20,6 @@ const ANIOS = [ANIO_ACTUAL - 1, ANIO_ACTUAL];
 // esta pestaña, Cotisations, Salario vs Dividendos y Liasse fiscale — antes cada una tenía su
 // propio estado local y volvía a 2026 cada vez que cambiabas de pestaña.
 export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (anio: number) => void }) {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
   const {
     ejercicio,
     mesesTranscurridos,
@@ -40,8 +30,6 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
     beneficioNeto,
     is,
     resultadoNeto,
-    capitalSocial,
-    reservaLegal,
     gerantConfig,
   } = useEjercicioFiscal(anio);
   const { echeances, marcarCompletada } = useEcheances();
@@ -49,23 +37,6 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
   const tipoEfectivo = beneficioNeto > 0 ? is.total / beneficioNeto : 0;
   const margenNeto = ingresosHT > 0 ? resultadoNeto / ingresosHT : 0;
   const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config, gerantConfig?.remuneracion_desde ?? null);
-
-  const handleAprobacionCuentas = async () => {
-    setGenerandoAprobacion(true);
-    try {
-      await conAvisoDescarga(() => generarPdfDecisionAprobacionCuentas(anio, { resultadoNeto, reservaLegal, capitalSocial }), toast);
-      try {
-        await registrarDecision({ tipo: 'aprobacion_cuentas', titulo: `Approbation des comptes — exercice ${anio}`, anio_ejercicio: anio });
-        queryClient.invalidateQueries({ queryKey: ['decisiones_societarias'] });
-      } catch (err) {
-        toast.warning(`El documento se generó, pero no se pudo registrar en el "Registre des décisions": ${mensajeError(err)}`);
-      }
-    } catch (err) {
-      toast.error(mensajeError(err, 'No se pudo generar el documento'));
-    } finally {
-      setGenerandoAprobacion(false);
-    }
-  };
 
   const proyeccion = useMemo(() => {
     const beneficioMedioMensual = beneficioNeto / mesesTranscurridos;
@@ -218,15 +189,14 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
       <div className="bg-surface border border-gray-200 rounded-sm p-4">
         <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5 mb-3">
           <FileText size={14} className="text-brand" /> Documentos del ejercicio
-          <InfoTooltip>
-            Acta de la décision de l'associé unique aprobando las cuentas del ejercicio y la afectación del
-            resultado — paso previo obligatorio al dépôt des comptes en el Greffe. Usa el resultado neto estimado de
-            arriba ({fmt(resultadoNeto)}) y la dotación a la réserve légale (article 18 des statuts).
-          </InfoTooltip>
         </p>
-        <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>
-          {generandoAprobacion ? 'Generando...' : `Décision d'approbation des comptes ${anio} (PDF)`}
-        </Button>
+        {/* Un solo sitio para el acta (auditoría 2026-10-01): aquí se generaba con la estimación de esta
+            pestaña y en Cierre con el libro — dos actas con cifras distintas, y la primera hacía que la
+            reserva legal no se actualizara nunca. */}
+        <p className="text-sm text-gray-600">
+          El acta de aprobación de las cuentas (décision de l'associé unique) se genera en Fiscalidad → Cierre de
+          ejercicio, con el resultado definitivo del libro diario.
+        </p>
       </div>
 
       <Faq

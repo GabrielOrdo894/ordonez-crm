@@ -9,26 +9,14 @@
 // Body esperado: { "facturaId": "<uuid>" }
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { esc } from '../_shared/html.ts';
+import { codificarCabeceraMime } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Duplicado a propósito en cada función — el despliegue vía MCP no resuelve imports relativos
-// entre funciones (a diferencia de `supabase functions deploy` por CLI). Ver notificar-visita.
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -39,32 +27,6 @@ const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
 
 // Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
 // de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
-// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
-// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
-// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
-// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
-// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
-// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
-// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
-// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
-// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
-function codificarCabeceraMime(texto: string): string {
-  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
-  const enc = new TextEncoder();
-  const trozos: string[] = [];
-  let actual = '';
-  for (const ch of texto) {
-    if (enc.encode(actual + ch).length > 45) {
-      trozos.push(actual);
-      actual = ch;
-    } else {
-      actual += ch;
-    }
-  }
-  if (actual) trozos.push(actual);
-  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
-}
-
 async function enviarSmtp(destinatario: string, asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -116,7 +78,11 @@ function construirCuerpo(opts: {
   descuentoReferente: number;
   descuentoReferido: number;
 }): string {
-  const { fr, nombre, tipoObra, zona, enlaceResena, referidosActivo, descuentoReferente, descuentoReferido } = opts;
+  const { fr, enlaceResena, referidosActivo, descuentoReferente, descuentoReferido } = opts;
+  // Escapados: el nombre puede venir del formulario web público (auditoría 2026-10-01).
+  const nombre = esc(opts.nombre);
+  const tipoObra = esc(opts.tipoObra);
+  const zona = esc(opts.zona);
 
   const parrafoReferidos = referidosActivo
     ? fr
@@ -132,10 +98,10 @@ function construirCuerpo(opts: {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
-    const { facturaId } = await req.json();
+    const { facturaId, reenviar } = await req.json();
     if (!facturaId) return jsonResponse({ error: 'Falta "facturaId" en el body' }, 400);
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -143,6 +109,12 @@ Deno.serve(async (req: Request) => {
     const { data: f, error } = await supabase.from('facturas').select('*').eq('id', facturaId).maybeSingle();
     if (error || !f) return jsonResponse({ error: 'Factura no encontrada' }, 404);
     if (!f.cliente_email) return jsonResponse({ error: 'Esta factura no tiene email de cliente' }, 400);
+    // Idempotente (auditoría 2026-10-01): si ya se mandó por email, no se repite salvo que se pida
+    // expresamente. Antes, si el envío salía bien pero fallaba la marca, resena-automatica lo
+    // volvía a mandar al día siguiente.
+    if (!reenviar && (f.resena_canal === 'email' || f.resena_canal === 'ambos')) {
+      return jsonResponse({ ok: true, yaEnviado: true });
+    }
 
     let visita: { tipo: string | null; zona: string | null } | null = null;
     if (f.visita_id) {
@@ -178,8 +150,8 @@ Deno.serve(async (req: Request) => {
       descuentoReferido: referidosConfig.descuentoReferido,
     });
 
-    await enviarSmtp(f.cliente_email, asunto, cuerpo);
-
+    // Se marca ANTES de enviar y se deshace si el envío falla: así un fallo de la marca nunca deja un
+    // email enviado sin registrar (y repetido al día siguiente).
     const nuevoCanal = !f.resena_canal ? 'email' : f.resena_canal === 'whatsapp' ? 'ambos' : f.resena_canal;
     const { error: errorUpdate } = await supabase
       .from('facturas')
@@ -189,7 +161,18 @@ Deno.serve(async (req: Request) => {
         resena_enviado_en: f.resena_enviado_en ?? new Date().toISOString(),
       })
       .eq('id', facturaId);
-    if (errorUpdate) throw new Error(`Email enviado pero no se pudo actualizar la factura: ${errorUpdate.message}`);
+    if (errorUpdate) throw new Error(`No se pudo marcar la factura antes de enviar: ${errorUpdate.message}`);
+
+    try {
+      await enviarSmtp(f.cliente_email, asunto, cuerpo);
+    } catch (errorEnvio) {
+      const { error: errorVuelta } = await supabase
+        .from('facturas')
+        .update({ resena_canal: f.resena_canal, resena_enviado_en: f.resena_enviado_en })
+        .eq('id', facturaId);
+      if (errorVuelta) console.error('enviar-resena-email: no se pudo deshacer la marca:', errorVuelta.message);
+      throw errorEnvio;
+    }
 
     return jsonResponse({ ok: true });
   } catch (err) {

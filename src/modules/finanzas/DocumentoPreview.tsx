@@ -1,5 +1,5 @@
 import { hexARgb, DECENNALE_BULLETS_FR, type EntidadPais } from '../../lib/pdfEmpresa';
-import { totalLineaMax, formatearUnidadTexto, formatearPrecio, formatearRangoPrecio } from './lineas';
+import { totalLineaMax, formatearUnidadTexto, formatearPrecio, formatearRangoPrecio, admitePrecioNegativo } from './lineas';
 import type { Linea } from './lineas';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import { direccionEnDosLineas } from '../../lib/direcciones';
@@ -752,8 +752,7 @@ export function DocumentoPreview({
           // FacturaForm.tsx), `lineas` y por tanto totalConIva/totalSinIva YA son el resto a pagar
           // neto — no restar los acomptes otra vez, solo sumarlos de vuelta para el total original
           // como referencia. Fallback (resta) para facturas antiguas/manuales sin esa línea.
-          const textoDeduccion = idioma === 'fr' ? 'Déduction acompte(s)' : 'Deducción de anticipo(s)';
-          const tieneLineaDeduccion = lineas.some((l) => l.designacion === textoDeduccion);
+          const tieneLineaDeduccion = lineas.some((l) => admitePrecioNegativo(l.referencia));
           const tieneAcomptes = !!acomptes && acomptes.itemizado.length > 0;
           const acomptesTotalTtc = tieneAcomptes ? acomptes!.itemizado.reduce((s, a) => s + a.total, 0) : 0;
           const resteTtc = tieneLineaDeduccion ? totalConIva : totalConIva - acomptesTotalTtc;

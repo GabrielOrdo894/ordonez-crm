@@ -21,10 +21,11 @@ import type { TamanoTitulo, AlineacionEncabezado } from '../modules/finanzas/Doc
 import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { mencionIvaReducida } from '../modules/finanzas/iva';
 import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
-import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura, calcularTotales } from '../modules/finanzas/facturas/types';
+import { porcentajeIva, paisDesdeTipoIva, tituloDocumentoFactura, textoEstadoDocumentoFactura, calcularTotales } from '../modules/finanzas/facturas/types';
+import { cargarAcomptesDeducibles } from './pagosFactura';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
-import { formatearUnidadTexto, formatearPrecio } from '../modules/finanzas/lineas';
+import { formatearUnidadTexto, formatearPrecio, admitePrecioNegativo } from '../modules/finanzas/lineas';
 import { direccionEnDosLineas } from './direcciones';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 
@@ -150,17 +151,10 @@ async function construirPdfFactura(f: Factura) {
     devisNumero = presupuestoOrigen?.numero ?? null;
     condPagoPresupuesto = presupuestoOrigen?.condiciones_pago ?? null;
     if (f.tipo === 'normal') {
-      const { data: acomptesData, error: errorAcomptes } = await supabase
-        .from('facturas')
-        .select('numero, lineas')
-        .eq('presupuesto_id', f.presupuesto_id)
-        .eq('tipo', 'acompte')
-        .neq('id', f.id)
-        .is('eliminado_en', null);
-      if (errorAcomptes) throw errorAcomptes;
-      acomptesPrevios = (acomptesData ?? []).map((a) => ({
+      // Acomptes y sus rectificativas (mismo criterio que FacturaForm, pagosFactura.ts).
+      acomptesPrevios = (await cargarAcomptesDeducibles(f.presupuesto_id, f.id)).map((a) => ({
         numero: a.numero,
-        total: ((a.lineas ?? []) as Factura['lineas']).reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0),
+        total: a.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_con_iva), 0),
       }));
     }
   }
@@ -401,7 +395,7 @@ async function construirPdfFactura(f: Factura) {
       yDerDatos += 4.5;
     }
     const estadoCanonicoTop = f.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
-    const estadoDocumentoTop = idioma === 'fr' ? (estadoCanonicoTop === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonicoTop;
+    const estadoDocumentoTop = textoEstadoDocumentoFactura(f.estado_cobro, idioma);
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setTextColor(...colorEstadoPdf(estadoCanonicoTop));
     doc.text(`${t.estado} : ${estadoDocumentoTop}`, xDerDatos, yDerDatos);
@@ -467,7 +461,7 @@ async function construirPdfFactura(f: Factura) {
     doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, xDer, yInfo, { align: 'right' });
     yInfo += 5;
     const estadoCanonicoFr = f.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
-    const estadoDocumentoFr = idioma === 'fr' ? (estadoCanonicoFr === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonicoFr;
+    const estadoDocumentoFr = textoEstadoDocumentoFactura(f.estado_cobro, idioma);
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setTextColor(...colorEstadoPdf(estadoCanonicoFr));
     doc.text(`${t.estado} : ${estadoDocumentoFr}`, xDer, yInfo, { align: 'right' });
@@ -566,7 +560,7 @@ async function construirPdfFactura(f: Factura) {
       doc.text(`${t.emision}: ${f.fecha_factura ?? ''}`, xDer + 4, yCards + 19);
       doc.text(`${t.vencimiento}: ${f.fecha_vence ?? ''}`, xDer + 4, yCards + 25);
       const estadoCanonico = f.estado_cobro === 'Cobrada' ? 'Pagado' : 'Borrador';
-      const estadoDocumento = idioma === 'fr' ? (estadoCanonico === 'Pagado' ? 'Payé' : 'Brouillon') : estadoCanonico;
+      const estadoDocumento = textoEstadoDocumentoFactura(f.estado_cobro, idioma);
       doc.setFont(FUENTE_PDF, 'bold');
       doc.setTextColor(...colorEstadoPdf(estadoCanonico));
       doc.text(`${t.estado} : ${estadoDocumento}`, xDer + 4, yCards + 31);
@@ -737,8 +731,7 @@ async function construirPdfFactura(f: Factura) {
   // no hay que volver a restar los acomptes, solo sumarlos de vuelta para mostrar el total original
   // del proyecto como referencia. Si por algún motivo la línea no está (factura antigua o creada a
   // mano sin pasar por el formulario), se mantiene el cálculo anterior por restar como fallback.
-  const textoDeduccion = idioma === 'fr' ? 'Déduction acompte(s)' : 'Deducción de anticipo(s)';
-  const tieneLineaDeduccion = f.lineas.some((l) => l.designacion === textoDeduccion);
+  const tieneLineaDeduccion = f.lineas.some((l) => admitePrecioNegativo(l.referencia));
 
   const camposCond: [string, string][] = [];
   if (condicionesPago?.delai) camposCond.push([idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago', condicionesPago.delai]);
@@ -967,6 +960,25 @@ async function construirPdfFactura(f: Factura) {
 
   // ---- Notas legales ----
   const notas = notasLegales(idioma, f.tipo_iva);
+  // La rectificativa cita siempre la factura que corrige (art. 15 RD 1619/2012; en Francia, mención
+  // de la factura inicial). Antes solo iba en una nota editable que se podía quitar (auditoría
+  // 2026-10-01).
+  if (f.tipo === 'rectificativa' && f.factura_original_id) {
+    const { data: original, error: errorOriginal } = await supabase
+      .from('facturas')
+      .select('numero, fecha_factura')
+      .eq('id', f.factura_original_id)
+      .maybeSingle();
+    if (errorOriginal) throw errorOriginal;
+    if (original) {
+      const fecha = original.fecha_factura ? new Date(`${original.fecha_factura}T12:00:00`).toLocaleDateString(idioma === 'fr' ? 'fr-FR' : 'es-ES') : '—';
+      notas.unshift(
+        idioma === 'fr'
+          ? `Facture rectificative de la facture n° ${original.numero ?? '—'} du ${fecha}.`
+          : `Factura rectificativa de la factura n.º ${original.numero ?? '—'} de fecha ${fecha}.`,
+      );
+    }
+  }
   if (notas.length > 0) {
     if (y > 260) {
       doc.addPage();
@@ -977,6 +989,11 @@ async function construirPdfFactura(f: Factura) {
     doc.setTextColor(...GRIS_TEXTO);
     for (const nota of notas) {
       const lineas = doc.splitTextToSize(nota, anchoContenido);
+      // Comprobado nota a nota: con varias notas, la última podía pisar el pie de página (y=280).
+      if (y + lineas.length * 4.5 > 272) {
+        doc.addPage();
+        y = 20;
+      }
       doc.text(lineas, margen, y);
       y += lineas.length * 4.5 + 2;
     }

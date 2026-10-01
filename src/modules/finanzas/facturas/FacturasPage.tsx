@@ -8,7 +8,7 @@ import { notaSistema } from '../../../lib/notaSistema';
 import { generarPdfFactura, generarPdfFacturaBlob } from '../../../lib/generarPdfFactura';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
-import { fechaCorta } from '../../../lib/fechas';
+import { fechaCorta, hoyLocalIso } from '../../../lib/fechas';
 import { numeroOrdenable } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { rectificarAsientosFacturaSiHaceFalta as rectificarSiHaceFalta, vaciarPagosFactura as vaciarPagos } from '../../../lib/pagosFactura';
@@ -158,22 +158,19 @@ export default function FacturasPage() {
 
   const quitarPagoMutation = useMutation({
     mutationFn: async (f: Factura) => {
-      await vaciarPagos([f.id]);
+      // vaciarPagos anula cada pago con la reversa de su asiento (pagosFactura.ts).
+      await vaciarPagos([f.id], nombreUsuarioActual);
       if (f.visita_id) {
         await notaSistema(f.visita_id, `Pagos de la factura ${f.numero} revertidos por ${nombreUsuarioActual}`);
       }
       await registrarEvento('factura', f.id, 'Pagos revertidos — vuelve a Pendiente');
     },
-    onSuccess: async (_data, f) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['facturas'] });
       queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
-      toast.success('Pagos eliminados, factura vuelve a Pendiente');
-      try {
-        await rectificarSiHaceFalta(f, 'cobro');
-        queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      } catch (error) {
-        toast.warning(`Pagos revertidos, pero no se pudo corregir el libro diario: ${(error as Error).message}`);
-      }
+      queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+      queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
+      toast.success('Pagos anulados, la factura vuelve a Pendiente');
     },
     onError: (error) => toast.error(error.message),
   });
@@ -220,17 +217,18 @@ export default function FacturasPage() {
         .select('id, pais, estructura_anterior')
         .in('id', idsStr);
       if (errorLectura) throw errorLectura;
-      await vaciarPagos(idsStr);
+      await vaciarPagos(idsStr, nombreUsuarioActual);
       return filas as Pick<Factura, 'id' | 'pais' | 'estructura_anterior'>[];
     },
-    onSuccess: async (filas) => {
-      queryClient.invalidateQueries({ queryKey: ['facturas'] });
-      toast.success('Pagos eliminados, facturas vuelven a Pendiente');
+    onSuccess: () => {
+      toast.success('Pagos anulados, las facturas vuelven a Pendiente');
       limpiar();
-      const resultados = await Promise.allSettled(filas.map((f) => rectificarSiHaceFalta(f, 'cobro')));
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['pagos_factura'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      const fallos = resultados.filter((r) => r.status === 'rejected').length;
-      if (fallos > 0) toast.warning(`Pagos revertidos, pero ${fallos} corrección(es) del libro diario fallaron.`);
+      queryClient.invalidateQueries({ queryKey: ['movimientos_banco'] });
     },
     onError: (error) => toast.error(error.message),
   });
@@ -329,7 +327,7 @@ export default function FacturasPage() {
       const url = URL.createObjectURL(contenido);
       const enlace = document.createElement('a');
       enlace.href = url;
-      enlace.download = `facturas_${new Date().toISOString().slice(0, 10)}.zip`;
+      enlace.download = `facturas_${hoyLocalIso()}.zip`;
       enlace.click();
       URL.revokeObjectURL(url);
       toast.success(`${paraZip.length} factura(s) descargada(s) en ZIP`);
@@ -344,8 +342,9 @@ export default function FacturasPage() {
 
   const rapidasFactura = (f: Factura): AccionRapida[] => {
     const descargar: AccionRapida = { icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(f) };
-    if (f.estado_cobro === 'Cobrada' || f.estado_cobro === 'Cobrada parcialmente') {
-      return [{ icon: Undo2, label: 'Vaciar pagos registrados', tono: 'neutro', onClick: () => quitarPagoMutation.mutate(f) }, descargar];
+    if (f.tipo === 'rectificativa') return [descargar];
+    if (f.estado_cobro === 'Cobrada') {
+      return [{ icon: Undo2, label: 'Anular todos los pagos', tono: 'neutro', onClick: () => quitarPagoMutation.mutate(f) }, descargar];
     }
     return [{ icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => setRegistrandoPago(f) }, descargar];
   };
@@ -506,17 +505,16 @@ export default function FacturasPage() {
                     {
                       label: 'Recordar pago',
                       onClick: () => setRecordandoPago(f),
-                      oculto: f.estado_cobro === 'Cobrada',
+                      oculto: f.estado_cobro === 'Cobrada' || f.tipo === 'rectificativa',
                     },
                     {
-                      label: 'Registrar pago',
+                      label: f.tipo === 'rectificativa' ? 'Reembolsos al cliente' : f.estado_cobro === 'Cobrada' ? 'Ver pagos' : 'Registrar pago',
                       onClick: () => setRegistrandoPago(f),
-                      oculto: f.estado_cobro === 'Cobrada',
                     },
                     {
-                      label: 'Vaciar pagos registrados',
+                      label: 'Anular todos los pagos',
                       onClick: () => quitarPagoMutation.mutate(f),
-                      oculto: f.estado_cobro !== 'Cobrada' && f.estado_cobro !== 'Cobrada parcialmente',
+                      oculto: !(f.monto_pagado ?? 0),
                     },
                     {
                       label: 'Crear factura rectificativa',

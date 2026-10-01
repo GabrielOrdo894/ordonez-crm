@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { calcularTotales } from '../modules/finanzas/lineas';
+import { calcularTotales, REFERENCIA_ACOMPTE } from '../modules/finanzas/lineas';
 import type { Linea } from '../modules/finanzas/lineas';
 import { cuentaLabel } from '../modules/finanzas/gastos/categorias';
 import { porcentajeIva } from '../modules/finanzas/iva';
@@ -23,6 +23,22 @@ const ETIQUETAS_CUENTA_EXTRA: Record<string, string> = {
   '4452': '4452 · TVA due intracommunautaire',
   '445662': '445662 · TVA déductible intracommunautaire',
   '445661': '445661 · TVA déductible sur importations',
+  '44551': '44551 · TVA à décaisser',
+  '44567': '44567 · Crédit de TVA à reporter',
+  '444': '444 · État — impôt sur les bénéfices',
+  '695': '695 · Impôt sur les bénéfices',
+  '486': '486 · Charges constatées d’avance',
+  '487': '487 · Produits constatés d’avance',
+  '335': '335 · Travaux en cours',
+  '7133': '7133 · Variation des en-cours de production de biens',
+  '408': '408 · Fournisseurs — factures non parvenues',
+  '418': '418 · Clients — produits non encore facturés',
+  '106': '106 · Réserves (réserve légale)',
+  '110': '110 · Report à nouveau (solde créditeur)',
+  '119': '119 · Report à nouveau (solde débiteur)',
+  '120': '120 · Résultat de l’exercice (bénéfice)',
+  '129': '129 · Résultat de l’exercice (perte)',
+  '457': '457 · Associés — dividendes à payer',
 };
 
 export function etiquetaCuenta(codigo: string): string {
@@ -46,7 +62,7 @@ export type NuevoAsiento = {
   debe: number;
   haber: number;
   concepto: string;
-  documento_tipo: 'factura' | 'gasto' | 'inmovilizado';
+  documento_tipo: 'factura' | 'gasto' | 'inmovilizado' | 'operacion';
   documento_id: string;
   tipo_evento: TipoEvento;
   // Solo para tipo_evento 'cobro' de una factura con más de un pago (ver pagos_factura) — permite
@@ -227,28 +243,40 @@ export function construirAsientosFacturaEmision(factura: {
   lineas: Linea[];
   // 'normal' | 'acompte' | 'rectificativa' (facturas.tipo). Sin él se trata como normal.
   tipo?: string | null;
+  // Solo rectificativas: tipo de la factura que corrige (una rectificativa de un acompte anula
+  // anticipo en 4191, no venta en 706) y parte de su TVA que ya era exigible (ver
+  // fraccionTvaExigibleRectificativa en facturas/types.ts). Sin dato, toda la TVA va a 44571.
+  tipo_original?: string | null;
+  fraccion_tva_exigible?: number | null;
 }): NuevoAsiento[] {
   const fecha = factura.fecha_factura ?? hoyLocalIso();
   const { totalSinIva, totalConIva } = calcularTotales(factura.lineas);
-  const iva = totalConIva - totalSinIva;
+  const iva = Math.round((totalConIva - totalSinIva) * 100) / 100;
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Factura';
   const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'creacion' as const };
 
   const asientos = [apunte(CUENTA_CLIENTES, totalConIva, 'debe', base)];
-  if (factura.tipo === 'acompte') {
+  if (factura.tipo === 'acompte' || (factura.tipo === 'rectificativa' && factura.tipo_original === 'acompte')) {
     asientos.push(apunte(CUENTA_ACOMPTES_RECIBIDOS, totalSinIva, 'haber', base));
   } else {
-    // Factura final: la línea 'ACOMPTE' (negativa, ver lineaDeduccionAcomptes) salda el anticipo de
-    // 4191 en vez de restar de la venta — la venta (706) es el importe total de la obra.
-    const deduccionAcomptes = calcularTotales(factura.lineas.filter((l) => l.referencia === 'ACOMPTE')).totalSinIva;
+    // Factura final: la línea 'ACOMPTE' (negativa, ver lineasDeduccionAcomptes) salda el anticipo de
+    // 4191 en vez de restar de la venta — la venta (706) es el importe total de la obra menos lo que
+    // facturó la estructura anterior ('ACOMPTE_ANT', que se queda restando de 706).
+    const deduccionAcomptes = calcularTotales(factura.lineas.filter((l) => l.referencia === REFERENCIA_ACOMPTE)).totalSinIva;
     asientos.push(apunte(CUENTA_VENTAS, totalSinIva - deduccionAcomptes, 'haber', base));
     asientos.push(apunte(CUENTA_ACOMPTES_RECIBIDOS, deduccionAcomptes, 'haber', base));
   }
   if (iva !== 0) {
-    // Una rectificativa corrige TVA ya declarada al emitirse (no se "cobra"), así que va directa a
-    // 44571; el resto espera en 44574 hasta el cobro.
-    const cuentaIva = factura.tipo === 'rectificativa' ? CUENTA_IVA_COLECTADA : CUENTA_IVA_COLECTADA_ESPERA;
-    asientos.push(apunte(cuentaIva, iva, 'haber', base));
+    if (factura.tipo === 'rectificativa') {
+      // La parte que corrige TVA ya cobrada (y declarada) va a 44571; la que anula TVA de la
+      // original aún sin cobrar sale de 44574, donde esperaba (auditoría 2026-10-01).
+      const fraccion = factura.fraccion_tva_exigible ?? 1;
+      const exigible = Math.round(iva * fraccion * 100) / 100;
+      asientos.push(apunte(CUENTA_IVA_COLECTADA, exigible, 'haber', base));
+      asientos.push(apunte(CUENTA_IVA_COLECTADA_ESPERA, Math.round((iva - exigible) * 100) / 100, 'haber', base));
+    } else {
+      asientos.push(apunte(CUENTA_IVA_COLECTADA_ESPERA, iva, 'haber', base));
+    }
   }
 
   return asientos.filter((a): a is NuevoAsiento => a !== null);
@@ -261,8 +289,9 @@ export function tvaDeCobro(monto: number, tipoIva: string | null | undefined): n
 }
 
 export function construirAsientosFacturaCobro(
-  // tipo_iva: para traspasar de 44574 a 44571 la TVA contenida en este cobro.
-  factura: { id: string; numero: string | null; cliente_nombre: string | null; tipo_iva: string | null },
+  // tipo_iva: para traspasar de 44574 a 44571 la TVA contenida en este cobro. tipo: el reembolso
+  // de una rectificativa (pago negativo) no mueve TVA — su corrección ya se hizo al emitirla.
+  factura: { id: string; numero: string | null; cliente_nombre: string | null; tipo_iva: string | null; tipo?: string | null },
   monto: number,
   fecha: string,
   // Ver NuevoAsiento.pago_id — se pasa cuando el cobro corresponde a una fila de pagos_factura
@@ -270,19 +299,14 @@ export function construirAsientosFacturaCobro(
   pagoId: string | null = null,
 ): NuevoAsiento[] {
   const concepto = [factura.numero, factura.cliente_nombre].filter(Boolean).join(' — ') || 'Cobro de factura';
-  const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'cobro' as const, pago_id: pagoId };
-  const asientos: NuevoAsiento[] = [
-    { ...base, cuenta: CUENTA_BANCO, debe: monto, haber: 0 },
-    { ...base, cuenta: CUENTA_CLIENTES, debe: 0, haber: monto },
-  ];
-  const tva = tvaDeCobro(monto, factura.tipo_iva);
-  if (tva !== 0) {
-    asientos.push(
-      { ...base, cuenta: CUENTA_IVA_COLECTADA_ESPERA, debe: tva, haber: 0 },
-      { ...base, cuenta: CUENTA_IVA_COLECTADA, debe: 0, haber: tva },
-    );
+  const base = { fecha, concepto, documento_tipo: 'factura' as const, documento_id: factura.id, tipo_evento: 'cobro' as const };
+  const conPago = (a: NuevoAsiento | null): NuevoAsiento | null => (a ? { ...a, pago_id: pagoId } : null);
+  const asientos = [conPago(apunte(CUENTA_BANCO, monto, 'debe', base)), conPago(apunte(CUENTA_CLIENTES, monto, 'haber', base))];
+  if (factura.tipo !== 'rectificativa') {
+    const tva = tvaDeCobro(monto, factura.tipo_iva);
+    asientos.push(conPago(apunte(CUENTA_IVA_COLECTADA_ESPERA, tva, 'debe', base)), conPago(apunte(CUENTA_IVA_COLECTADA, tva, 'haber', base)));
   }
-  return asientos;
+  return asientos.filter((a): a is NuevoAsiento => a !== null);
 }
 
 // Reversa (debe/haber invertidos) de asientos ya existentes — cada línea usa la fecha REAL del
@@ -445,4 +469,69 @@ export async function rectificarAsientos(
   // construirAsientosRectificacionNeta.
   const reversa = construirAsientosRectificacionNeta(historico, documentoTipo, documentoId, tipoEvento);
   if (reversa.length > 0) await insertarAsientos(reversa);
+}
+
+// --- Operaciones diversas (OD) — asientos manuales (auditoría 2026-10-01) -----------------------
+// Para lo que no nace de una factura, un gasto o un cobro: cierre del ejercicio (obras en curso,
+// gastos anticipados, IS), liquidación y pago de la TVA, cuenta corriente del socio, reparto del
+// resultado... Antes no había forma de registrarlos y el ejercicio no se podía cerrar.
+
+export type LineaOperacion = { cuenta: string; debe: number; haber: number };
+
+export function validarOperacionDiversa(lineas: LineaOperacion[], concepto: string, fecha: string): string | null {
+  if (!fecha) return 'Falta la fecha.';
+  if (!concepto.trim()) return 'Falta el concepto.';
+  const usadas = lineas.filter((l) => l.cuenta.trim() || l.debe || l.haber);
+  if (usadas.length < 2) return 'Una operación necesita al menos dos líneas.';
+  for (let i = 0; i < usadas.length; i++) {
+    const l = usadas[i];
+    if (!/^\d{3,8}$/.test(l.cuenta.trim())) return `Línea ${i + 1}: la cuenta tiene que ser un número del PCG (3 a 8 cifras).`;
+    if (l.debe < 0 || l.haber < 0) return `Línea ${i + 1}: los importes no pueden ser negativos.`;
+    if ((l.debe > 0) === (l.haber > 0)) return `Línea ${i + 1}: pon el importe en el debe o en el haber (solo en uno).`;
+  }
+  const debe = Math.round(usadas.reduce((t, l) => t + l.debe, 0) * 100);
+  const haber = Math.round(usadas.reduce((t, l) => t + l.haber, 0) * 100);
+  if (debe !== haber) return `El asiento no cuadra: debe ${(debe / 100).toFixed(2)} y haber ${(haber / 100).toFixed(2)}.`;
+  return null;
+}
+
+export function construirOperacionDiversa(lineas: LineaOperacion[], concepto: string, fecha: string, documentoId: string): NuevoAsiento[] {
+  return lineas
+    .filter((l) => l.debe > 0 || l.haber > 0)
+    .map((l) => ({
+      fecha,
+      cuenta: l.cuenta.trim(),
+      debe: Math.round(l.debe * 100) / 100,
+      haber: Math.round(l.haber * 100) / 100,
+      concepto: concepto.trim(),
+      documento_tipo: 'operacion' as const,
+      documento_id: documentoId,
+      tipo_evento: 'creacion' as const,
+    }));
+}
+
+export async function registrarOperacionDiversa(lineas: LineaOperacion[], concepto: string, fecha: string): Promise<string> {
+  const error = validarOperacionDiversa(lineas, concepto, fecha);
+  if (error) throw new Error(error);
+  const documentoId = crypto.randomUUID();
+  await insertarAsientos(construirOperacionDiversa(lineas, concepto, fecha, documentoId));
+  return documentoId;
+}
+
+// Anular una OD: su reversa con fecha de HOY (no la original), para que funcione también cuando la
+// operación es de un periodo ya cerrado.
+export async function anularOperacionDiversa(documentoId: string, fecha: string) {
+  const { data: historico, error } = await supabase
+    .from('asientos_contables')
+    .select('cuenta, debe, haber, concepto, fecha, pago_id')
+    .eq('documento_tipo', 'operacion')
+    .eq('documento_id', documentoId);
+  if (error) throw error;
+  const reversa = construirAsientosRectificacionNeta(historico ?? [], 'gasto', documentoId, 'creacion').map((a) => ({
+    ...a,
+    fecha,
+    documento_tipo: 'operacion' as const,
+  }));
+  if (reversa.length === 0) throw new Error('Esta operación ya está anulada.');
+  await insertarAsientos(reversa);
 }

@@ -4,9 +4,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Search, Check, Ban, Clock3 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
-import { eliminarEventoVisita } from '../../lib/googleCalendar';
-import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
-import { notaSistema } from '../../lib/notaSistema';
+import { cambiarEstadoVisita, retirarEventosDeVisitas } from './cambiarEstadoVisita';
 import { limpiarVisitaAgendadaPorVisitas } from '../../lib/funnelTracking';
 import { formatearTelefonoVisual } from '../clientes/types';
 import { useAuth } from '../../hooks/useAuth';
@@ -76,6 +74,7 @@ export default function VisitasPage() {
         .eq('id', id);
       if (error) throw error;
       await limpiarVisitaAgendadaPorVisitas([id]);
+      (await retirarEventosDeVisitas([id])).forEach((aviso) => toast.warning(aviso));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
@@ -92,6 +91,7 @@ export default function VisitasPage() {
         .in('id', ids as string[]);
       if (error) throw error;
       await limpiarVisitaAgendadaPorVisitas(ids as string[]);
+      (await retirarEventosDeVisitas(ids as string[])).forEach((aviso) => toast.warning(aviso));
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
@@ -103,58 +103,22 @@ export default function VisitasPage() {
 
   const cambiarEstadoVariasMutation = useMutation({
     mutationFn: async ({ ids, estado, motivo }: { ids: (string | number)[]; estado: string; motivo?: string }) => {
-      const { error } = await supabase.from('visitas').update({ estado }).in('id', ids as string[]);
-      if (error) throw error;
-      if (estado === 'Cancelada') {
-        // Antes solo quedaba "Visita cancelada" genérico, sin saber si fue el cliente, no
-        // contactable o una reprogramación (mejora real, auditoría de Visitas 2026-08-18).
-        if (motivo) {
-          for (const id of ids as string[]) {
-            try {
-              await notaSistema(id, `Visita cancelada — motivo: ${motivo}`);
-            } catch (error) {
-              toast.warning(`No se pudo registrar el motivo de cancelación: ${(error as Error).message}`);
-            }
-          }
-        }
-        const conEvento = (visitas ?? []).filter((v) => (ids as string[]).includes(v.id) && v.google_event_id);
-        for (const v of conEvento) {
-          try {
-            await eliminarEventoVisita(v.google_event_id as string);
-          } catch (error) {
-            toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
-          }
-        }
-        if (conEvento.length > 0) {
-          // Sin esto, reactivar una visita cancelada y reprogramarla creía que ya tenía evento
-          // (google_event_id seguía relleno) aunque el real ya se hubiera borrado en Google —
-          // corregido junto con "reprogramar actualiza Calendar" (mejora real, auditoría de
-          // Visitas 2026-08-18).
-          const { error: errorLimpiar } = await supabase
-            .from('visitas')
-            .update({ google_event_id: null })
-            .in('id', conEvento.map((v) => v.id));
-          if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en alguna visita: ${errorLimpiar.message}`);
-        }
-      }
-      if (estado === 'Realizada') {
-        const completadas = (visitas ?? []).filter((v) => (ids as string[]).includes(v.id));
-        for (const v of completadas) {
-          try {
-            await crearGastoKilometricoPendiente(v);
-          } catch (error) {
-            toast.warning(`No se pudo generar el gasto de kilometraje de ${v.nombre}: ${(error as Error).message}`);
-          }
-        }
+      const elegidas = (visitas ?? []).filter((v) => (ids as string[]).includes(v.id));
+      for (const v of elegidas) {
+        const avisos = await cambiarEstadoVisita(v, estado as EstadoVisita, { motivo, usuario: nombreUsuarioActual });
+        avisos.forEach((aviso) => toast.warning(aviso));
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['visitas'] });
-      queryClient.invalidateQueries({ queryKey: ['gastos'] });
       toast.success('Estado actualizado');
       limpiar();
     },
     onError: (error) => toast.error(error.message),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['notas_cliente'] });
+    },
   });
 
   const filtradas = useMemo(() => {

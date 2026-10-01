@@ -11,28 +11,12 @@
 // (más preciso, más caro). Cualquier otro valor cae al modelo por defecto.
 // Ver docs/producto/bloque6-solicitudes-seguimiento.md y docs/negocio/directrices-respuesta-clientes.md.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
-// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
-// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
-// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 const MODELO_DEFECTO = 'claude-haiku-4-5';
 const MODELOS_PERMITIDOS = new Set(['claude-haiku-4-5', 'claude-sonnet-5']);
@@ -186,7 +170,7 @@ async function slotsOcupadosPorCalendar(supabase: SupabaseClient, desde: Date, h
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
     const body = await req.json();
@@ -198,30 +182,52 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    const { data: directrices } = await supabase
+    // Sin directrices o sin configuración no se genera nada: antes, si fallaba la lectura, el mensaje
+    // salía en silencio sin las reglas de negocio ni el tope de gasto (auditoría 2026-10-01).
+    const { data: directrices, error: errorDirectrices } = await supabase
       .from('directrices')
       .select('titulo, contenido')
       .eq('activo', true)
       .order('orden');
+    if (errorDirectrices) return jsonResponse({ error: `No se pudieron leer las directrices: ${errorDirectrices.message}` }, 500);
 
-    const { data: empresaRow } = await supabase
+    const { data: empresaRow, error: errorEmpresa } = await supabase
       .from('empresa_config')
       .select('datos, visitas_disponibles_desde, ia_presupuesto_mensual_usd')
       .eq('id', 1)
       .maybeSingle();
+    if (errorEmpresa) return jsonResponse({ error: `No se pudo leer la configuración: ${errorEmpresa.message}` }, 500);
     const empresa = (empresaRow?.datos ?? {}) as Record<string, unknown>;
 
     let caso: Record<string, unknown> = {};
     let idiomaDoc = 'es';
     if (tipo === 'solicitud') {
-      const { data: sol, error } = await supabase.from('solicitudes').select('*').eq('id', id).maybeSingle();
+      // Solo lo que el mensaje necesita (minimización de datos personales enviados a la API — RGPD).
+      const { data: sol, error } = await supabase
+        .from('solicitudes')
+        .select('nombre, idioma, fuente, tipo_reforma, comentario_cliente, pagina_origen, tipo_solicitud, estado, created_at, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha')
+        .eq('id', id)
+        .maybeSingle();
       if (error || !sol) return jsonResponse({ error: 'Solicitud no encontrada' }, 404);
       caso = sol;
       idiomaDoc = sol.idioma === 'fr' ? 'fr' : 'es';
     } else {
-      const { data: pres, error } = await supabase.from('presupuestos').select('*').eq('id', id).maybeSingle();
+      // Sin nota interna, márgenes ni datos bancarios (antes se mandaba la fila entera a la API):
+      // solo lo que necesita un mensaje de seguimiento, con las partidas resumidas y el total.
+      const { data: pres, error } = await supabase
+        .from('presupuestos')
+        .select('numero, titulo, cliente_nombre, idioma, tipo, estado, fecha_emision, fecha_validez, lineas, plan_pago, ultima_respuesta_cliente_resumen, ultima_respuesta_cliente_fecha, conversacion, mensaje_seguimiento_enviado_en')
+        .eq('id', id)
+        .maybeSingle();
       if (error || !pres) return jsonResponse({ error: 'Presupuesto no encontrado' }, 404);
-      caso = pres;
+      const lineas = (pres.lineas ?? []) as { designacion?: string; es_incluido?: boolean; total_con_iva?: number }[];
+      const resto: Record<string, unknown> = { ...pres };
+      delete resto.lineas;
+      caso = {
+        ...resto,
+        partidas: lineas.map((l) => l.designacion).filter(Boolean),
+        total_con_iva: Math.round(lineas.reduce((t, l) => t + (l.es_incluido ? 0 : Number(l.total_con_iva ?? 0)), 0) * 100) / 100,
+      };
       idiomaDoc = pres.idioma === 'fr' || pres.idioma === 'Français' ? 'fr' : 'es';
     }
 
@@ -230,12 +236,15 @@ Deno.serve(async (req: Request) => {
     const desdeConfig = empresaRow?.visitas_disponibles_desde ? new Date(empresaRow.visitas_disponibles_desde) : hoy;
     const desde = desdeConfig > hoy ? desdeConfig : hoy;
 
-    const { data: visitas } = await supabase
+    // Sin visitas en papelera; y si falla la lectura no se ofrecen huecos que podrían estar ocupados.
+    const { data: visitas, error: errorVisitas } = await supabase
       .from('visitas')
       .select('fecha_visita, hora_visita')
       .neq('estado', 'Cancelada')
+      .is('eliminado_en', null)
       .not('fecha_visita', 'is', null)
       .gte('fecha_visita', fmt(desde));
+    if (errorVisitas) return jsonResponse({ error: `No se pudieron leer las visitas ocupadas: ${errorVisitas.message}` }, 500);
     const ocupadas = new Set(
       (visitas ?? []).map((v: { fecha_visita: string; hora_visita: string | null }) => `${v.fecha_visita}|${(v.hora_visita ?? '').slice(0, 5)}`),
     );

@@ -12,26 +12,13 @@
 // una vez enviado con éxito no se vuelve a mandar aunque el cron se reinvoque el mismo día.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { codificarCabeceraMime } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Duplicado en cada función (el despliegue vía MCP no resuelve imports relativos entre funciones) —
-// mismo patrón que notificar-visita/index.ts y alerta-diaria/index.ts.
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
@@ -46,32 +33,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 
 // Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
 // de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
-// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
-// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
-// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
-// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
-// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
-// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
-// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
-// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
-// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
-function codificarCabeceraMime(texto: string): string {
-  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
-  const enc = new TextEncoder();
-  const trozos: string[] = [];
-  let actual = '';
-  for (const ch of texto) {
-    if (enc.encode(actual + ch).length > 45) {
-      trozos.push(actual);
-      actual = ch;
-    } else {
-      actual += ch;
-    }
-  }
-  if (actual) trozos.push(actual);
-  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
-}
-
 async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -149,7 +110,7 @@ function construirHtmlRecordatorio(opts: {
   const t = opts.fr
     ? {
         eyebrow: 'Rappel de visite technique',
-        saludo: `Bonjour${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        saludo: `Bonjour${opts.nombreCliente ? ' ' + esc(opts.nombreCliente) : ''},`,
         intro: "Nous vous rappelons votre visite technique aujourd'hui :",
         adresse: 'Adresse',
         verMaps: 'Voir sur Google Maps',
@@ -158,7 +119,7 @@ function construirHtmlRecordatorio(opts: {
       }
     : {
         eyebrow: 'Recordatorio de visita técnica',
-        saludo: `Hola${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        saludo: `Hola${opts.nombreCliente ? ' ' + esc(opts.nombreCliente) : ''},`,
         intro: 'Te recordamos que hoy tienes tu visita técnica:',
         adresse: 'Dirección',
         verMaps: 'Ver en Google Maps',
@@ -214,11 +175,23 @@ type VisitaHoy = {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   try {
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const hoy = new Date().toISOString().slice(0, 10);
+    // Fecha y hora de París (no UTC): el recordatorio no debe llegar cuando la visita ya pasó
+    // (auditoría 2026-10-01: una visita de las 08:00 recibía el aviso a las 09:00).
+    const ahoraParis = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Paris',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date());
+    const hoy = ahoraParis.slice(0, 10);
+    const horaActual = ahoraParis.slice(11, 16);
 
     const { data: visitasHoy, error: errorVisitas } = await supabase
       .from('visitas')
@@ -229,7 +202,7 @@ Deno.serve(async (req: Request) => {
       .is('recordatorio_enviado_en', null);
     if (errorVisitas) return jsonResponse({ ok: false, error: `No se pudieron leer las visitas: ${errorVisitas.message}` }, 500);
 
-    const visitas = (visitasHoy ?? []) as VisitaHoy[];
+    const visitas = ((visitasHoy ?? []) as VisitaHoy[]).filter((v) => !v.hora_visita || String(v.hora_visita).slice(0, 5) > horaActual);
     if (visitas.length === 0) {
       return jsonResponse({ ok: true, enviados: 0, motivo: 'Sin visitas pendientes hoy sin recordatorio enviado' });
     }

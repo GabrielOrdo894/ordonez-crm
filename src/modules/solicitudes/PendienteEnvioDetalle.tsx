@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Copy, Check, RotateCcw, ExternalLink, MapPin, AlertTriangle, Pencil } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { marcarMensajesPendientesEnviados } from './pendientesEnvio';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
@@ -79,15 +80,10 @@ export function PendienteEnvioDetalle({ id, onClose }: PendienteEnvioDetalleProp
   };
 
   const marcarEnviadoMutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from('presupuestos')
-        .update({ mensaje_pendiente_enviado_en: new Date().toISOString() })
-        .eq('id', id);
-      if (error) throw error;
-    },
+    mutationFn: () => marcarMensajesPendientesEnviados([id]),
     onSuccess: () => {
       invalidar();
+      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
       toast.success('Marcado como enviado');
     },
     onError: (error) => toast.error(error.message),

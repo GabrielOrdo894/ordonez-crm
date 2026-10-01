@@ -86,6 +86,14 @@ export type Solicitud = {
   respuesta_programada_en: string | null;
 };
 
+// Respuesta del cliente todavía sin atender. Cuenta también en solicitudes ya Aceptadas (visita
+// agendada): cambios de cita o cancelaciones llegan por ahí. Antes la campana buscaba un estado
+// imposible ('Nueva' con mensaje enviado) y nunca avisaba, y las Aceptadas no se veían en ningún
+// sitio (auditoría 2026-10-01).
+export function tieneRespuestaSinRevisar(s: Pick<Solicitud, 'estado' | 'ultima_respuesta_revisada'>): boolean {
+  return s.ultima_respuesta_revisada === false && (s.estado === 'Enviada' || s.estado === 'Aceptada');
+}
+
 export type MensajeConversacion = { de: string; fecha: string; texto: string };
 
 export type PresupuestoConRespuesta = {

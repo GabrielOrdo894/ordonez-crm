@@ -115,7 +115,7 @@ export async function generarPdfDecisionAprobacionCuentas(
     y += lineas.length * 5 + (opts.espacioDespues ?? 6);
   };
 
-  const reportANouveau = Math.max(0, datos.resultadoNeto - datos.reservaLegal.dotacion);
+  const reportANouveau = datos.resultadoNeto - datos.reservaLegal.dotacion;
 
   parrafo(
     `L'associé unique de la société ${entidad.razon_social || 'Reformas Ordoñez'}, entreprise unipersonnelle à responsabilité ` +
@@ -139,12 +139,20 @@ export async function generarPdfDecisionAprobacionCuentas(
   parrafo(`L'associé unique constate que le résultat net de l'exercice s'élève à ${fmtEur(datos.resultadoNeto)}.`);
 
   parrafo("Article 3 — Affectation du résultat", { negrita: true, espacioDespues: 4 });
+  // Tres casos (auditoría 2026-10-01: con pérdidas decía "reporter 0,00 €" y que la reserva legal
+  // ya estaba al tope, las dos cosas falsas).
   parrafo(
-    datos.reservaLegal.dotacion > 0
-      ? `Conformément à l'article 18 des statuts, l'associé unique décide d'affecter ${fmtEur(datos.reservaLegal.dotacion)} ` +
-          `à la réserve légale, et de reporter le solde, soit ${fmtEur(reportANouveau)}, à nouveau.`
-      : `La réserve légale ayant déjà atteint le plafond de 10% du capital social prévu à l'article 18 des statuts, ` +
-          `l'associé unique décide de reporter la totalité du résultat, soit ${fmtEur(reportANouveau)}, à nouveau.`,
+    datos.resultadoNeto < 0
+      ? `L'associé unique décide d'affecter la perte de l'exercice, soit ${fmtEur(-datos.resultadoNeto)}, au compte ` +
+          '« report à nouveau » débiteur.'
+      : datos.reservaLegal.dotacion > 0
+        ? `Conformément à l'article 18 des statuts, l'associé unique décide d'affecter ${fmtEur(datos.reservaLegal.dotacion)} ` +
+            `à la réserve légale, et de reporter le solde, soit ${fmtEur(reportANouveau)}, à nouveau.`
+        : datos.reservaLegal.margenDisponible <= 0
+          ? `La réserve légale ayant déjà atteint le plafond de 10% du capital social prévu à l'article 18 des statuts, ` +
+              `l'associé unique décide de reporter la totalité du résultat, soit ${fmtEur(reportANouveau)}, à nouveau.`
+          : `Le bénéfice de l'exercice étant affecté en priorité à l'apurement des pertes antérieures, l'associé unique ` +
+              `décide de reporter la totalité du résultat, soit ${fmtEur(reportANouveau)}, à nouveau.`,
   );
 
   parrafo("Article 4 — Quitus au gérant", { negrita: true, espacioDespues: 4 });

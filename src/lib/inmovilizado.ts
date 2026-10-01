@@ -54,7 +54,12 @@ export function valorNetoContable(activo: ActivoInmovilizado, hastaAnio: number)
 // haría GastoForm para una amortización manual — misma cuenta 681, mismo asiento en el libro
 // diario (registrarAsientoGasto) — para no duplicar esa lógica. Idempotente: si ya hay un gasto
 // con este inmovilizado_id para ese año, no hace nada.
-export async function generarDotacionEjercicio(activo: ActivoInmovilizado, anio: number): Promise<'generada' | 'ya_existia' | 'sin_importe'> {
+// `fechaDotacion`: por defecto el 31/12; en una baja, la fecha de la baja (dotación complementaria).
+export async function generarDotacionEjercicio(
+  activo: ActivoInmovilizado,
+  anio: number,
+  fechaDotacion?: string,
+): Promise<'generada' | 'ya_existia' | 'sin_importe'> {
   // Filtro por cuenta_contable='681' añadido (bug real, auditoría 2026-09-21): sin él, esta
   // comprobación de idempotencia encontraba también la propia FACTURA DE COMPRA del activo (que
   // también lleva inmovilizado_id, con fecha dentro del año de compra — el mismo año en que
@@ -75,7 +80,7 @@ export async function generarDotacionEjercicio(activo: ActivoInmovilizado, anio:
   const importe = calcularDotacionAnual(activo, anio);
   if (importe <= 0) return 'sin_importe';
 
-  const fecha = `${anio}-12-31`;
+  const fecha = fechaDotacion ?? `${anio}-12-31`;
   const descripcion = `Dotación amortización — ${activo.descripcion} (${anio})`;
   const { data: gasto, error } = await supabase
     .from('gastos')
@@ -101,16 +106,24 @@ export async function generarDotacionEjercicio(activo: ActivoInmovilizado, anio:
     .single();
   if (error) throw error;
 
-  await registrarAsientoGasto({
-    id: gasto.id,
-    fecha,
-    descripcion,
-    proveedor: null,
-    cuenta_contable: '681',
-    importe_base: importe,
-    importe_iva: 0,
-    cuenta_amortizacion: cuentaAmortizacionDe(activo.cuenta_pcg),
-  });
+  // Gasto y asiento van juntos: si el asiento falla, se borra el gasto (antes quedaba una dotación
+  // sin contabilizar — auditoría 2026-10-01).
+  try {
+    await registrarAsientoGasto({
+      id: gasto.id,
+      fecha,
+      descripcion,
+      proveedor: null,
+      cuenta_contable: '681',
+      importe_base: importe,
+      importe_iva: 0,
+      cuenta_amortizacion: cuentaAmortizacionDe(activo.cuenta_pcg),
+    });
+  } catch (errorAsiento) {
+    const { error: errorBorrado } = await supabase.from('gastos').delete().eq('id', gasto.id);
+    if (errorBorrado) console.error('No se pudo deshacer la dotación sin asiento:', errorBorrado.message);
+    throw errorAsiento;
+  }
 
   return 'generada';
 }

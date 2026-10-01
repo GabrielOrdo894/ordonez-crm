@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Paperclip, Receipt, UploadCloud, X, Eye, Building2, Coins, CreditCard } from 'lucide-react';
@@ -197,7 +197,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
   const [direccionVisita, setDireccionVisita] = useState('');
   const [calculandoKm, setCalculandoKm] = useState(false);
 
-  const esInmovilizado = !!form.cuenta_contable && CUENTAS_INMOVILIZADO.has(form.cuenta_contable);
+  // 231 (inmovilizado en curso) no se amortiza hasta que se termina: no se da de alta como activo
+  // (auditoría 2026-10-01).
+  const esInmovilizado = !!form.cuenta_contable && CUENTAS_INMOVILIZADO.has(form.cuenta_contable) && form.cuenta_contable !== '231';
   const [duracionAmortizacion, setDuracionAmortizacion] = useState(5);
   // Si el gasto ya estaba enlazado a un activo, precarga su duración real en vez del default —
   // editar otro campo del gasto no debe pisar en silencio la duración de amortización ya decidida.
@@ -222,6 +224,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
       return data as Proveedor[];
     },
   });
+  // Orden alfabético aplicado aquí: ['proveedores'] la comparte ProveedoresPage ordenada por fecha.
+  const proveedoresOrdenados = useMemo(
+    () => [...(proveedores ?? [])].sort((a, b) => (a.razon_social ?? '').localeCompare(b.razon_social ?? '', 'es')),
+    [proveedores],
+  );
 
   const handleSeleccionarProveedor = (valor: string) => {
     if (valor === NUEVO_PROVEEDOR) {
@@ -342,10 +349,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
       toast.error(errorFirma.message);
       return;
     }
-    // Best-effort: si ya había un adjunto (se está reemplazando), borra el anterior en Storage —
-    // cada subida usa un path aleatorio nuevo, así que sin esto el fichero viejo quedaba huérfano
-    // para siempre en el bucket privado (hallazgo real, auditoría 2026-09-21).
-    if (adjunto?.path) {
+    // Si se reemplaza un adjunto subido en esta misma edición (aún sin guardar), se borra ya. El que
+    // ya estaba guardado en el gasto NO se borra hasta guardar (borrarJustificanteSustituido): antes
+    // se borraba al momento y, si se cancelaba el formulario, el gasto — documento contable que hay
+    // que conservar 10 años — quedaba apuntando a un fichero inexistente (auditoría 2026-10-01).
+    if (adjunto?.path && adjunto.path !== gasto?.adjunto_url) {
       const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([adjunto.path]);
       if (errorBorrado) console.warn('No se pudo borrar el justificante anterior en Storage:', errorBorrado.message);
     }
@@ -407,7 +415,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
           if (error) throw error;
           inmovilizadoId = data.id as string;
         }
-      } else if (inmovilizadoId) {
+      } else if (inmovilizadoId && !form.cuenta_contable?.startsWith('681')) {
+        // Una dotación (681) sigue enlazada a su activo: si se desvinculaba al editarla, "Generar
+        // dotación" ya no la encontraba y la volvía a crear (doble amortización — auditoría 2026-10-01).
         // La cuenta ya no es de Immobilisations (el usuario la cambió) — se desvincula el gasto,
         // pero el activo NO se borra (puede tener dotaciones de amortización ya generadas).
         inmovilizadoId = null;
@@ -452,6 +462,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
       return data.id as string;
     },
     onSuccess: async (id) => {
+      // Ya guardado con el justificante nuevo (o sin ninguno): ahora sí se borra el que se sustituyó.
+      if (gasto?.adjunto_url && gasto.adjunto_url !== (adjunto?.path ?? null)) {
+        const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([gasto.adjunto_url]);
+        if (errorBorrado) console.warn('No se pudo borrar el justificante sustituido en Storage:', errorBorrado.message);
+      }
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
       toast.success(confirmarPago ? 'Gasto registrado como pagado' : gasto ? 'Gasto actualizado' : 'Gasto registrado');
@@ -563,7 +578,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                 label="Proveedor"
                 options={[
                   { value: '', label: '— Sin proveedor —' },
-                  ...(proveedores ?? []).map((p) => ({ value: p.id, label: `${p.razon_social} · ${p.pais}` })),
+                  ...proveedoresOrdenados.map((p) => ({ value: p.id, label: `${p.razon_social} · ${p.pais}` })),
                   { value: NUEVO_PROVEEDOR, label: '+ Añadir proveedor' },
                 ]}
                 value={form.proveedor_id ?? ''}
@@ -818,8 +833,8 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                   <button
                     type="button"
                     onClick={() => {
-                      // Best-effort, mismo motivo que al reemplazar un adjunto — ver handleSubirAdjunto.
-                      if (adjunto?.path) {
+                      // Solo si se subió en esta edición; el guardado se borra al guardar (ver handleSubirAdjunto).
+                      if (adjunto?.path && adjunto.path !== gasto?.adjunto_url) {
                         supabase.storage
                           .from('justificantes')
                           .remove([adjunto.path])

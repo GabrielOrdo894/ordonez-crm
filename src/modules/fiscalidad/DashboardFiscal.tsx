@@ -91,6 +91,7 @@ export function DashboardFiscal() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('monto, facturas!inner(pais, tipo_iva, estructura_anterior, eliminado_en, tipo)')
+        .is('anulado_en', null)
         .eq('facturas.pais', 'Francia')
         .eq('facturas.estructura_anterior', false)
         .is('facturas.eliminado_en', null)
@@ -106,7 +107,7 @@ export function DashboardFiscal() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('facturas')
-        .select('lineas')
+        .select('lineas, fraccion_tva_exigible')
         .eq('pais', 'Francia')
         .eq('estructura_anterior', false)
         .eq('tipo', 'rectificativa')
@@ -114,7 +115,7 @@ export function DashboardFiscal() {
         .gte('fecha_factura', inicioMes)
         .lte('fecha_factura', finMes);
       if (error) throw error;
-      return data as Pick<Factura, 'lineas'>[];
+      return data as Pick<Factura, 'lineas' | 'fraccion_tva_exigible'>[];
     },
   });
 
@@ -130,7 +131,8 @@ export function DashboardFiscal() {
     }, 0);
     const collecteeRectificativas = (rectificativasMes ?? []).reduce((s, f) => {
       const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
-      return s + (totalConIva - totalSinIva);
+      // Solo la parte que corrige TVA ya cobrada (ver AsistenteIvaPage).
+      return s + (totalConIva - totalSinIva) * (f.fraccion_tva_exigible ?? 1);
     }, 0);
     const collectee = collecteePagos + collecteeRectificativas;
     const deductible = gastosMes.reduce((s, g) => s + (g.importe_iva ?? 0), 0);

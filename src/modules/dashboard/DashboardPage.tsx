@@ -145,6 +145,7 @@ export default function DashboardPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('fecha, monto, facturas!inner(pais, visita_id, eliminado_en, estructura_anterior)')
+        .is('anulado_en', null)
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;
@@ -348,7 +349,8 @@ export default function DashboardPage() {
     for (const f of facturasFiltradas) {
       const z = (f.visita_id ? visitaPorId.get(f.visita_id)?.zona : null) ?? 'Sin zona';
       const actual = map.get(z) ?? { total: 0, obras: new Set<string>() };
-      actual.total += calcularTotales(f.lineas).totalConIva;
+      // Sin IVA, como el resto del Dashboard (auditoría 2026-10-01).
+      actual.total += calcularTotales(f.lineas).totalSinIva;
       if (f.visita_id) actual.obras.add(f.visita_id);
       map.set(z, actual);
     }
@@ -423,7 +425,7 @@ export default function DashboardPage() {
     const presupuestosZona = (presupuestos ?? []).filter((p) => coincideZonaRegistro(p.pais, p.visita_id));
 
     const pendienteCobro = facturasZona
-      .filter((f) => f.estado_cobro !== 'Cobrada')
+      .filter((f) => f.estado_cobro !== 'Cobrada' && f.tipo !== 'rectificativa')
       .reduce((s, f) => s + (calcularTotales(f.lineas).totalConIva - (f.monto_pagado ?? 0)), 0);
 
     const idsPresupuestoEnCurso = new Set((proyectos ?? []).filter((p) => p.estado === 'En curso').map((p) => p.presupuesto_id));
@@ -849,7 +851,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-surface border border-gray-200 rounded-sm p-4">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 border-b border-gray-200 pb-2 mb-3">
-            Facturación por zona
+            Facturación por zona (sin IVA)
           </p>
           {facturacionPorZona.length === 0 ? (
             <p className="text-sm text-gray-400 py-10 text-center">Sin datos en este período</p>

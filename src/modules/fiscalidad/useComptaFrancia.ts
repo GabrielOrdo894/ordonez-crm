@@ -28,19 +28,28 @@ export function calcularCompteResultat(asientos: AsientoContable[]) {
   // niega el saldo neto para mostrarlas en positivo. Cuentas de gasto son de saldo deudor, el
   // saldo neto ya sale en positivo directamente.
   const ventas = -saldoNeto(['70']);
-  // Solo 681 (dotations amortissements d'exploitation) es carga de explotación — 686 (dotations
-  // financières) va en cargasFinancieras de abajo, no aquí (bug real corregido 2026-08-31, "68"
-  // como prefijo metía las dos cuentas juntas).
+  // Clases 6 y 7 completas (auditoría 2026-10-01): antes faltaban 71-75, 78, 79, 687 y 691, así que
+  // las obras en curso (7133), una reprise de provisión o una dotation exceptionnelle no llegaban a
+  // la liasse aunque estuvieran en el libro, y la liasse no cuadraba con el IS de Fiscalidad.
+  // Producción almacenada (71), inmovilizada (72), subvenciones (74), otros productos (75) y
+  // reprises de explotación (781, 791) son producto de explotación.
+  const otrosProductosExplotacion = -saldoNeto(['71', '72', '73', '74', '75', '781', '791']);
+  // Solo 681 es dotación de explotación — 686 es financiera y 687 excepcional (bug real corregido
+  // 2026-08-31, "68" como prefijo las metía juntas).
   const cargasExplotacion = saldoNeto(['60', '61', '62', '63', '64', '65', '681']);
-  const resultadoExplotacion = ventas - cargasExplotacion;
-  const productosFinancieros = -saldoNeto(['76']);
+  const resultadoExplotacion = ventas + otrosProductosExplotacion - cargasExplotacion;
+  const productosFinancieros = -saldoNeto(['76', '786', '796']);
   const cargasFinancieras = saldoNeto(['66', '686']);
   const resultadoFinanciero = productosFinancieros - cargasFinancieras;
-  const productosExcepcionales = -saldoNeto(['77']);
-  const cargasExcepcionales = saldoNeto(['67']);
+  const productosExcepcionales = -saldoNeto(['77', '787', '797']);
+  const cargasExcepcionales = saldoNeto(['67', '687']);
   const resultadoExcepcional = productosExcepcionales - cargasExcepcionales;
+  // 691 (participation des salariés) va antes del IS; 695-699 (IS) no forman parte del résultat
+  // avant IS.
+  const participacion = saldoNeto(['691']);
   return {
     ventas,
+    otrosProductosExplotacion,
     cargasExplotacion,
     resultadoExplotacion,
     productosFinancieros,
@@ -49,7 +58,10 @@ export function calcularCompteResultat(asientos: AsientoContable[]) {
     productosExcepcionales,
     cargasExcepcionales,
     resultadoExcepcional,
-    resultadoAntesIS: resultadoExplotacion + resultadoFinanciero + resultadoExcepcional,
+    participacion,
+    resultadoAntesIS: resultadoExplotacion + resultadoFinanciero + resultadoExcepcional - participacion,
+    // IS registrado en el libro (OD 695/444 al cierre), si ya se hizo.
+    isRegistrado: saldoNeto(['695', '696', '697', '698', '699']),
   };
 }
 

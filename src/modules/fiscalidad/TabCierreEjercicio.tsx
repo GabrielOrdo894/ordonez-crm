@@ -11,6 +11,9 @@ import { mensajeError } from '../../lib/mensajeError';
 import { generarPdfDecisionAprobacionCuentas } from '../../lib/generarPdfRemuneracion';
 import { generarPdfLiasseFiscale } from '../../lib/generarPdfLiasseFiscale';
 import { registrarDecision } from '../../lib/registroDecisiones';
+import { registrarOperacionDiversa } from '../../lib/asientosContables';
+import { hoyLocalIso } from '../../lib/fechas';
+import { useConfirmar } from '../../hooks/useConfirm';
 import { useLiasse } from './useLiasse';
 import { useEcheances } from './useEcheances';
 import { useFiscalConfig } from './useFiscalConfig';
@@ -49,6 +52,7 @@ function Paso({
 
 export function TabCierreEjercicio() {
   const toast = useToast();
+  const confirmar = useConfirmar();
   const queryClient = useQueryClient();
   const [anio, setAnio] = useState(ANIO_ACTUAL);
   const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
@@ -89,6 +93,20 @@ export function TabCierreEjercicio() {
     // (permitido, ver FAQ) no debe volver a sumar la dotación a reserva_legal_acumulada — la
     // sumaría dos veces y corrompería el cálculo real de los próximos ejercicios.
     const primeraAprobacion = !aprobacionGenerada;
+    // Aprobar las cuentas cierra el ejercicio (auditoría 2026-10-01): a partir de aquí nada de él se
+    // puede modificar — por eso las operaciones de cierre a 31/12 (obras en curso, IS...) tienen que
+    // estar registradas antes.
+    if (primeraAprobacion) {
+      const ok = await confirmar({
+        titulo: `Aprobar las cuentas de ${anio}`,
+        mensaje:
+          `Se genera el acta, se registra en el libro el reparto a la reserva legal y el ejercicio ${anio} queda cerrado ` +
+          `(no se podrá modificar nada con fecha hasta el 31/12/${anio}). Antes deben estar registradas en Operaciones ` +
+          'diversas las operaciones de cierre (obras en curso, gastos anticipados, IS). ¿Continuar?',
+        textoConfirmar: 'Aprobar y cerrar',
+      });
+      if (!ok) return;
+    }
     setGenerandoAprobacion(true);
     try {
       await conAvisoDescarga(() => generarPdfDecisionAprobacionCuentas(anio, { resultadoNeto, reservaLegal, capitalSocial }), toast);
@@ -100,6 +118,32 @@ export function TabCierreEjercicio() {
       }
       if (echeanceAsamblea && !echeanceAsamblea.completada) {
         marcarCompletada({ id: echeanceAsamblea.id, completada: true });
+      }
+      if (primeraAprobacion) {
+        try {
+          // Reparto a la reserva legal en el libro (sale del report à nouveau y va a la 106).
+          if (reservaLegal.dotacion > 0) {
+            await registrarOperacionDiversa(
+              [
+                { cuenta: '110', debe: reservaLegal.dotacion, haber: 0 },
+                { cuenta: '106', debe: 0, haber: reservaLegal.dotacion },
+              ],
+              `Affectation du résultat de l'exercice ${anio} — réserve légale`,
+              hoyLocalIso(),
+            );
+          }
+          const { data: config, error: errorConfig } = await supabase.from('empresa_config').select('fecha_bloqueo_contable').eq('id', 1).single();
+          if (errorConfig) throw errorConfig;
+          const cierre = `${anio}-12-31`;
+          if (!config.fecha_bloqueo_contable || config.fecha_bloqueo_contable < cierre) {
+            const { error: errorBloqueo } = await supabase.from('empresa_config').update({ fecha_bloqueo_contable: cierre }).eq('id', 1);
+            if (errorBloqueo) throw errorBloqueo;
+          }
+          queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
+          queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
+        } catch (err) {
+          toast.warning(`Acta generada, pero no se pudo registrar el reparto o cerrar el ejercicio: ${mensajeError(err)}`);
+        }
       }
       if (primeraAprobacion && reservaLegal.dotacion > 0) {
         guardarFiscal(

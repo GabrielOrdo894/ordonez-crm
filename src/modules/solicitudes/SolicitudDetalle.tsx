@@ -23,6 +23,7 @@ import {
   type PresupuestoConRespuesta,
   type Solicitud,
   type TipoSolicitud,
+  tieneRespuestaSinRevisar,
 } from './types';
 
 const OPCIONES_TIPO_SOLICITUD = [
@@ -236,6 +237,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
         patch.mensaje_generado_en = null;
         patch.mensaje_enviado_en = null;
         patch.ultima_respuesta_revisada = true;
+        patch.reabierta_en = new Date().toISOString();
       }
       const { error } = await supabase.from('solicitudes').update(patch).eq('id', id);
       if (error) throw error;
@@ -331,7 +333,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   // Si hay una respuesta del cliente sin revisar, se trata como "no enviado" para que reaparezca
   // el flujo de generar/marcar — aunque `estado` siga "Enviada" (ya no se revierte a "Nueva" al
   // llegar una respuesta, decisión de Gabriel 2026-08-26, para no distorsionar el embudo).
-  const respuestaSinRevisar = tipo === 'solicitud' && solicitud?.estado === 'Enviada' && solicitud?.ultima_respuesta_revisada === false;
+  const respuestaSinRevisar = tipo === 'solicitud' && !!solicitud && tieneRespuestaSinRevisar(solicitud);
   const enviado = tipo === 'solicitud' ? solicitud?.estado === 'Enviada' && !respuestaSinRevisar : !!presupuesto?.mensaje_seguimiento_enviado;
   const cerrada = tipo === 'solicitud' && (solicitud?.estado === 'No concretada' || solicitud?.estado === 'Rechazada');
 

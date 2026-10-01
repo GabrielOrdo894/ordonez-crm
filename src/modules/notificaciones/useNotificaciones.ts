@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { contarMensajesNoLeidos, ultimoMensajeNoLeido } from '../mensajeria/types';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
-import { estadoSeguimiento, SELECT_RESPUESTAS_PRESUPUESTO, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import { estadoSeguimiento, tieneRespuestaSinRevisar, SELECT_RESPUESTAS_PRESUPUESTO, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
 import { normalizarTelefono } from '../clientes/types';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
@@ -110,6 +111,9 @@ export type Notificacion = {
   // automáticamente. También se puede marcar/desmarcar a mano en cualquier momento.
   hecha: boolean;
   creadaEn: string;
+  // Eliminada a mano mientras su condición sigue viva: se oculta y no vuelve a aparecer (antes,
+  // borrarla la quitaba del historial y el siguiente recálculo la volvía a crear como pendiente).
+  descartada?: boolean;
 };
 
 export function useNotificaciones() {
@@ -215,16 +219,14 @@ export function useNotificaciones() {
     queryKey: ['mensajes_equipo', 'no-leidos', user?.id],
     queryFn: async () => {
       if (!user) return 0;
-      const { count, error } = await supabase
-        .from('mensajes_equipo')
-        .select('*', { count: 'exact', head: true })
-        .or(`destinatario_ids.is.null,destinatario_ids.cs.{${user.id}}`)
-        .neq('autor_id', user.id)
-        .not('leido_por', 'cs', `{${user.id}}`)
-        .not('eliminado_por', 'cs', `{${user.id}}`);
-      if (error) throw error;
-      return count ?? 0;
+      return contarMensajesNoLeidos(user.id);
     },
+    enabled: !!user,
+    refetchInterval: 10000,
+  });
+  const { data: ultimoNoLeido } = useQuery({
+    queryKey: ['mensajes_equipo', 'ultimo-no-leido', user?.id],
+    queryFn: () => (user ? ultimoMensajeNoLeido(user.id) : null),
     enabled: !!user,
     refetchInterval: 10000,
   });
@@ -517,7 +519,7 @@ export function useNotificaciones() {
     };
 
     const solicitudesConRespuesta = (solicitudes ?? []).filter(
-      (s) => s.estado === 'Nueva' && s.mensaje_enviado_en && !visitaCerrada(s.visita_id),
+      (s) => tieneRespuestaSinRevisar(s) && !visitaCerrada(s.visita_id),
     );
     for (const s of solicitudesConRespuesta) {
       lista.push({
@@ -550,13 +552,12 @@ export function useNotificaciones() {
       });
     }
 
-    // Id con el conteo (no un id fijo "mensajes") para que, al leer todos los mensajes, esta
-    // notificación se complete sola — y si luego llegan mensajes nuevos, el conteo cambia y
-    // genera un id distinto, así que vuelve a avisar (antes el id fijo hacía que, tras la primera
-    // vez marcada, nunca más volviera a saltar aunque hubiera mensajes nuevos de verdad).
+    // Id con la fecha del último mensaje sin leer: al leerlos todos el aviso se completa solo, y un
+    // mensaje nuevo genera otro id y vuelve a avisar. Antes el id era el conteo: bajar de 3 a 2
+    // avisaba de "mensajes nuevos" y volver a un número ya visto no avisaba (auditoría 2026-10-01).
     if ((mensajesNoLeidos ?? 0) > 0) {
       lista.push({
-        id: `mensajes-${mensajesNoLeidos}`,
+        id: `mensajes-${ultimoNoLeido ?? mensajesNoLeidos}`,
         categoria: 'mensaje',
         titulo: `${mensajesNoLeidos} mensaje${mensajesNoLeidos! > 1 ? 's' : ''} nuevo${mensajesNoLeidos! > 1 ? 's' : ''} en Mensajería`,
         resumen: 'Tienes mensajes del equipo sin leer.',
@@ -578,6 +579,7 @@ export function useNotificaciones() {
     gastosKilometricoPendientes,
     visitasSinPresupuesto,
     diasEsperaResena,
+    ultimoNoLeido,
   ]);
 
   // Vuelca los eventos activos en el historial persistido (localStorage): añade los que son
@@ -596,17 +598,32 @@ export function useNotificaciones() {
       const nuevos = eventosActuales.filter((e) => !idsActuales.has(e.id));
 
       let huboAutocompletado = false;
-      const actualizado = actual.map((n) => {
-        if (!n.hecha && !idsVivos.has(n.id)) {
-          huboAutocompletado = true;
-          return { ...n, hecha: true };
-        }
-        return n;
-      });
+      const actualizado = actual
+        // Una descartada cuya condición ya no se cumple sobra del todo.
+        .filter((n) => {
+          if (n.descartada && !idsVivos.has(n.id)) {
+            huboAutocompletado = true;
+            return false;
+          }
+          return true;
+        })
+        .map((n) => {
+          if (!n.hecha && !idsVivos.has(n.id)) {
+            huboAutocompletado = true;
+            return { ...n, hecha: true };
+          }
+          return n;
+        });
 
       if (nuevos.length === 0 && !huboAutocompletado) return actual;
       const ahora = new Date().toISOString();
-      const combinado = [...nuevos.map((n) => ({ ...n, hecha: false, creadaEn: ahora })), ...actualizado].slice(0, LIMITE_HISTORIAL);
+      const todos = [...nuevos.map((n) => ({ ...n, hecha: false, creadaEn: ahora })), ...actualizado];
+      // El tope solo recorta avisos ya resueltos: si se recortaba uno cuya condición seguía viva
+      // (p. ej. marcado como hecho a mano), en el siguiente recálculo reaparecía como pendiente
+      // nuevo (auditoría 2026-10-01).
+      const vivos = todos.filter((n) => idsVivos.has(n.id));
+      const resueltos = new Set(todos.filter((n) => !idsVivos.has(n.id)).slice(0, Math.max(0, LIMITE_HISTORIAL - vivos.length)));
+      const combinado = todos.filter((n) => idsVivos.has(n.id) || resueltos.has(n));
       guardarHistorial(user.id, combinado);
       return combinado;
     });
@@ -623,15 +640,18 @@ export function useNotificaciones() {
 
   const eliminarNotificacion = (id: string) => {
     if (!user) return;
+    const vivo = eventosActuales.some((e) => e.id === id);
     setHistorial((actual) => {
-      const siguiente = actual.filter((n) => n.id !== id);
+      const siguiente = vivo
+        ? actual.map((n) => (n.id === id ? { ...n, hecha: true, descartada: true } : n))
+        : actual.filter((n) => n.id !== id);
       guardarHistorial(user.id, siguiente);
       return siguiente;
     });
   };
 
-  const pendientes = useMemo(() => historial.filter((n) => !n.hecha), [historial]);
-  const hechas = useMemo(() => historial.filter((n) => n.hecha), [historial]);
+  const pendientes = useMemo(() => historial.filter((n) => !n.hecha && !n.descartada), [historial]);
+  const hechas = useMemo(() => historial.filter((n) => n.hecha && !n.descartada), [historial]);
   const urgentes = pendientes.filter((n) => n.urgente).length;
 
   return { pendientes, hechas, urgentes, marcarHecha, eliminarNotificacion, visitasSinPresupuesto };

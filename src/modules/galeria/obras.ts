@@ -25,7 +25,7 @@ export async function cargarObrasDisponibles(): Promise<ObraGaleria[]> {
   const [presupuestosRes, facturasRes, galeriaRes] = await Promise.all([
     supabase
       .from('presupuestos')
-      .select('id, numero, cliente_nombre, cliente_tel, cliente_email, titulo, pais, fecha_emision, visita_id, estado')
+      .select('id, numero, cliente_nombre, cliente_tel, cliente_email, titulo, pais, fecha_emision, visita_id, estado, tipo')
       .is('eliminado_en', null),
     supabase
       .from('facturas')
@@ -62,7 +62,8 @@ export async function cargarObrasDisponibles(): Promise<ObraGaleria[]> {
   const idsConFactura = new Set(facturas.map((f) => f.presupuesto_id).filter((id): id is string => !!id));
   const obrasPorPresupuesto: ObraGaleria[] = [];
   for (const p of presupuestos) {
-    if (p.estado !== 'Aceptado' && !idsConFactura.has(p.id)) continue;
+    // Un orientativo 'Aceptado' no es una obra (auditoría 2026-10-01).
+    if ((p.estado !== 'Aceptado' || p.tipo === 'orientativo') && !idsConFactura.has(p.id)) continue;
     obrasPorPresupuesto.push({
       clave: `p:${p.id}`,
       presupuestoId: p.id,

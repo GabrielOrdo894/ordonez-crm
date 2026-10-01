@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, Pencil, Languages, Eye, ClipboardCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
-import { fechaVisitaCorta, fechaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, fechaCorta, hoyLocalIso } from '../../lib/fechas';
 import { cargarEventos } from '../../lib/eventos';
 import { generarPdfPlanning } from '../../lib/generarPdfPlanning';
 import {
@@ -51,7 +51,7 @@ export function PlanningVistaPrevia({
 }: PlanningVistaPreviaProps) {
   const toast = useToast();
   const [clienteAbierto, setClienteAbierto] = useState(false);
-  const [fechaReception, setFechaReception] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fechaReception, setFechaReception] = useState(() => hoyLocalIso());
   const [conReservas, setConReservas] = useState(false);
   const [reservas, setReservas] = useState('');
   const [generandoPV, setGenerandoPV] = useState(false);

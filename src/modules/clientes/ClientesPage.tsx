@@ -35,6 +35,8 @@ import type { Visita } from '../visitas/types';
 import type { Presupuesto } from '../finanzas/presupuestos/types';
 import type { Factura } from '../finanzas/facturas/types';
 import type { VisitaModalContext } from '../../components/layout/AppLayout';
+import { limpiarVisitaAgendadaPorVisitas } from '../../lib/funnelTracking';
+import { retirarEventosDeVisitas } from '../visitas/cambiarEstadoVisita';
 
 export default function ClientesPage() {
   const { abrirNuevoCliente } = useOutletContext<VisitaModalContext>();
@@ -145,6 +147,9 @@ export default function ClientesPage() {
         .update({ eliminado_en: new Date().toISOString(), eliminado_por: nombreUsuarioActual })
         .in('id', idsVisitas as string[]);
       if (error) throw error;
+      // Mismos efectos que mover visitas a la papelera desde Visitas (antes aquí no se hacían).
+      await limpiarVisitaAgendadaPorVisitas(idsVisitas);
+      (await retirarEventosDeVisitas(idsVisitas)).forEach((aviso) => toast.warning(aviso));
     },
     onSuccess: (_data, clienteIds) => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });

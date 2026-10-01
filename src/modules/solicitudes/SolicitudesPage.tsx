@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { marcarMensajesPendientesEnviados } from './pendientesEnvio';
 import { sincronizarTipoSolicitud } from '../../lib/sincronizarTipoSolicitud';
 import { formatearTelefonoVisual } from '../clientes/types';
 import {
@@ -35,6 +36,7 @@ import {
   type MensajeEnvioFila,
   type PresupuestoPendienteEnvio,
   type Solicitud,
+  tieneRespuestaSinRevisar,
 } from './types';
 
 type Pestana = 'entrantes' | 'pendientes' | 'avisos' | 'manual';
@@ -243,9 +245,10 @@ export default function SolicitudesPage() {
 
   const comprobarGmail = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke('revisar-gmail');
+      const { data, error } = await supabase.functions.invoke('revisar-gmail', { body: { forzar: true } });
       if (error) throw error;
       if (data?.ok === false) throw new Error(data.error);
+      if (data?.omitido) throw new Error('Gmail ya se está revisando ahora mismo. Inténtalo en un momento.');
       return data as { solicitudesNuevas: number; respuestasDetectadas: number; enviosSolicitudes: number };
     },
     onSuccess: (data) => {
@@ -269,6 +272,7 @@ export default function SolicitudesPage() {
         patch.mensaje_generado_en = null;
         patch.mensaje_enviado_en = null;
         patch.ultima_respuesta_revisada = true;
+        patch.reabierta_en = new Date().toISOString();
       }
       const { error } = await supabase.from('solicitudes').update(patch).in('id', ids as string[]);
       if (error) throw error;
@@ -305,15 +309,10 @@ export default function SolicitudesPage() {
   };
 
   const marcarEnviadoPendienteMutation = useMutation({
-    mutationFn: async (ids: (string | number)[]) => {
-      const { error } = await supabase
-        .from('presupuestos')
-        .update({ mensaje_pendiente_enviado_en: new Date().toISOString() })
-        .in('id', ids as string[]);
-      if (error) throw error;
-    },
+    mutationFn: (ids: (string | number)[]) => marcarMensajesPendientesEnviados(ids as string[]),
     onSuccess: () => {
       invalidarPendientes();
+      queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
       toast.success('Marcado como enviado');
       limpiarSeleccionPendientes();
     },
@@ -361,7 +360,7 @@ export default function SolicitudesPage() {
   // "Nueva" (eso revertía estado y distorsionaba el embudo, ver revisar-gmail) pero sigue
   // necesitando acción, así que cuenta aparte para el KPI/contador de la pestaña.
   const respuestasSinRevisarSolicitudes = (solicitudes ?? []).filter(
-    (s) => s.estado === 'Enviada' && !s.ultima_respuesta_revisada,
+    (s) => tieneRespuestaSinRevisar(s),
   ).length;
   const pendientesEntrantes = nuevasSolicitudes + respuestasSinRevisarSolicitudes;
   const totalPendientesEnvio = (pendientesEnvio ?? []).length;
@@ -547,7 +546,7 @@ export default function SolicitudesPage() {
               emptyMessage="No hay solicitudes"
               onRowClick={(f) => setViendo({ tipo: 'solicitud', id: f.solicitud.id })}
               rowClassName={(f) =>
-                f.solicitud.estado === 'Nueva' || (f.solicitud.estado === 'Enviada' && !f.solicitud.ultima_respuesta_revisada)
+                f.solicitud.estado === 'Nueva' || tieneRespuestaSinRevisar(f.solicitud)
                   ? 'font-semibold text-gray-900'
                   : ''
               }
@@ -619,8 +618,7 @@ export default function SolicitudesPage() {
                       <Badge variant={VARIANTE_ESTADO[f.solicitud.estado] ?? 'default'}>
                         {ETIQUETA_ESTADO_SOLICITUD[f.solicitud.estado]}
                       </Badge>
-                      {f.solicitud.estado === 'Enviada' &&
-                        !f.solicitud.ultima_respuesta_revisada &&
+                      {tieneRespuestaSinRevisar(f.solicitud) &&
                         (f.solicitud.respuesta_programada_en ? (
                           <Badge variant="confirmada">Respuesta programada · {fecha(f.solicitud.respuesta_programada_en)}</Badge>
                         ) : (

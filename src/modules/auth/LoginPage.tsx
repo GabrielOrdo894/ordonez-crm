@@ -25,7 +25,11 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      // Con la base /crm/ (antes iba a la raíz del dominio, que es la web de WordPress, y el enlace
+      // de recuperación nunca llegaba al CRM — auditoría 2026-10-01).
+      redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+    });
     setLoading(false);
     if (error) {
       setError(error.message);

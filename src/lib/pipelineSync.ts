@@ -118,14 +118,16 @@ export async function sincronizarPipelineCliente(telefono: string | null | undef
 
   const { data: facturas, error: errorFacturas } = await supabase
     .from('facturas')
-    .select('estado_cobro')
+    .select('estado_cobro, tipo')
     .eq('visita_id', ultimaVisita.id)
     .is('eliminado_en', null);
   if (errorFacturas) {
     console.warn('sincronizarPipelineCliente: no se pudieron leer facturas:', errorFacturas.message);
     return;
   }
-  const facturaCobrada = (facturas ?? []).some((f) => f.estado_cobro === 'Cobrada');
+  // Solo la factura final cobrada cierra la obra: un acompte cobrado es el anticipo del inicio
+  // (auditoría 2026-10-01: tres obras salían "Finalizado" con solo el primer acompte cobrado).
+  const facturaCobrada = (facturas ?? []).some((f) => f.estado_cobro === 'Cobrada' && f.tipo === 'normal');
 
   const nuevaEtapa = etapaAutomatica({
     visitaEstado: ultimaVisita.estado,

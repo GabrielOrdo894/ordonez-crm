@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
 import { CalendarPicker } from '../google/CalendarPicker';
-import { sincronizarGoogleCalendarVisita } from '../../lib/googleCalendar';
+import { sincronizarGoogleCalendarVisita, eliminarEventoVisita } from '../../lib/googleCalendar';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import { sumarMinutos, minutosEntre } from '../../lib/horas';
 import { SelectorClienteInline } from '../clientes/SelectorClienteInline';
@@ -471,16 +471,14 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     if (telefono) {
       const nucleo = normalizarTelefono(telefono);
       if (nucleo) {
-        // ILIKE por los últimos 9 dígitos (núcleo del número) en vez de comparar el teléfono tal
-        // cual — un cliente conocido en formato nacional ("0612345678") o internacional
-        // ("+33612345678") tiene que cruzar igual, mismo criterio que agruparClientes()/
-        // datosContactoCliente() en el resto del CRM (bug real, corregido 2026-09-10). El filtro
-        // exacto por normalizarTelefono() después del ILIKE evita falsos positivos por
-        // coincidencia parcial de substring.
+        // Por los últimos 9 dígitos (columna generada telefono_digitos, mismo criterio que
+        // normalizarTelefono): cruza "0612345678", "+33612345678" y "+33 6 12 34 56 78". El ILIKE
+        // anterior buscaba los 9 dígitos seguidos y dejó de encontrar los teléfonos guardados con
+        // espacios desde el 2026-09-25 (auditoría 2026-10-01).
         const { data, error } = await supabase
           .from('visitas')
           .select('nombre, apellidos, telefono, email')
-          .ilike('telefono', `%${nucleo}%`)
+          .eq('telefono_digitos', nucleo)
           .is('eliminado_en', null)
           .order('created_at', { ascending: true });
         if (error) {
@@ -570,7 +568,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         google_event_id: null,
         estado_pipeline: 'Contacto',
         pipeline_etapa_maxima: 'Contacto',
-        estado: 'Pendiente',
+        estado: form.estado === 'Realizada' ? 'Realizada' : 'Pendiente',
         proyecto_id: prefill?.proyectoId ?? null,
       };
       const { data, error } = await supabase.from('visitas').insert(nueva).select().single();
@@ -578,10 +576,22 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       return data as Visita;
     },
     onSuccess: async (data) => {
-      sincronizarGoogleCalendarVisita({ visitaId: data.id, googleEventId: null, visita: data, notificar: true }).then(
-        (avisos) => avisos.forEach((aviso) => toast.warning(aviso)),
-      );
-      await notaSistema(data.id, `Visita registrada por ${nombreUsuarioActual}`);
+      // Con await: si el usuario reabría la visita antes de que se guardara google_event_id, se
+      // creaba un segundo evento. Una visita apuntada ya como Realizada (a posteriori) no avisa al
+      // equipo de una "visita agendada".
+      (
+        await sincronizarGoogleCalendarVisita({
+          visitaId: data.id,
+          googleEventId: null,
+          visita: data,
+          notificar: data.estado !== 'Realizada',
+        })
+      ).forEach((aviso) => toast.warning(aviso));
+      try {
+        await notaSistema(data.id, `Visita registrada por ${nombreUsuarioActual}`);
+      } catch (error) {
+        toast.warning(`Visita registrada, pero no se pudo anotar en el historial: ${(error as Error).message}`);
+      }
       // Si la visita viene de "Crear visita desde esta solicitud", enlaza de vuelta
       // solicitudes.visita_id y registra el evento de funnel — permite medir cuánto tarda una
       // solicitud en convertirse en visita agendada (2026-08-26). Best-effort, no bloqueante,
@@ -651,22 +661,39 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       if (error) throw error;
     },
     onSuccess: async () => {
-      if (visita) {
-        // Antes solo se creaba el evento la primera vez — reprogramar (fecha, hora o dirección
-        // distintas) sin google_event_id dejaba el Calendar con los datos viejos, sin ningún aviso
-        // (mejora real, auditoría de Visitas 2026-08-18). sincronizarGoogleCalendarVisita ya decide
-        // sola crear vs actualizar según si hay googleEventId.
-        sincronizarGoogleCalendarVisita({
-          visitaId: visita.id,
-          googleEventId: visita.google_event_id,
-          visita: { ...visita, ...form, fotos_previas: fotos },
-          // Solo manda email de confirmación si es la primera vez que se crea el evento — editar
-          // una visita que ya tenía Calendar sincronizado nunca mandaba email, solo actualizaba
-          // el evento (mismo comportamiento que tenía este código antes de unificarse).
-          notificar: !visita.google_event_id,
-        }).then((avisos) => avisos.forEach((aviso) => toast.warning(aviso)));
+      if (visita && form.estado === 'Cancelada') {
+        // Cancelada desde el formulario: se borra el evento en vez de sincronizarlo (antes quedaba en
+        // gris en Calendar, y editar una visita ya cancelada creaba un evento nuevo y mandaba al
+        // equipo el email de "visita agendada" — auditoría 2026-10-01).
+        if (visita.google_event_id) {
+          try {
+            await eliminarEventoVisita(visita.google_event_id);
+            const { error: errorLimpiar } = await supabase.from('visitas').update({ google_event_id: null }).eq('id', visita.id);
+            if (errorLimpiar) toast.warning(`Evento borrado, pero no se pudo limpiar su ID: ${errorLimpiar.message}`);
+          } catch (error) {
+            toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
+          }
+        }
+      } else if (visita) {
+        // sincronizarGoogleCalendarVisita decide crear o actualizar según googleEventId (auditoría de
+        // Visitas 2026-08-18). Email al equipo solo la primera vez que se crea el evento.
+        (
+          await sincronizarGoogleCalendarVisita({
+            visitaId: visita.id,
+            googleEventId: visita.google_event_id,
+            visita: { ...visita, ...form, fotos_previas: fotos },
+            notificar: !visita.google_event_id,
+          })
+        ).forEach((aviso) => toast.warning(aviso));
       }
-      if (visita) await notaSistema(visita.id, `Visita modificada por ${nombreUsuarioActual}`);
+      if (visita) {
+        const cambioEstado = visita.estado !== form.estado ? ` (estado: ${visita.estado ?? '—'} → ${form.estado})` : '';
+        try {
+          await notaSistema(visita.id, `Visita modificada por ${nombreUsuarioActual}${cambioEstado}`);
+        } catch (error) {
+          toast.warning(`Visita actualizada, pero no se pudo anotar en el historial: ${(error as Error).message}`);
+        }
+      }
       if (visita && visita.estado !== 'Realizada' && form.estado === 'Realizada') {
         try {
           await crearGastoKilometricoPendiente({ ...visita, ...form });
@@ -991,7 +1018,10 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 label="Dirección completa"
                 value={form.direccion}
                 error={errors.direccion}
-                onChange={(direccion) => setForm((f) => ({ ...f, direccion }))}
+                // Al teclear se descartan las coordenadas del lugar elegido antes: si no, una dirección
+                // reescrita a mano conservaba lat/lng del sitio anterior y el kilometraje salía mal
+                // (auditoría 2026-10-01). Al elegir un lugar, onSelect las vuelve a poner.
+                onChange={(direccion) => setForm((f) => ({ ...f, direccion, lat: null, lng: null }))}
                 onSelect={(lugar) =>
                   setForm((f) => {
                     const pais = lugar.pais || f.pais;
@@ -1194,10 +1224,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               value={form.empleado}
               onChange={(e) => setForm((f) => ({ ...f, empleado: e.target.value }))}
             />
-            {visita && (
+            {(visita || !prefill?.solicitudId) && (
               <Select
                 label="Estado"
-                options={ESTADOS.map((v) => ({ value: v, label: v }))}
+                // Al crear: Pendiente o Realizada (visitas apuntadas a posteriori, p. ej. las de Ricardo).
+                options={(visita ? ESTADOS : ESTADOS.filter((v) => v !== 'Cancelada')).map((v) => ({ value: v, label: v }))}
                 value={form.estado}
                 onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value as EstadoVisita }))}
               />

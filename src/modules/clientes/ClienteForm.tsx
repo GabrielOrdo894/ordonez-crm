@@ -10,7 +10,8 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
 import { MapsAutocomplete } from '../google/MapsAutocomplete';
-import { normalizarTelefono } from './types';
+import { normalizarTelefono, tieneCodigoPais, formatearTelefonoVisual } from './types';
+import { TelefonoInput } from '../../components/ui/TelefonoInput';
 import { useCatalogosVisitas } from '../visitas/useCatalogosVisitas';
 import type { NuevaVisita, Visita } from '../visitas/types';
 
@@ -103,10 +104,12 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
     let previas: { nombre: string; apellidos: string; telefono: string; email: string | null }[] =
       [];
     if (telefono) {
+      // Por los últimos 9 dígitos, no por el texto exacto: el mismo número con otro formato no
+      // cruzaba (auditoría 2026-10-01).
       const { data, error } = await supabase
         .from('visitas')
         .select('nombre, apellidos, telefono, email')
-        .eq('telefono', telefono)
+        .eq('telefono_digitos', normalizarTelefono(telefono))
         .is('eliminado_en', null)
         .order('created_at', { ascending: true });
       if (error) {
@@ -154,7 +157,10 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
     const nuevosErrores: Partial<Record<keyof FormState, string>> = {};
     if (!form.nombre) nuevosErrores.nombre = 'Obligatorio';
     if (!form.apellidos) nuevosErrores.apellidos = 'Obligatorio';
+    // Mismas reglas que VisitaForm (auditoría 2026-10-01): prefijo obligatorio y email válido.
     if (!form.telefono) nuevosErrores.telefono = 'Obligatorio';
+    else if (!tieneCodigoPais(form.telefono)) nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España) o +33 (Francia)';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (form.esEmpresa && !form.empresaNombre) nuevosErrores.empresaNombre = 'Obligatorio';
     if (form.esEmpresa && !form.empresaCif) nuevosErrores.empresaCif = 'Obligatorio';
@@ -167,8 +173,8 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
       const nueva: NuevaVisita = {
         nombre: form.nombre,
         apellidos: form.apellidos,
-        telefono: form.telefono,
-        email: form.email || null,
+        telefono: formatearTelefonoVisual(form.telefono),
+        email: form.email.trim() || null,
         idioma: form.idioma,
         contacto: null,
         direccion: form.direccion,
@@ -254,19 +260,17 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
               error={errors.apellidos}
               onChange={(e) => setForm((f) => ({ ...f, apellidos: e.target.value }))}
             />
-            <Input
-              label="Teléfono"
-              type="tel"
-              required
+            <TelefonoInput
               value={form.telefono}
               error={errors.telefono}
-              onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+              onChange={(telefono) => setForm((f) => ({ ...f, telefono }))}
               onBlur={verificarClienteRepetidor}
             />
             <Input
               label="Email"
               type="email"
               value={form.email}
+              error={errors.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               onBlur={verificarClienteRepetidor}
             />
@@ -314,7 +318,10 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
                 label="Dirección completa"
                 value={form.direccion}
                 error={errors.direccion}
-                onChange={(direccion) => setForm((f) => ({ ...f, direccion }))}
+                // Al teclear se descartan las coordenadas del lugar elegido antes: si no, una dirección
+                // reescrita a mano conservaba lat/lng del sitio anterior y el kilometraje salía mal
+                // (auditoría 2026-10-01). Al elegir un lugar, onSelect las vuelve a poner.
+                onChange={(direccion) => setForm((f) => ({ ...f, direccion, lat: null, lng: null }))}
                 onSelect={(lugar) =>
                   setForm((f) => ({
                     ...f,

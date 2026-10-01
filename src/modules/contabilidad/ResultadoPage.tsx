@@ -51,6 +51,7 @@ export default function ResultadoPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('id, fecha, monto, facturas!inner(numero, cliente_nombre, tipo_iva, eliminado_en, estructura_anterior)')
+        .is('anulado_en', null)
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;

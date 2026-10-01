@@ -89,7 +89,7 @@ export default function PlanningObraPage() {
 
   const presupuestosSinPlanning = useMemo(() => {
     const yaUsados = new Set((proyectos ?? []).map((p) => p.presupuesto_id).filter(Boolean));
-    return (presupuestos ?? []).filter((p) => p.estado === 'Aceptado' && !yaUsados.has(p.id));
+    return (presupuestos ?? []).filter((p) => p.estado === 'Aceptado' && p.tipo !== 'orientativo' && !yaUsados.has(p.id));
   }, [presupuestos, proyectos]);
 
   const crearMutation = useMutation({

@@ -36,13 +36,13 @@ import { RecordatorioPagoModal } from '../finanzas/facturas/RecordatorioPagoModa
 import type { Factura } from '../finanzas/facturas/types';
 import { encontrarObraPorContacto, abrirOCrearFichaGaleria } from '../galeria/obras';
 import { ClientePrivacidadTab } from './ClientePrivacidadTab';
-import { fechaVisitaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, hoyLocalIso } from '../../lib/fechas';
 import { generarPdfFichaCliente } from '../../lib/generarPdfFichaCliente';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
 import { mensajeError } from '../../lib/mensajeError';
 import { useCatalogosVisitas } from '../visitas/useCatalogosVisitas';
 import { useEtiquetasClientes } from './useEtiquetasClientes';
-import { ETAPAS_PIPELINE, formatearTelefonoVisual, normalizarTelefono } from './types';
+import { ETAPAS_PIPELINE, formatearTelefonoVisual, normalizarTelefono, tieneCodigoPais } from './types';
 import type { Cliente } from './types';
 import type { Proyecto } from '../planning/PlanningObraPage';
 
@@ -90,7 +90,7 @@ const VARIANTE_ESTADO_FACTURA: Record<
 // Umbral de "próxima a vencer" — mismo criterio simple de 30 días usado ya en otras alertas por
 // fecha del CRM (facturas/presupuestos a punto de caducar).
 function estadoGarantia(fechaFin: string) {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyLocalIso();
   const dias = Math.round((new Date(fechaFin).getTime() - new Date(hoy).getTime()) / 86400000);
   if (dias < 0)
     return { texto: 'Garantía vencida', clase: 'bg-red-50 text-red-700 border-red-200' };
@@ -231,22 +231,39 @@ export function ClienteDetalleContenido({
   const guardarDatosMutation = useMutation({
     mutationFn: async (datos: FormEdicion) => {
       if (!ultimaVisita) throw new Error('Sin visita de referencia');
-      const { error } = await supabase
+      // Mismas reglas que al registrar una visita (auditoría 2026-10-01: aquí no se validaba nada).
+      if (!datos.nombre.trim()) throw new Error('Falta el nombre.');
+      if (!datos.telefono.trim() && !datos.email.trim()) throw new Error('Hace falta al menos el teléfono o el email.');
+      if (datos.telefono.trim() && !tieneCodigoPais(datos.telefono)) throw new Error('Añade el prefijo del país al teléfono: +34 (España) o +33 (Francia).');
+      if (datos.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.email.trim())) throw new Error('El email no tiene un formato válido.');
+      // Los datos de contacto son del cliente, no de una visita: se cambian en TODAS sus visitas. Antes
+      // solo en la última, y al cambiar el teléfono el cliente se partía en dos fichas.
+      const { error: errorContacto } = await supabase
         .from('visitas')
         .update({
           nombre: datos.nombre,
           apellidos: datos.apellidos,
-          telefono: datos.telefono,
-          email: datos.email || null,
+          telefono: datos.telefono.trim() ? formatearTelefonoVisual(datos.telefono) : '',
+          email: datos.email.trim() || null,
           idioma: datos.idioma,
-          direccion: datos.direccion,
-          direccion_extra: datos.direccion_extra || null,
-          pais: datos.pais,
-          zona: datos.zona,
           es_empresa: datos.esEmpresa,
           empresa_nombre: datos.esEmpresa ? datos.empresaNombre || null : null,
           empresa_cif: datos.esEmpresa ? datos.empresaCif || null : null,
           referido_por: datos.referidoPor || null,
+        })
+        .in('id', cliente.visitas.map((v) => v.id));
+      if (errorContacto) throw errorContacto;
+      // La dirección sí es de la obra (la última visita); si cambia, se descartan sus coordenadas
+      // (el kilometraje y la ruta usaban las de la dirección anterior).
+      const cambiaDireccion = datos.direccion !== (ultimaVisita.direccion ?? '');
+      const { error } = await supabase
+        .from('visitas')
+        .update({
+          direccion: datos.direccion,
+          direccion_extra: datos.direccion_extra || null,
+          pais: datos.pais,
+          zona: datos.zona,
+          ...(cambiaDireccion ? { lat: null, lng: null } : {}),
         })
         .eq('id', ultimaVisita.id);
       if (error) throw error;
@@ -255,10 +272,16 @@ export function ClienteDetalleContenido({
         `Datos del cliente actualizados por ${nombreUsuarioActual}`,
       );
     },
-    onSuccess: () => {
+    onSuccess: (_data, datos) => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Datos del cliente actualizados');
       setEditandoDatos(false);
+      // La ficha se identifica por el teléfono (o el email): si cambió, se abre la nueva dirección
+      // para no quedarse en "Cliente no encontrado".
+      const nuevaClave = (datos.telefono.trim() ? normalizarTelefono(datos.telefono) : '') || datos.email.trim();
+      if (nuevaClave && nuevaClave !== cliente.id && window.location.pathname.includes('/clientes/')) {
+        navigate(`/clientes/${encodeURIComponent(nuevaClave)}`, { replace: true });
+      }
     },
     onError: (error) => toast.error(error.message),
   });
@@ -1097,7 +1120,7 @@ export function ClienteDetalleContenido({
           )}
           <div className="flex flex-col gap-2">
             {notas?.map((n) => {
-              const hoy = new Date().toISOString().slice(0, 10);
+              const hoy = hoyLocalIso();
               const seguimientoVencido = n.fecha_seguimiento && n.fecha_seguimiento <= hoy;
               return (
                 <div key={n.id} className="border border-gray-200 rounded-sm px-3 py-2">
@@ -1206,7 +1229,7 @@ export function ClienteDetalleContenido({
                     <Badge variant={VARIANTE_ESTADO_FACTURA[f.estado_cobro] ?? 'default'}>
                       {f.estado_cobro}
                     </Badge>
-                    {f.estado_cobro !== 'Cobrada' && (
+                    {f.estado_cobro !== 'Cobrada' && f.tipo !== 'rectificativa' && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

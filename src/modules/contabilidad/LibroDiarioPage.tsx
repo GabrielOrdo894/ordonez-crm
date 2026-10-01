@@ -78,29 +78,44 @@ export default function LibroDiarioPage() {
   const { data: documentosContables } = useQuery({
     queryKey: ['libro-diario', 'documentos-contables'],
     queryFn: async () => {
-      const [facturas, gastos] = await Promise.all([
+      const [facturas, gastos, pagos] = await Promise.all([
         supabase.from('facturas').select('id, numero').eq('pais', 'Francia').eq('estructura_anterior', false).is('eliminado_en', null),
         supabase.from('gastos').select('id, descripcion, fecha').eq('pais', 'Francia').eq('estado_gasto', 'pagado'),
+        // Cada pago activo de una factura de la EURL tiene que tener su asiento de cobro (pago_id).
+        supabase
+          .from('pagos_factura')
+          .select('id, fecha, facturas!inner(numero)')
+          .is('anulado_en', null)
+          .eq('facturas.pais', 'Francia')
+          .eq('facturas.estructura_anterior', false)
+          .is('facturas.eliminado_en', null),
       ]);
       if (facturas.error) throw facturas.error;
       if (gastos.error) throw gastos.error;
+      if (pagos.error) throw pagos.error;
       return {
         facturas: (facturas.data ?? []).map((f) => ({ id: f.id as string, nombre: (f.numero as string | null) ?? 'Factura' })),
         gastos: (gastos.data ?? []).map((g) => ({ id: g.id as string, nombre: `${(g.descripcion as string | null) ?? 'Gasto'} (${g.fecha ?? ''})` })),
+        pagos: ((pagos.data ?? []) as unknown as { id: string; fecha: string; facturas: { numero: string | null } }[]).map((p) => ({
+          id: p.id,
+          nombre: `Cobro de ${p.facturas.numero ?? 'factura'} (${p.fecha})`,
+        })),
       };
     },
   });
   const sinAsiento = useMemo(() => {
     if (!documentosContables || !asientos) return [];
+    // Documento (emisión) o pago (cobro) con algún saldo vivo en el libro.
     const vivos = new Set<string>();
     const netos = new Map<string, number>();
     for (const a of asientos) {
-      if (a.tipo_evento !== 'creacion') continue;
-      const clave = `${a.documento_id}|${a.cuenta}`;
+      const id = a.tipo_evento === 'creacion' ? a.documento_id : a.pago_id;
+      if (!id) continue;
+      const clave = `${id}|${a.cuenta}`;
       netos.set(clave, (netos.get(clave) ?? 0) + a.debe - a.haber);
     }
     for (const [clave, neto] of netos) if (Math.abs(neto) >= 0.005) vivos.add(clave.split('|')[0]);
-    return [...documentosContables.facturas, ...documentosContables.gastos].filter((d) => !vivos.has(d.id));
+    return [...documentosContables.facturas, ...documentosContables.gastos, ...documentosContables.pagos].filter((d) => !vivos.has(d.id));
   }, [documentosContables, asientos]);
 
   const filtrados = useMemo(() => {

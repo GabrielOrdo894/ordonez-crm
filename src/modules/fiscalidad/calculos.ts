@@ -103,13 +103,23 @@ export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
 // obligatoria que el simulador de dividendos no aplicaba antes de esta corrección. reservaAcumuladaPrevia
 // se guarda en fiscal_config (clave reserva_legal_acumulada) y hay que actualizarla a mano cada
 // ejercicio con lo ya dotado — el CRM no lleva la cuenta automáticamente entre ejercicios.
-export function calcularReservaLegal(beneficioTrasIS: number, capitalSocial: number, config: ConfigFn) {
+// `reservaEnLibro`: reserva ya registrada en la cuenta 106 (si se pasa, manda sobre la configuración).
+// `reportANouveauNegativo`: pérdidas anteriores pendientes — el art. L232-11 Code de commerce obliga a
+// absorberlas antes de dotar la reserva legal con el beneficio del ejercicio.
+export function calcularReservaLegal(
+  beneficioTrasIS: number,
+  capitalSocial: number,
+  config: ConfigFn,
+  reservaEnLibro?: number,
+  reportANouveauNegativo = 0,
+) {
   const pct = config('reserva_legal_pct', 0.05);
   const topePct = config('reserva_legal_tope_pct', 0.1);
-  const reservaAcumuladaPrevia = config('reserva_legal_acumulada', 0);
+  const reservaAcumuladaPrevia = reservaEnLibro ?? config('reserva_legal_acumulada', 0);
   const tope = capitalSocial * topePct;
   const margenDisponible = Math.max(0, tope - reservaAcumuladaPrevia);
-  const dotacion = Math.min(Math.max(0, beneficioTrasIS) * pct, margenDisponible);
+  const beneficioDistribuible = Math.max(0, beneficioTrasIS - Math.max(0, reportANouveauNegativo));
+  const dotacion = Math.min(beneficioDistribuible * pct, margenDisponible);
   return { pct, tope, reservaAcumuladaPrevia, margenDisponible, dotacion };
 }
 
@@ -268,37 +278,77 @@ export function calcularIRGerante(
   return { remuneracionNeta, montante1GB, abattement, ingresosConyuge, abattementConyuge, revenuNetImposable, parts, ...ir };
 }
 
-// Bilan simplificado (pasivo) del ejercicio — mismo cálculo que antes se repetía byte a byte en
-// TabCierreEjercicio.tsx y TabLiasseFiscale.tsx: capital social + reservas (previas + dotación del
-// ejercicio) + resultado neto + deuda fiscal por IS. "Dettes fournisseurs" siempre a 0 (los Gastos
-// se registran ya pagados, ver CLAUDE.md §10) — se muestra explícito en la UI, no aquí.
+// Bilan (pasivo) del ejercicio desde el libro diario (auditoría 2026-10-01). El libro no lleva asientos
+// de cierre, así que el resultado de los ejercicios anteriores (sus cuentas 6 y 7) entra como report
+// à nouveau, junto con lo que se haya movido a mano a 110/119 (reparto del resultado). Capital (101) y
+// reservas (106) salen también del libro; si todavía no hay reserva registrada se usa la de la
+// configuración (reserva_legal_acumulada). El IS: el registrado en el libro (OD 695/444) o, si
+// todavía no se ha registrado, el calculado. "Dettes fournisseurs" siempre a 0 (los Gastos se
+// registran ya pagados, ver CLAUDE.md §10).
 export function calcularBilanPasivo(
   resultadoNeto: number,
   reservaLegal: ReturnType<typeof calcularReservaLegal>,
-  is: ReturnType<typeof calcularIS>,
+  isPendienteDeRegistrar: number,
   capitalSocial: number,
   // Saldos del libro diario hasta el cierre (ver useComptaFrancia.asientosBalance).
-  asientosBalance: { cuenta: string; debe: number; haber: number }[] = [],
+  asientosBalance: { cuenta: string; debe: number; haber: number; fecha?: string }[] = [],
+  inicioEjercicio = '0000-01-01',
 ) {
-  const saldoAcreedor = (prefijo: string) =>
-    Math.max(0, -asientosBalance.filter((a) => a.cuenta.startsWith(prefijo)).reduce((s, a) => s + a.debe - a.haber, 0));
+  const saldo = (prefijos: string[], filtro: (a: { fecha?: string }) => boolean = () => true) =>
+    asientosBalance
+      .filter((a) => prefijos.some((p) => a.cuenta.startsWith(p)) && filtro(a))
+      .reduce((s, a) => s + a.debe - a.haber, 0);
+  const acreedor = (prefijos: string[]) => Math.max(0, -saldo(prefijos));
+  const capital = acreedor(['101']) || capitalSocial;
   // Solo las reservas ya constituidas: la dotación del ejercicio se decide al aprobar las cuentas en
-  // N+1 y ya está dentro del résultat — sumarla también la contaba dos veces (auditoría 2026-09-29).
-  const reservas = reservaLegal.reservaAcumuladaPrevia;
-  const deudaTva = saldoAcreedor('445');
-  const avancesRecibidas = saldoAcreedor('4191');
-  const compteCourantAssocie = saldoAcreedor('455');
+  // N+1 y ya está dentro del résultat (auditoría 2026-09-29).
+  const reservas = acreedor(['106']) || reservaLegal.reservaAcumuladaPrevia;
+  const resultadosAnteriores = -saldo(['6', '7'], (a) => !!a.fecha && a.fecha < inicioEjercicio);
+  const reportANouveau = resultadosAnteriores - saldo(['11']);
+  const deudaTva = acreedor(['445']);
+  const avancesRecibidas = acreedor(['4191']);
+  const compteCourantAssocie = acreedor(['455']);
+  const dettesFiscales = acreedor(['444']) + isPendienteDeRegistrar;
+  const dividendosAPagar = acreedor(['457']);
+  const capitauxPropres = capital + reservas + reportANouveau + resultadoNeto;
   return {
-    capitalSocial,
+    capitalSocial: capital,
     reservas,
+    reportANouveau,
     resultadoEjercicio: resultadoNeto,
-    dettesFiscales: is.total,
+    capitauxPropres,
+    dettesFiscales,
     deudaTva,
     avancesRecibidas,
     compteCourantAssocie,
+    dividendosAPagar,
     dettesFournisseurs: 0,
-    total: capitalSocial + reservas + resultadoNeto + is.total + deudaTva + avancesRecibidas + compteCourantAssocie,
+    total: capitauxPropres + dettesFiscales + deudaTva + avancesRecibidas + compteCourantAssocie + dividendosAPagar,
   };
+}
+
+// Report en avant des déficits (art. 209-I CGI): el déficit de un ejercicio se imputa a los
+// beneficios de los siguientes, sin límite de tiempo, hasta 1 M€ + 50 % de lo que exceda. Devuelve
+// el déficit pendiente al empezar el ejercicio, recorriendo los resultados de los anteriores en orden.
+export function deficitArrastrable(resultadosAnteriores: number[]): number {
+  let pendiente = 0;
+  for (const r of resultadosAnteriores) {
+    if (r < 0) pendiente += -r;
+    else if (r > 0 && pendiente > 0) pendiente -= Math.min(pendiente, imputacionMaximaDeficit(r));
+  }
+  return Math.round(pendiente * 100) / 100;
+}
+
+export function imputacionMaximaDeficit(beneficio: number): number {
+  if (beneficio <= 0) return 0;
+  return beneficio <= 1_000_000 ? beneficio : 1_000_000 + (beneficio - 1_000_000) * 0.5;
+}
+
+// Art. L223-42 Code de commerce: si los capitaux propres caen por debajo de la mitad del capital,
+// el associé unique debe decidir en los 4 meses siguientes a la aprobación de las cuentas si
+// continúa la société (y publicarlo); y regularizarlo antes del cierre del 2.º ejercicio siguiente.
+export function capitauxPropresInferioresMitadCapital(capitauxPropres: number, capital: number): boolean {
+  return capital > 0 && capitauxPropres < capital / 2;
 }
 
 // Liasse del régimen réel normal transmitida por EDI: segundo día hábil siguiente al 1 de mayo,
@@ -367,7 +417,12 @@ export function generarEcheances(anio: number, config: ConfigFn): NuevaEcheance[
         organismo: 'DGFiP',
         url_oficial: 'https://www.impots.gouv.fr',
         importe_estimado: null,
-        notas: null,
+        // Condiciones reales (auditoría 2026-10-01): sin ellas el calendario pedía 4 acomptes siempre.
+        notas:
+          'Solo si el IS del último ejercicio cerrado supera 3.000 € (si hubo pérdidas o menos de 3.000 €, no hay acomptes). ' +
+          (anio === 2027 && mesAcompte === 3
+            ? 'En 2027, segundo ejercicio, el de marzo no se paga todavía: se regulariza con el de junio, ya con la liasse de 2026 presentada (y la base del primer ejercicio de 6 meses llevada a 12).'
+            : 'Cada acompte es el 25 % del IS de referencia.'),
       });
     }
     echeances.push({

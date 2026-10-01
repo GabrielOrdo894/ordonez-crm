@@ -11,28 +11,13 @@
 // alerta-diaria/index.ts (estructura de email en tarjetas). No requiere body.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { codificarCabeceraMime } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
-// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
-// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
-// imports relativos entre funciones.
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
@@ -94,32 +79,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
 
 // Envío por SMTP directo (cuenta info@ordonezrenov.com en Hostinger, solo envío) en vez de la API
 // de Gmail (2026-09-19, petición de Gabriel). Credenciales en secretos de Supabase.
-// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
-// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
-// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
-// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
-// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
-// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
-// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
-// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
-// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
-function codificarCabeceraMime(texto: string): string {
-  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
-  const enc = new TextEncoder();
-  const trozos: string[] = [];
-  let actual = '';
-  for (const ch of texto) {
-    if (enc.encode(actual + ch).length > 45) {
-      trozos.push(actual);
-      actual = ch;
-    } else {
-      actual += ch;
-    }
-  }
-  if (actual) trozos.push(actual);
-  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
-}
-
 async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -239,7 +198,7 @@ function construirHtml(seccionHoy: string, seccionManana: string): string {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
 
   try {
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);

@@ -81,10 +81,14 @@ export default function PipelinePage() {
       string,
       { presupuesto: Presupuesto | null; proyecto: Proyecto | null; diasInactivo: number }
     >();
+    // Orden aplicado aquí (la caché de ['presupuestos'] la comparten pantallas sin .order(), ver
+    // CLAUDE.md): el "relevante" es el más reciente. Sin teléfono no se empareja nada — antes un
+    // cliente sin teléfono casaba con todos los presupuestos sin teléfono (auditoría 2026-10-01).
+    const ordenados = [...(presupuestos ?? [])].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
     for (const c of clientes) {
       const tel = normalizarTelefono(c.telefono);
-      const presupuestosCliente = (presupuestos ?? []).filter((p) => normalizarTelefono(p.cliente_tel ?? '') === tel);
-      const presupuestoAceptado = presupuestosCliente.find((p) => p.estado === 'Aceptado');
+      const presupuestosCliente = tel ? ordenados.filter((p) => normalizarTelefono(p.cliente_tel ?? '') === tel) : [];
+      const presupuestoAceptado = presupuestosCliente.find((p) => p.estado === 'Aceptado' && p.tipo !== 'orientativo');
       const presupuestoRelevante = presupuestoAceptado ?? presupuestosCliente[0] ?? null;
       const proyecto = presupuestoAceptado
         ? (proyectos ?? []).find((pr) => pr.presupuesto_id === presupuestoAceptado.id) ?? null

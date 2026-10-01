@@ -29,7 +29,15 @@ function fechaLocalHoy() {
 
 function msHastaProximaMedianoche() {
   const ahora = new Date();
-  const medianoche = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1, 0, 0, 0, 0);
+  const medianoche = new Date(
+    ahora.getFullYear(),
+    ahora.getMonth(),
+    ahora.getDate() + 1,
+    0,
+    0,
+    0,
+    0,
+  );
   return medianoche.getTime() - ahora.getTime();
 }
 
@@ -57,10 +65,15 @@ const ResultadoPage = lazy(() => import('./modules/contabilidad/ResultadoPage'))
 const BancoPage = lazy(() => import('./modules/contabilidad/BancoPage'));
 const LibroDiarioPage = lazy(() => import('./modules/contabilidad/LibroDiarioPage'));
 const LibroMayorPage = lazy(() => import('./modules/contabilidad/LibroMayorPage'));
+const OperacionesDiversasPage = lazy(() => import('./modules/contabilidad/OperacionesDiversasPage'));
 const FiscalidadPage = lazy(() => import('./modules/fiscalidad/FiscalidadPage'));
 const ConfiguracionPage = lazy(() => import('./modules/configuracion/ConfiguracionPage'));
-const ConstructorPlantillasPage = lazy(() => import('./modules/configuracion/ConstructorPlantillasPage'));
-const ConstructorPlanningPage = lazy(() => import('./modules/configuracion/ConstructorPlanningPage'));
+const ConstructorPlantillasPage = lazy(
+  () => import('./modules/configuracion/ConstructorPlantillasPage'),
+);
+const ConstructorPlanningPage = lazy(
+  () => import('./modules/configuracion/ConstructorPlanningPage'),
+);
 const ConstructorPortadaPage = lazy(() => import('./modules/configuracion/ConstructorPortadaPage'));
 const DashboardHubPage = lazy(() => import('./modules/dashboard/DashboardHubPage'));
 const PapeleraPage = lazy(() => import('./modules/papelera/PapeleraPage'));
@@ -76,20 +89,23 @@ export default function App() {
   // cubre el caso de un dispositivo cerrado que pasó la medianoche sin la app abierta) y programa
   // además un cierre en cuanto llegue la próxima medianoche si la pestaña sigue abierta.
   // En el teléfono no se aplica: allí la sesión queda abierta (ver sesionTelefono.ts).
+  // scope 'local': cierra solo ESTE dispositivo. Sin él, supabase-js revoca todas las sesiones del
+  // usuario y el cierre de medianoche del ordenador tumbaba también la del teléfono (auditoría
+  // 2026-10-01).
   useEffect(() => {
     if (!session || esTelefono()) return;
     const hoy = fechaLocalHoy();
     const fechaGuardada = localStorage.getItem(CLAVE_FECHA_SESION);
     if (fechaGuardada && fechaGuardada !== hoy) {
       localStorage.removeItem(CLAVE_FECHA_SESION);
-      supabase.auth.signOut();
+      void supabase.auth.signOut({ scope: 'local' });
       return;
     }
     localStorage.setItem(CLAVE_FECHA_SESION, hoy);
 
     const timeoutId = setTimeout(() => {
       localStorage.removeItem(CLAVE_FECHA_SESION);
-      supabase.auth.signOut();
+      void supabase.auth.signOut({ scope: 'local' });
     }, msHastaProximaMedianoche());
 
     return () => clearTimeout(timeoutId);
@@ -109,7 +125,11 @@ export default function App() {
         ocultaDesde = Date.now();
         return;
       }
-      if (ocultaDesde !== null && Date.now() - ocultaDesde > MINUTOS_SIN_BLOQUEO * 60_000 && huellaActivada()) {
+      if (
+        ocultaDesde !== null &&
+        Date.now() - ocultaDesde > MINUTOS_SIN_BLOQUEO * 60_000 &&
+        huellaActivada()
+      ) {
         setBloqueado(true);
       }
       ocultaDesde = null;
@@ -124,66 +144,74 @@ export default function App() {
 
   if (!session) return <LoginPage />;
 
-  if (bloqueado) return <PantallaBloqueo onDesbloqueado={() => setBloqueado(false)} />;
-
+  // La pantalla de bloqueo va como capa encima de la app, no en su lugar: así un formulario a medio
+  // rellenar no se pierde al salir a otra app más de 5 minutos (auditoría 2026-10-01).
   return (
-    <BrowserRouter basename={import.meta.env.BASE_URL}>
-      <Routes>
-        {/* Fuera de AppLayout a propósito: en el móvil es la pantalla principal, sin menú lateral ni
+    <>
+      {bloqueado && (
+        <div className="fixed inset-0 z-[1000] overflow-auto">
+          <PantallaBloqueo onDesbloqueado={() => setBloqueado(false)} />
+        </div>
+      )}
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
+        <Routes>
+          {/* Fuera de AppLayout a propósito: en el móvil es la pantalla principal, sin menú lateral ni
             barra superior del CRM — solo sus acciones y un botón para ir al CRM completo. */}
-        {/* Suspense + ErrorBoundary propios: al estar fuera de AppLayout no tenía ninguno, y un fallo
+          {/* Suspense + ErrorBoundary propios: al estar fuera de AppLayout no tenía ninguno, y un fallo
             al cargar su código (típico justo después de un despliegue) dejaba el móvil en blanco. */}
-        <Route
-          path="/rapido"
-          element={
-            <ErrorBoundary>
-              <Suspense fallback={<div className="min-h-screen bg-[#f4f4f2]" />}>
-                <RapidoPage />
-              </Suspense>
-            </ErrorBoundary>
-          }
-        />
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<InicioSegunDispositivo />} />
-          <Route path="/visitas" element={<VisitasPage />} />
-          <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
-          <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />
-          <Route path="/calendario" element={<CalendarioPage />} />
-          <Route path="/visitas/:id" element={<VisitaDetallePage />} />
-          <Route path="/visitas/:id/reprogramar" element={<VisitaReprogramarPage />} />
-          <Route path="/clientes" element={<ClientesPage />} />
-          <Route path="/clientes/:id" element={<ClienteDetallePage />} />
-          <Route path="/pipeline" element={<PipelinePage />} />
-          <Route path="/planning-obra" element={<PlanningObraPage />} />
-          <Route path="/galeria" element={<GaleriaPage />} />
-          <Route path="/galeria/nueva" element={<GaleriaNuevaPage />} />
-          <Route path="/galeria/:id" element={<GaleriaDetallePage />} />
-          <Route path="/galeria/:id/media" element={<GaleriaMediaPage />} />
-          <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
-          <Route path="/finanzas/facturas" element={<FacturasPage />} />
-          <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />
-          <Route path="/contabilidad/ingresos" element={<LibroIngresosPage />} />
-          <Route path="/contabilidad/gastos" element={<GastosPage />} />
-          <Route path="/contabilidad/resultado" element={<ResultadoPage />} />
-          <Route path="/contabilidad/banco" element={<BancoPage />} />
-          <Route path="/contabilidad/diario" element={<LibroDiarioPage />} />
-          <Route path="/contabilidad/mayor" element={<LibroMayorPage />} />
-          <Route path="/fiscalidad" element={<Navigate to="/fiscalidad/dashboard" replace />} />
-          <Route path="/fiscalidad/:tab" element={<FiscalidadPage />} />
-          <Route path="/dashboard" element={<DashboardHubPage />} />
-          <Route path="/papelera" element={<PapeleraPage />} />
-          <Route path="/configuracion" element={<ConfiguracionPage />} />
-          <Route path="/configuracion/plantillas" element={<ConstructorPlantillasPage />} />
-          <Route path="/configuracion/planning" element={<ConstructorPlanningPage />} />
-          <Route path="/configuracion/portada" element={<ConstructorPortadaPage />} />
-          <Route path="/perfil" element={<PerfilPage />} />
-          <Route path="/perfil/avatares" element={<AvatarGaleriaPage />} />
-          <Route path="/mensajeria" element={<MensajeriaPage />} />
-          {/* Red de seguridad: una ruta que no existe dejaba la pantalla entera en blanco (caso real
+          <Route
+            path="/rapido"
+            element={
+              <ErrorBoundary>
+                <Suspense fallback={<div className="min-h-screen bg-[#f4f4f2]" />}>
+                  <RapidoPage />
+                </Suspense>
+              </ErrorBoundary>
+            }
+          />
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<InicioSegunDispositivo />} />
+            <Route path="/visitas" element={<VisitasPage />} />
+            <Route path="/solicitudes" element={<Navigate to="/solicitudes/entrantes" replace />} />
+            <Route path="/solicitudes/:tab" element={<SolicitudesPage />} />
+            <Route path="/calendario" element={<CalendarioPage />} />
+            <Route path="/visitas/:id" element={<VisitaDetallePage />} />
+            <Route path="/visitas/:id/reprogramar" element={<VisitaReprogramarPage />} />
+            <Route path="/clientes" element={<ClientesPage />} />
+            <Route path="/clientes/:id" element={<ClienteDetallePage />} />
+            <Route path="/pipeline" element={<PipelinePage />} />
+            <Route path="/planning-obra" element={<PlanningObraPage />} />
+            <Route path="/galeria" element={<GaleriaPage />} />
+            <Route path="/galeria/nueva" element={<GaleriaNuevaPage />} />
+            <Route path="/galeria/:id" element={<GaleriaDetallePage />} />
+            <Route path="/galeria/:id/media" element={<GaleriaMediaPage />} />
+            <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
+            <Route path="/finanzas/facturas" element={<FacturasPage />} />
+            <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />
+            <Route path="/contabilidad/ingresos" element={<LibroIngresosPage />} />
+            <Route path="/contabilidad/gastos" element={<GastosPage />} />
+            <Route path="/contabilidad/resultado" element={<ResultadoPage />} />
+            <Route path="/contabilidad/banco" element={<BancoPage />} />
+            <Route path="/contabilidad/diario" element={<LibroDiarioPage />} />
+            <Route path="/contabilidad/mayor" element={<LibroMayorPage />} />
+            <Route path="/contabilidad/operaciones" element={<OperacionesDiversasPage />} />
+            <Route path="/fiscalidad" element={<Navigate to="/fiscalidad/dashboard" replace />} />
+            <Route path="/fiscalidad/:tab" element={<FiscalidadPage />} />
+            <Route path="/dashboard" element={<DashboardHubPage />} />
+            <Route path="/papelera" element={<PapeleraPage />} />
+            <Route path="/configuracion" element={<ConfiguracionPage />} />
+            <Route path="/configuracion/plantillas" element={<ConstructorPlantillasPage />} />
+            <Route path="/configuracion/planning" element={<ConstructorPlanningPage />} />
+            <Route path="/configuracion/portada" element={<ConstructorPortadaPage />} />
+            <Route path="/perfil" element={<PerfilPage />} />
+            <Route path="/perfil/avatares" element={<AvatarGaleriaPage />} />
+            <Route path="/mensajeria" element={<MensajeriaPage />} />
+            {/* Red de seguridad: una ruta que no existe dejaba la pantalla entera en blanco (caso real
               2026-09-26: la notificación de gastos apuntaba a /finanzas/gastos, que nunca existió). */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </>
   );
 }

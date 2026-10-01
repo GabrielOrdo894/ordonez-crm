@@ -7,7 +7,7 @@ import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { Select } from '../../components/ui/Select';
 import { Button } from '../../components/ui/Button';
-import { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, calcularTotalesRango, totalLineaMax, formatearUnidadTexto, lineaInvalida, formatearPrecio } from './lineas';
+import { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, calcularTotalesRango, totalLineaMax, formatearUnidadTexto, lineaInvalida, formatearPrecio, admitePrecioNegativo } from './lineas';
 import type { Linea, LineaCatalogo } from './lineas';
 
 type LineasEditorProps = {
@@ -269,13 +269,13 @@ export function LineasEditor({
                 <Input
                   label={rango ? 'Precio desde (sin IVA)' : 'Precio unit. (sin IVA)'}
                   type="number"
-                  min={permitirCantidadNegativa || linea.referencia === 'ACOMPTE' ? undefined : 0}
+                  min={permitirCantidadNegativa || admitePrecioNegativo(linea.referencia) ? undefined : 0}
                   value={linea.precio_unit}
                   onChange={(e) => {
                     const precioBruto = Number(e.target.value);
-                    // 'ACOMPTE' (deducción de anticipos, lineaDeduccionAcomptes) es negativa a
+                    // Las deducciones de anticipos (lineasDeduccionAcomptes) son negativas a
                     // propósito incluso en factura normal — no clampear a 0 (bug real corregido).
-                    const permiteNegativo = permitirCantidadNegativa || linea.referencia === 'ACOMPTE';
+                    const permiteNegativo = permitirCantidadNegativa || admitePrecioNegativo(linea.referencia);
                     const precio_unit = permiteNegativo ? precioBruto : Math.max(0, precioBruto);
                     handleCambiarLinea(i, { precio_unit });
                   }}

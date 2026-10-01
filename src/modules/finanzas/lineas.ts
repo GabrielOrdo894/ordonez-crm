@@ -138,6 +138,24 @@ export function calcularTotalesRango(lineas: Linea[], porcentajeIvaLinea: number
   return { totalSinIvaMin, totalConIvaMin, totalSinIvaMax, totalConIvaMax };
 }
 
+// Líneas negativas a propósito incluso en una factura normal: la deducción de los acomptes de la
+// EURL ('ACOMPTE') y la de los acomptes de la estructura anterior ('ACOMPTE_ANT', ver
+// lineasDeduccionAcomptes en facturas/types.ts).
+export const REFERENCIA_ACOMPTE = 'ACOMPTE';
+export const REFERENCIA_ACOMPTE_ANTERIOR = 'ACOMPTE_ANT';
+// Descuentos de cliente fidelizado y de bienvenida por referido (PresupuestoForm): también negativos.
+export const REFERENCIA_DESCUENTO_FIDELIDAD = 'DESC-FID';
+export const REFERENCIA_DESCUENTO_REFERIDO = 'DESC-REF';
+const REFERENCIAS_NEGATIVAS = new Set([
+  REFERENCIA_ACOMPTE,
+  REFERENCIA_ACOMPTE_ANTERIOR,
+  REFERENCIA_DESCUENTO_FIDELIDAD,
+  REFERENCIA_DESCUENTO_REFERIDO,
+]);
+export function admitePrecioNegativo(referencia: string): boolean {
+  return REFERENCIAS_NEGATIVAS.has(referencia);
+}
+
 // Designación, referencia y tipo de servicio son obligatorios en toda línea — el IVA del
 // documento (no orientativo) ya está garantizado por SelectorIva, que siempre tiene un valor.
 export function lineaInvalida(linea: Linea): boolean {
@@ -150,10 +168,10 @@ export function validarLineas(lineas: Linea[], permitirNegativo = false): string
     if (!l.designacion.trim()) return `Línea ${i + 1}: falta la designación`;
     if (!l.referencia.trim()) return `Línea ${i + 1}: falta la referencia`;
     if (!l.tipo_servicio || l.tipo_servicio === '—') return `Línea ${i + 1}: falta el tipo de servicio`;
-    // 'ACOMPTE' es la línea que lineaDeduccionAcomptes() auto-inserta en la factura final para
-    // descontar los anticipos ya cobrados (facturas/types.ts) — negativa a propósito, incluso en
-    // una factura normal (bug real corregido 2026-08-31: bloqueaba facturar tras cualquier acompte).
-    if (!permitirNegativo && l.precio_unit < 0 && l.referencia !== 'ACOMPTE') {
+    // Las deducciones de acomptes que lineasDeduccionAcomptes() auto-inserta en la factura final son
+    // negativas a propósito, incluso en una factura normal (bug real corregido 2026-08-31: bloqueaba
+    // facturar tras cualquier acompte).
+    if (!permitirNegativo && l.precio_unit < 0 && !admitePrecioNegativo(l.referencia)) {
       return `Línea ${i + 1}: el precio unitario no puede ser negativo`;
     }
     if (l.precio_unit_max != null && l.precio_unit_max < 0) {

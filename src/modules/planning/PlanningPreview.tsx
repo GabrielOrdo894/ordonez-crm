@@ -4,7 +4,7 @@ import type { TamanoTitulo } from '../finanzas/DocumentoPreview';
 import type { EntidadPais } from '../../lib/pdfEmpresa';
 import type { ConfigPlantillaPlanning } from './configPlanning';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
-import { fechaPlanning, fechaPlanningCorta } from '../../lib/fechas';
+import { fechaPlanning, fechaPlanningCorta, hoyLocalIso } from '../../lib/fechas';
 import { formatearPrecio } from '../finanzas/lineas';
 import {
   agruparPorSeccion,
@@ -92,7 +92,7 @@ export function PlanningPreview({
   );
   const totalDias =
     fasesConFechas.length > 0 ? Math.max(diasInclusive(inicioProyecto, finProyecto), 1) : 1;
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyLocalIso();
   const hoyEnRango = fasesConFechas.length > 0 && hoyISO >= inicioProyecto && hoyISO <= finProyecto;
   const pctHoy = hoyEnRango ? (diasEntreFechas(inicioProyecto, hoyISO) / totalDias) * 100 : 0;
   const grupos = agruparPorSeccion(fases);

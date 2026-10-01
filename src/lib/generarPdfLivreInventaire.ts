@@ -24,11 +24,13 @@ type BilanActivo = {
 type BilanPasivo = {
   capitalSocial: number;
   reservas: number;
+  reportANouveau: number;
   resultadoEjercicio: number;
   dettesFiscales: number;
   deudaTva: number;
   avancesRecibidas: number;
   compteCourantAssocie: number;
+  dividendosAPagar: number;
   dettesFournisseurs: number;
   total: number;
 };
@@ -89,11 +91,13 @@ export async function generarPdfLivreInventaire(
     body: [
       ['Capital social', fmt(datos.bilanPasivo.capitalSocial)],
       ['Réserves', fmt(datos.bilanPasivo.reservas)],
+      ['Report à nouveau', fmt(datos.bilanPasivo.reportANouveau)],
       ["Résultat de l'exercice", fmt(datos.bilanPasivo.resultadoEjercicio)],
       ['Dettes fiscales (IS)', fmt(datos.bilanPasivo.dettesFiscales)],
       ['TVA à payer', fmt(datos.bilanPasivo.deudaTva)],
       ['Avances et acomptes reçus (4191)', fmt(datos.bilanPasivo.avancesRecibidas)],
       ["Compte courant d'associé (455)", fmt(datos.bilanPasivo.compteCourantAssocie)],
+      ['Dividendes à payer (457)', fmt(datos.bilanPasivo.dividendosAPagar)],
       ['Dettes fournisseurs (non suivies dans le CRM — voir note)', fmt(datos.bilanPasivo.dettesFournisseurs)],
       ['Total passif', fmt(datos.bilanPasivo.total)],
     ],

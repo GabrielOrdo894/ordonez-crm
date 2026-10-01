@@ -35,7 +35,9 @@ export async function direccionDesdeCoordenadas(lat: number, lng: number): Promi
 
 // ---- Kilometraje -------------------------------------------------------------------------------
 
-export async function enviarKm(envio: EnvioKm): Promise<void> {
+// `idEnvio`: id del envío de la cola offline, usado como id del gasto (y de su justificante) para que
+// un reintento no duplique nada si el primer intento llegó a guardarse (auditoría 2026-10-01).
+export async function enviarKm(envio: EnvioKm, idEnvio?: string): Promise<void> {
   // Registrado sin conexión: dirección y km se calculan ahora, con las coordenadas de entonces.
   const [direccion, km] = await Promise.all([
     envio.direccion ?? direccionDesdeCoordenadas(envio.lat, envio.lng),
@@ -44,13 +46,17 @@ export async function enviarKm(envio: EnvioKm): Promise<void> {
   if (envio.visitaId) {
     const { data: existente, error } = await supabase.from('gastos').select('id').eq('visita_id', envio.visitaId).limit(1);
     if (error) throw error;
-    if (existente && existente.length > 0) throw new Error('Esta visita ya tiene un gasto de kilometraje registrado');
+    if (existente && existente.length > 0) {
+      if (idEnvio && existente[0].id === idEnvio) return; // reintento del mismo envío
+      throw new Error('Esta visita ya tiene un gasto de kilometraje registrado');
+    }
   }
   await insertarGastoKilometricoPendiente({
     fecha: envio.fecha,
     etiqueta: envio.etiquetaVisita ?? direccion ?? `${envio.lat.toFixed(5)}, ${envio.lng.toFixed(5)}`,
     km,
     visitaId: envio.visitaId,
+    id: idEnvio,
   });
 }
 
@@ -59,10 +65,17 @@ export async function enviarKm(envio: EnvioKm): Promise<void> {
 // Mismo bucket privado y misma convención de path que GastoForm.tsx (gastos/<uuid>.<ext>). El gasto
 // se crea 'pendiente' sin importe ni cuenta — se completa desde Gastos en el ordenador, y hasta que
 // se confirma no genera asiento contable (igual que el kilometraje automático).
-export async function enviarTicket({ fecha, nota, foto }: { fecha: string; nota: string; foto: ArchivoPendiente }): Promise<void> {
+export async function enviarTicket(
+  { fecha, nota, foto }: { fecha: string; nota: string; foto: ArchivoPendiente },
+  idEnvio?: string,
+): Promise<void> {
   const extension = foto.nombre.split('.').pop() ?? 'jpg';
-  const path = `gastos/${crypto.randomUUID()}.${extension}`;
-  const { error: errorSubida } = await supabase.storage.from('justificantes').upload(path, foto.archivo, { contentType: foto.mime });
+  const idGasto = idEnvio ?? crypto.randomUUID();
+  const path = `gastos/${idGasto}.${extension}`;
+  // upsert: un reintento sobrescribe el mismo fichero en vez de dejar otro huérfano.
+  const { error: errorSubida } = await supabase.storage
+    .from('justificantes')
+    .upload(path, foto.archivo, { contentType: foto.mime, upsert: !!idEnvio });
   if (errorSubida) throw errorSubida;
 
   const nuevo: NuevoGasto = {
@@ -86,7 +99,8 @@ export async function enviarTicket({ fecha, nota, foto }: { fecha: string; nota:
     vehiculo_cv: null,
     estado_gasto: 'pendiente',
   };
-  const { error } = await supabase.from('gastos').insert(nuevo);
+  const { error } = await supabase.from('gastos').insert({ ...nuevo, id: idGasto });
+  if (error && idEnvio && error.code === '23505') return; // ya guardado en un intento anterior
   if (error) {
     // El gasto no se creó: no dejar el fichero huérfano en el bucket (best-effort).
     const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([path]);
@@ -129,8 +143,8 @@ export async function enviarFotosObra({ obra, tipoFoto, fotos }: { obra: ObraGal
 // ---- Envío de la cola --------------------------------------------------------------------------
 
 async function enviarPendiente(p: Pendiente): Promise<void> {
-  if (p.tipo === 'km') return enviarKm(p);
-  if (p.tipo === 'ticket') return enviarTicket(p);
+  if (p.tipo === 'km') return enviarKm(p, p.id);
+  if (p.tipo === 'ticket') return enviarTicket(p, p.id);
   // La obra se vuelve a leer ahora: si mientras tanto se le creó la ficha de galería, se usa esa
   // (con la copia guardada en el móvil se crearía otra ficha duplicada).
   const obra = (await cargarObrasDisponibles()).find((o) => o.clave === p.obraClave);
@@ -143,6 +157,15 @@ let enviando = false;
 /** Envía todo lo pendiente, en orden. Se para al primer fallo de red (se reintentará al volver la
  * cobertura); un error de datos se guarda en el propio envío y se sigue con el resto. */
 export async function procesarCola(): Promise<{ enviados: number; conError: number } | null> {
+  // Una sola pestaña a la vez (la app instalada y el navegador comparten la cola de IndexedDB): el
+  // candado `enviando` solo protegía dentro de la misma pestaña.
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('crm-cola-rapido', { ifAvailable: true }, (lock) => (lock ? procesarColaEnEstaPestana() : null));
+  }
+  return procesarColaEnEstaPestana();
+}
+
+async function procesarColaEnEstaPestana(): Promise<{ enviados: number; conError: number } | null> {
   if (enviando) return null;
   enviando = true;
   let enviados = 0;

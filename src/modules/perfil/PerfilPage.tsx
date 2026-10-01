@@ -24,7 +24,7 @@ function fechaLarga(iso?: string | null) {
 }
 
 export default function PerfilPage() {
-  const { user, rol } = useAuth();
+  const { user, rol, signOut } = useAuth();
   const toast = useToast();
 
   const metadata = user?.user_metadata ?? {};
@@ -256,6 +256,20 @@ export default function PerfilPage() {
             <p className="text-gray-400 uppercase tracking-wide">Último acceso</p>
             <p className="text-gray-800">{fechaLarga(user?.last_sign_in_at)}</p>
           </div>
+        </div>
+        <div className="border-t border-gray-100 mt-4 pt-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              signOut(true).catch((error: Error) => toast.error(`No se pudo cerrar la sesión: ${error.message}`))
+            }
+          >
+            Cerrar sesión en todos los dispositivos
+          </Button>
+          <p className="text-xs text-gray-400 mt-1">
+            Por ejemplo, si pierdes el móvil. El botón normal de cerrar sesión solo cierra este dispositivo.
+          </p>
         </div>
       </section>
     </div>

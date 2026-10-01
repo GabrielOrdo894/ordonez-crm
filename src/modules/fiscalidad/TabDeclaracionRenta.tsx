@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react';
+import { hoyLocalIso } from '../../lib/fechas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAsientosContables } from '../contabilidad/useAsientosContables';
+import { saldoNetoCuentas } from './useComptaFrancia';
 import { Check, Clock, Lock, ScrollText } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
@@ -77,7 +80,7 @@ export function TabDeclaracionRenta() {
       const { error } = await supabase.from('declaraciones_renta_gerant').upsert({
         anio,
         declarado,
-        fecha_declaracion: declarado ? new Date().toISOString().slice(0, 10) : null,
+        fecha_declaracion: declarado ? hoyLocalIso() : null,
       });
       if (error) throw error;
     },
@@ -88,10 +91,32 @@ export function TabDeclaracionRenta() {
     onError: (error) => toast.error(error.message),
   });
 
-  const mesLimite = config('declaracion_ir_mes', 5);
-  const diaLimite = config('declaracion_ir_dia', 28);
+  // Mismos valores por defecto que el calendario fiscal (generarEcheances): zona 3, principios de junio.
+  const mesLimite = config('declaracion_ir_mes', 6);
+  const diaLimite = config('declaracion_ir_dia', 4);
 
-  const remuneracion = gerantConfig?.remuneracion_anual ?? 0;
+  // Rémunération del año civil declarado: la registrada en el libro (641) si la hay; si no, la de la
+  // configuración solo por los meses cobrados ese año (remuneracion_desde). Antes se usaba siempre
+  // la anual completa — 24.000 € para 2026 cuando el gérant cobra desde octubre (auditoría 2026-10-01).
+  const { data: asientos } = useAsientosContables();
+  const remuneracionLibro = useMemo(
+    () =>
+      saldoNetoCuentas(
+        (asientos ?? []).filter((a) => a.fecha.startsWith(String(anio))),
+        ['641'],
+      ),
+    [asientos, anio],
+  );
+  const remuneracionEstimada = useMemo(() => {
+    const anual = gerantConfig?.remuneracion_anual ?? 0;
+    const desde = gerantConfig?.remuneracion_desde ?? null;
+    if (!desde || desde < `${anio}-01-01`) return anual;
+    if (desde > `${anio}-12-31`) return 0;
+    const mesInicio = Number(desde.slice(5, 7));
+    return (anual * (12 - mesInicio + 1)) / 12;
+  }, [gerantConfig, anio]);
+  const remuneracionDelLibro = remuneracionLibro > 0.005;
+  const remuneracion = remuneracionDelLibro ? remuneracionLibro : remuneracionEstimada;
   const casado = gerantConfig?.casado ?? true;
   const hijosACargo = gerantConfig?.hijos_a_cargo ?? 0;
   const ingresosConyuge = gerantConfig?.ingresos_conyuge_anual ?? 0;

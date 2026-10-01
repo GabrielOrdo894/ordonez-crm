@@ -2,8 +2,8 @@ import { useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { notaSistema } from '../../lib/notaSistema';
-import { eliminarEventoVisita } from '../../lib/googleCalendar';
+import { cambiarEstadoVisita } from './cambiarEstadoVisita';
+import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmarConMotivo } from '../../hooks/useConfirm';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,8 @@ export default function VisitaDetallePage() {
   const toast = useToast();
   const confirmarConMotivo = useConfirmarConMotivo();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
 
   const { data: visita, isLoading } = useQuery({
     queryKey: ['visitas', id],
@@ -31,24 +33,12 @@ export default function VisitaDetallePage() {
 
   const cancelarVisitaMutation = useMutation({
     mutationFn: async ({ v, motivo }: { v: Visita; motivo: string }) => {
-      const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', v.id);
-      if (error) throw error;
-      await notaSistema(v.id, motivo ? `Visita cancelada — motivo: ${motivo}` : 'Visita cancelada');
-      if (v.google_event_id) {
-        try {
-          await eliminarEventoVisita(v.google_event_id);
-        } catch (error) {
-          toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
-        }
-        const { error: errorLimpiar } = await supabase.from('visitas').update({ google_event_id: null }).eq('id', v.id);
-        if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en la visita: ${errorLimpiar.message}`);
-      }
+      const avisos = await cambiarEstadoVisita(v, 'Cancelada', { motivo, usuario: nombreUsuarioActual });
+      avisos.forEach((aviso) => toast.warning(aviso));
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['visitas'] });
-      toast.success('Visita cancelada');
-    },
+    onSuccess: () => toast.success('Visita cancelada'),
     onError: (error) => toast.error(error.message),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['visitas'] }),
   });
 
   if (isLoading) {

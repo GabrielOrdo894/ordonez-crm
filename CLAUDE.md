@@ -1090,3 +1090,50 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   está Aceptado/Rechazado — salían siempre los mismos 13 avisos, y su vista en Solicitudes ya no existe desde
   el 2026-09-16. El select de `['presupuestos', 'respuestas-pendientes']` vive ahora en
   `SELECT_RESPUESTAS_PRESUPUESTO` (`solicitudes/types.ts`), compartido por Sidebar y notificaciones.
+- **Auditoría completa del CRM y arreglos** (2026-10-01, informe en `docs/auditorias/2026-10-01-auditoria-completa.md`).
+  Reglas nuevas que cualquier cambio futuro tiene que respetar:
+  - **Pagos de facturas**: toda escritura pasa por `src/lib/pagosFactura.ts` (`registrarPagoFactura`,
+    `anularPagoFactura`, `vaciarPagosFactura`, `recalcularCobroFactura`). Un pago nunca se borra: se anula
+    (`pagos_factura.anulado_en`) y todas las lecturas filtran `.is('anulado_en', null)`. El pago y su asiento van
+    juntos (si el asiento falla, el pago se anula). Las rectificativas admiten reembolsos (pagos negativos) y su
+    estado es `Aplicada`/`Reembolsada`, nunca pendiente de cobro.
+  - **Numeración de facturas**: la asigna la base de datos en el INSERT (trigger `asignar_numero_factura`), con series
+    por emisor (Francia `F`/`AC`/`R`, España `FE`/`ACE`/`RE`), salta números ocupados y exige orden cronológico.
+    Nunca generar el número en el cliente. **Una factura numerada no se edita** (trigger `proteger_factura_emitida`):
+    importes, fecha, IVA, país y tipo solo se corrigen con rectificativa; en el formulario solo son editables título,
+    contacto, vencimiento, método de pago y nota.
+  - **Vencidas**: el cron `marcar-facturas-vencidas` (05:00 UTC) y `estadoCobroDePagos` las marcan; antes no había
+    nada que lo hiciera.
+  - **Libro diario**: además de RLS, permisos revocados y trigger `libro_inalterable` (ni UPDATE, ni DELETE, ni
+    TRUNCATE, tampoco con `service_role`). Para corregir: otro asiento. **Operaciones diversas** (OD,
+    `/contabilidad/operaciones`, `documento_tipo = 'operacion'`) para lo que no sale de factura/gasto/cobro: cierre
+    (obras en curso 335/7133, CCA 486, IS 695/444), liquidación y pago de TVA, cuenta del socio, reparto del
+    resultado. Se anulan con su reversa fechada hoy.
+  - **Bloqueo de periodo** (`empresa_config.fecha_bloqueo_contable`, triggers `bloqueo_*`): hasta esa fecha no se
+    puede crear, cambiar ni anular nada con efecto contable (asientos, gastos pagados, cobros, facturas nuevas). Se
+    fija sola al marcar una CA3 como declarada (fin de ese mes) y al aprobar las cuentas de un ejercicio (31/12).
+  - **Liasse y cierre**: el compte de résultat suma las clases 6 y 7 completas (sin 695-699); el pasivo sale del
+    libro (101, 106, report à nouveau = resultado de ejercicios anteriores ± 110/119, 444, 457); se imputan los
+    déficits anteriores (art. 209-I CGI) y se avisa de capitaux propres < ½ capital (L223-42). El acta de
+    aprobación solo se genera en Cierre de ejercicio (registra el reparto a la reserva legal como OD 110/106 y cierra
+    el ejercicio).
+  - **Acomptes de la estructura anterior**: en la factura final van en una línea `ACOMPTE_ANT` que reduce la venta
+    (706), no 4191. Las rectificativas reparten su TVA entre 44571 y 44574 según lo cobrado de la original
+    (`fraccion_tva_exigible`, fijada al emitirla) y la CA3 solo regulariza esa parte.
+  - **Acceso solo del equipo**: todas las políticas RLS y de Storage exigen `es_miembro_equipo()` (estar en
+    `usuarios_equipo`), y las Edge Functions usan `_shared/autorizacion.ts` (misma comprobación). Las Edge Functions
+    ya pueden importar de `supabase/functions/_shared/` (despliegue por CLI: `npx supabase functions deploy <fn>
+    --project-ref mhbicdrquinlwhasrvgo --use-api`, `documenso-webhook` con `--no-verify-jwt`).
+  - **Tanstack Query**: `queryClient.ts` avisa con un toast de cualquier lectura que falle (`meta: { silenciosa:
+    true }` para excluir una) y las mutaciones usan `networkMode: 'always'` (sin red fallan enseguida o caen en la
+    cola de `/rapido`, en vez de quedarse "Guardando…").
+  - **Teléfonos**: `visitas.telefono_digitos` (columna generada, últimos 9 dígitos) para buscar por teléfono sin
+    depender del formato. Nunca `ilike`/`eq` sobre `telefono` para cruzar clientes.
+  - **Estado de una visita**: siempre con `cambiarEstadoVisita()` (`visitas/cambiarEstadoVisita.ts`): nota, Calendar
+    (cancelar borra el evento) y kilometraje. Mandar visitas a la papelera borra su evento (`retirarEventosDeVisitas`)
+    y restaurarlas lo recrea.
+  - **Sesión**: `signOut({ scope: 'local' })` por defecto — el cierre de medianoche del ordenador ya no cierra la del
+    teléfono. "Cerrar sesión en todos los dispositivos" está en Perfil.
+  - **Pipeline**: solo la factura final (tipo normal) cobrada da la obra por "Finalizado"; un acompte no.
+  - **Migraciones**: `supabase/migrations/README.md` lista las 64 que existen en producción sin fichero en el repo;
+    toda migración nueva se guarda también aquí con la versión de producción.

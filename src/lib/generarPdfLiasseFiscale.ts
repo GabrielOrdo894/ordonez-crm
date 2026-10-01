@@ -35,6 +35,7 @@ function dibujarAvisoInterno(doc: jsPDF, margen: number): void {
 
 type CompteResultat = {
   ventas: number;
+  otrosProductosExplotacion: number;
   cargasExplotacion: number;
   resultadoExplotacion: number;
   resultadoFinanciero: number;
@@ -52,11 +53,13 @@ type BilanActivo = {
 type BilanPasivo = {
   capitalSocial: number;
   reservas: number;
+  reportANouveau: number;
   resultadoEjercicio: number;
   dettesFiscales: number;
   deudaTva: number;
   avancesRecibidas: number;
   compteCourantAssocie: number;
+  dividendosAPagar: number;
   dettesFournisseurs: number;
   total: number;
 };
@@ -116,6 +119,7 @@ export async function generarPdfLiasseFiscale(
     head: [[`2052/2053 — Compte de résultat (exercice ${anio})`, '']],
     body: [
       ['Ventes (706)', fmt(datos.compteResultat.ventas)],
+      ['Production stockée et autres produits (71-75, 781)', fmt(datos.compteResultat.otrosProductosExplotacion)],
       ["Charges d'exploitation (60-65, 681)", fmt(-datos.compteResultat.cargasExplotacion)],
       ["Résultat d'exploitation", fmt(datos.compteResultat.resultadoExplotacion)],
       ['Résultat financier', fmt(datos.compteResultat.resultadoFinanciero)],
@@ -143,11 +147,13 @@ export async function generarPdfLiasseFiscale(
       ['PASSIF', ''],
       ['Capital social', fmt(datos.bilanPasivo.capitalSocial)],
       ['Réserves', fmt(datos.bilanPasivo.reservas)],
+      ['Report à nouveau', fmt(datos.bilanPasivo.reportANouveau)],
       ["Résultat de l'exercice", fmt(datos.bilanPasivo.resultadoEjercicio)],
       ['Dettes fiscales (IS)', fmt(datos.bilanPasivo.dettesFiscales)],
       ['TVA à payer', fmt(datos.bilanPasivo.deudaTva)],
       ['Avances et acomptes reçus (4191)', fmt(datos.bilanPasivo.avancesRecibidas)],
       ["Compte courant d'associé (455)", fmt(datos.bilanPasivo.compteCourantAssocie)],
+      ['Dividendes à payer (457)', fmt(datos.bilanPasivo.dividendosAPagar)],
       ['Dettes fournisseurs (non suivies dans le CRM — voir note)', fmt(datos.bilanPasivo.dettesFournisseurs)],
       ['Total passif', fmt(datos.bilanPasivo.total)],
     ],

@@ -40,7 +40,7 @@ import {
 } from './types';
 import type { Presupuesto, NuevoPresupuesto, Linea, PlazoPago, TipoPresupuesto, FormatoPresupuesto } from './types';
 import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
-import { formatearPrecio } from '../lineas';
+import { formatearPrecio, REFERENCIA_DESCUENTO_FIDELIDAD, REFERENCIA_DESCUENTO_REFERIDO } from '../lineas';
 
 const NOTA_ORIENTATIVO: Record<'es' | 'fr', string> = {
   es: 'Presupuesto orientativo — los precios son estimados y pueden variar tras la visita técnica.',
@@ -419,13 +419,26 @@ export function PresupuestoForm({
   // envío siempre puede incluirlo sin que haga falta acordarse de pulsar "Obtener enlace de firma"
   // a mano (hallazgo real de Gabriel 2026-09-10: se habían enviado presupuestos sin él). Best-effort:
   // un fallo aquí no debe impedir guardar el presupuesto ya guardado correctamente.
-  const generarEnlaceDocumensoSiHaceFalta = async (p: Presupuesto) => {
-    if (p.tipo === 'orientativo' || !p.cliente_email || p.firmado || p.documenso_signing_url) return;
+  //
+  // `cambioDelDocumento`: si el presupuesto ya tenía enlace y cambió lo que el cliente firma (líneas,
+  // IVA, plan de pago, condiciones, cliente), se genera uno nuevo y el anterior se cancela en
+  // Documenso — antes el cliente firmaba la versión antigua (auditoría 2026-10-01).
+  const generarEnlaceDocumensoSiHaceFalta = async (p: Presupuesto, cambioDelDocumento = false) => {
+    if (p.tipo === 'orientativo' || !p.cliente_email || p.firmado) return;
+    if (p.documenso_signing_url && !cambioDelDocumento) return;
     try {
-      const resultado = await enviarPresupuestoAFirmar(p);
+      const resultado = await enviarPresupuestoAFirmar(p, { regenerar: !!p.documenso_signing_url });
       setLinkDocumenso(resultado.signingUrl);
+      if (p.documenso_signing_url) {
+        toast.warning('El presupuesto ha cambiado: se ha generado un enlace de firma nuevo y el anterior queda cancelado. Envía el nuevo al cliente.');
+      }
     } catch (err) {
-      console.error('No se pudo generar el enlace de firma automáticamente:', err instanceof Error ? err.message : err);
+      const mensaje = err instanceof Error ? err.message : String(err);
+      if (p.documenso_signing_url) {
+        toast.warning(`El presupuesto cambió pero no se pudo regenerar el enlace de firma (${mensaje}). Usa "Generar nuevo enlace" antes de enviarlo.`);
+      } else {
+        console.error('No se pudo generar el enlace de firma automáticamente:', mensaje);
+      }
     }
   };
 
@@ -473,7 +486,12 @@ export function PresupuestoForm({
       if (presupuesto) {
         const { error } = await supabase.from('presupuestos').update(nuevo).eq('id', presupuesto.id);
         if (error) throw error;
-        await generarEnlaceDocumensoSiHaceFalta({ ...presupuesto, ...nuevo, id: presupuesto.id });
+        const firmaRelevante = (x: Partial<NuevoPresupuesto>) =>
+          JSON.stringify([x.lineas, x.tipo_iva, x.plan_pago, x.terminos_condiciones, x.condiciones_pago, x.cliente_nombre, x.cliente_email, x.cliente_dir, x.titulo, x.nota]);
+        await generarEnlaceDocumensoSiHaceFalta(
+          { ...presupuesto, ...nuevo, id: presupuesto.id },
+          firmaRelevante(presupuesto) !== firmaRelevante(nuevo),
+        );
         return presupuesto.id;
       }
 
@@ -509,10 +527,26 @@ export function PresupuestoForm({
   });
 
   const handleGuardar = () => {
+    // Lo que firmó el cliente no se cambia (auditoría 2026-10-01): antes se podían editar las líneas
+    // de un presupuesto firmado y los acomptes y la factura final salían de líneas no firmadas.
+    if (
+      presupuesto?.firmado &&
+      JSON.stringify([form.lineas, form.tipo_iva, form.plan_pago]) !==
+        JSON.stringify([presupuesto.lineas, presupuesto.tipo_iva, presupuesto.plan_pago])
+    ) {
+      toast.error('Este presupuesto está firmado por el cliente: sus líneas, el IVA y el plan de pago no se pueden cambiar. Para un cambio de obra, crea un presupuesto nuevo.');
+      return;
+    }
     const mensaje = validarLineas(form.lineas);
     if (mensaje) {
       toast.error(mensaje);
       setErroresVisibles(true);
+      return;
+    }
+    // El plan de pago sale en el PDF que firma el cliente: tiene que sumar el 100 % (antes solo se
+    // coloreaba el aviso y se podía guardar igual — auditoría 2026-10-01).
+    if (form.plan_pago.length > 0 && Math.abs(sumaPorcentajesPlazo - 100) > 0.05) {
+      toast.error(`El plan de pago suma ${sumaPorcentajesPlazo} %: tiene que sumar 100 %.`);
       return;
     }
     guardarMutation.mutate();
@@ -656,7 +690,7 @@ export function PresupuestoForm({
     return cliente && cliente.visitas.length > 1 ? cliente : null;
   }, [form.cliente_tel, clientes]);
 
-  const descuentoYaAplicado = form.lineas.some((l) => l.designacion === 'DESC-FID');
+  const descuentoYaAplicado = form.lineas.some((l) => l.referencia === REFERENCIA_DESCUENTO_FIDELIDAD);
 
   const descuentoPropuesto = useMemo(
     () =>
@@ -674,8 +708,12 @@ export function PresupuestoForm({
     const nuevaLinea = calcularLinea(
       {
         ...lineaVacia(),
-        designacion: 'DESC-FID',
-        descripcion: 'Descuento cliente fidelizado / Remise client fidélisé',
+        // Antes salía con referencia y tipo de servicio vacíos y precio negativo: validarLineas
+        // impedía guardar el presupuesto, así que el descuento nunca llegó a usarse (auditoría
+        // 2026-10-01). Texto en el idioma del documento.
+        designacion: form.idioma === 'Français' ? 'Remise client fidélisé' : 'Descuento cliente fidelizado',
+        referencia: REFERENCIA_DESCUENTO_FIDELIDAD,
+        tipo_servicio: form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
         unidad: 'forfait',
         cantidad: 1,
         precio_unit: -descuentoImporte,
@@ -695,7 +733,7 @@ export function PresupuestoForm({
   }, [config]);
 
   const visitaVinculada = useMemo(() => (visitas ?? []).find((v) => v.id === form.visita_id) ?? null, [visitas, form.visita_id]);
-  const descuentoReferidoYaAplicado = form.lineas.some((l) => l.designacion === 'DESC-REF');
+  const descuentoReferidoYaAplicado = form.lineas.some((l) => l.referencia === REFERENCIA_DESCUENTO_REFERIDO);
   const mostrarDescuentoReferido = referidosConfig.activo && !!visitaVinculada?.referido_por && !descuentoReferidoYaAplicado;
 
   const descuentoReferidoPropuesto = useMemo(
@@ -713,8 +751,9 @@ export function PresupuestoForm({
     const nuevaLinea = calcularLinea(
       {
         ...lineaVacia(),
-        designacion: 'DESC-REF',
-        descripcion: 'Descuento de bienvenida — programa de referidos / Remise de bienvenue — programme de parrainage',
+        designacion: form.idioma === 'Français' ? 'Remise de bienvenue — parrainage' : 'Descuento de bienvenida — cliente recomendado',
+        referencia: REFERENCIA_DESCUENTO_REFERIDO,
+        tipo_servicio: form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
         unidad: 'forfait',
         cantidad: 1,
         precio_unit: -descuentoReferidoImporte,

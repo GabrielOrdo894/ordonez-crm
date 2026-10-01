@@ -3,7 +3,7 @@ import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { calcularIS, calcularTNS, limitesEjercicio, mesesRemuneradosEjercicio } from './calculos';
 import { formatearPrecio } from '../finanzas/lineas';
 
 export type TipoAlertaFiscal = 'tramo_cerca' | 'tramo_superado' | 'tva_declarable' | 'tva_urgente' | 'echeance_urgente';
@@ -28,7 +28,7 @@ export function useAlertasFiscales() {
   const { gerantConfig } = useGerantConfig();
   const anio = new Date().getFullYear();
   const ejercicio = limitesEjercicio(anio);
-  const { beneficioBruto, cargando: cargandoResultado } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
+  const { beneficioBruto, remuneracionRegistrada, cotisacionesRegistradas, cargando: cargandoResultado } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
   const { echeances, cargando: cargandoEcheances } = useEcheances();
 
   const alertas = useMemo<AlertaFiscal[]>(() => {
@@ -37,10 +37,15 @@ export function useAlertasFiscales() {
     // 1. Tramo 15% del IS: cerca o superado
     // Prorrateado por meses transcurridos, no por la duración total del ejercicio — ver
     // comentario en TabIS.tsx (bug real corregido 2026-08-11).
-    const mesesTranscurridos = mesesTranscurridosEjercicio(ejercicio);
+    // Mismo criterio que useEjercicioFiscal (auditoría 2026-10-01): solo los meses en que ya se cobra
+    // la rémunération (remuneracion_desde) y descontando lo ya registrado en el libro (641/646, que
+    // beneficioBruto ya no incluye) — antes restaba la de todos los meses y la alerta del tramo del
+    // 15 % no coincidía con el IS de su propia pestaña.
     const remuneracionAnual = gerantConfig?.remuneracion_anual ?? 0;
-    const remuneracionPeriodo = remuneracionAnual * (mesesTranscurridos / 12);
-    const cotisacionesPeriodo = calcularTNS(remuneracionAnual, config).total * (mesesTranscurridos / 12);
+    const mesesRemunerados = mesesRemuneradosEjercicio(ejercicio, gerantConfig?.remuneracion_desde ?? null);
+    const remuneracionPeriodo = remuneracionRegistrada > 0 ? remuneracionRegistrada : remuneracionAnual * (mesesRemunerados / 12);
+    const cotisacionesPeriodo =
+      cotisacionesRegistradas > 0 ? cotisacionesRegistradas : calcularTNS(remuneracionAnual, config).total * (mesesRemunerados / 12);
     const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
     const is = calcularIS(beneficioNeto, ejercicio.meses, config);
     const pctPlafond = is.plafondReducido > 0 ? beneficioNeto / is.plafondReducido : 0;
@@ -127,7 +132,7 @@ export function useAlertasFiscales() {
     }
 
     return lista;
-  }, [config, gerantConfig, beneficioBruto, echeances, ejercicio]);
+  }, [config, gerantConfig, beneficioBruto, remuneracionRegistrada, cotisacionesRegistradas, echeances, ejercicio]);
 
   return { alertas, cargando: cargandoResultado || cargandoEcheances };
 }

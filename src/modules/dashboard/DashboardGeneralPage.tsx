@@ -93,6 +93,7 @@ export default function DashboardGeneralPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('fecha, monto, facturas!inner(pais, eliminado_en, estructura_anterior)')
+        .is('anulado_en', null)
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;

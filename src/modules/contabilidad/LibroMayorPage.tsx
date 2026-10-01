@@ -65,13 +65,27 @@ export default function LibroMayorPage() {
 
   const cuentas = useMemo<CuentaMayor[]>(() => {
     const porCuenta = new Map<string, { totalDebe: number; totalHaber: number }>();
+    // El libro no lleva asientos de cierre: el resultado de los ejercicios anteriores (sus cuentas 6
+    // y 7) entra aquí como report à nouveau (110 si es beneficio, 119 si es pérdida). Sin él, la
+    // balanza de 2027 en adelante no cuadraba y el CSV de Edifiscale tampoco (auditoría 2026-10-01).
+    let resultadosAnteriores = 0;
     for (const a of asientos ?? []) {
       if (a.fecha > ejercicio.fin) continue;
-      if (esCuentaDeGestion(a.cuenta) && a.fecha < ejercicio.inicio) continue;
+      if (esCuentaDeGestion(a.cuenta) && a.fecha < ejercicio.inicio) {
+        resultadosAnteriores += a.debe - a.haber;
+        continue;
+      }
       const actual = porCuenta.get(a.cuenta) ?? { totalDebe: 0, totalHaber: 0 };
       actual.totalDebe += a.debe;
       actual.totalHaber += a.haber;
       porCuenta.set(a.cuenta, actual);
+    }
+    if (Math.abs(resultadosAnteriores) >= 0.005) {
+      const cuentaRan = resultadosAnteriores < 0 ? '110' : '119';
+      const actual = porCuenta.get(cuentaRan) ?? { totalDebe: 0, totalHaber: 0 };
+      if (resultadosAnteriores > 0) actual.totalDebe += resultadosAnteriores;
+      else actual.totalHaber += -resultadosAnteriores;
+      porCuenta.set(cuentaRan, actual);
     }
     return Array.from(porCuenta.entries())
       .map(([cuenta, t]) => ({ id: cuenta, cuenta, totalDebe: t.totalDebe, totalHaber: t.totalHaber, saldo: t.totalDebe - t.totalHaber }))

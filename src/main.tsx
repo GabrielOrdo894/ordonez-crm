@@ -7,6 +7,7 @@ import { ConfirmProvider } from './hooks/useConfirm';
 import { TemaProvider } from './hooks/useTema';
 import './styles/globals.css';
 import App from './App';
+import { AvisoErroresConsulta } from './components/AvisoErroresConsulta';
 
 // Service worker de la app instalada en el móvil (ver public/sw.js) — solo en producción, para no
 // cachear el index.html del servidor de desarrollo. Un fallo al registrarlo no afecta al CRM.
@@ -24,6 +25,7 @@ createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <ConfirmProvider>
+            <AvisoErroresConsulta />
             <App />
           </ConfirmProvider>
         </ToastProvider>

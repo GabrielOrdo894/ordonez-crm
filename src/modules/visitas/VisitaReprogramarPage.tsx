@@ -63,7 +63,15 @@ function ReprogramarForm({ visita }: { visita: Visita }) {
 
   const reprogramarMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('visitas').update(form).eq('id', visita.id);
+      if (!form.fecha_visita) throw new Error('Falta la fecha de la visita.');
+      if (!form.hora_visita) throw new Error('Falta la hora de la visita.');
+      if (form.hora_fin_visita && form.hora_fin_visita.slice(0, 5) <= form.hora_visita.slice(0, 5)) {
+        throw new Error('La hora de fin tiene que ser posterior a la de inicio.');
+      }
+      // Reprogramar una visita cancelada la reactiva: si no, quedaba Cancelada pero con evento nuevo
+      // en Calendar y email de visita al equipo (auditoría 2026-10-01).
+      const reactivar = visita.estado === 'Cancelada' ? { estado: 'Pendiente' as const } : {};
+      const { error } = await supabase.from('visitas').update({ ...form, ...reactivar }).eq('id', visita.id);
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -71,7 +79,7 @@ function ReprogramarForm({ visita }: { visita: Visita }) {
       const despues = fechaVisitaLarga(form.fecha_visita, form.hora_visita);
       await notaSistema(visita.id, `Visita reprogramada por ${nombreUsuarioActual}: ${antes} → ${despues}`);
 
-      const visitaActualizada = { ...visita, ...form };
+      const visitaActualizada = { ...visita, ...form, estado: visita.estado === 'Cancelada' ? ('Pendiente' as const) : visita.estado };
       const avisos = await sincronizarGoogleCalendarVisita({
         visitaId: visita.id,
         googleEventId: visita.google_event_id,

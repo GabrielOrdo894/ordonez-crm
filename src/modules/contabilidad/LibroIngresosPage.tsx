@@ -39,6 +39,7 @@ export default function LibroIngresosPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('id, fecha, monto, facturas!inner(numero, cliente_nombre, tipo_iva, eliminado_en, estructura_anterior)')
+        .is('anulado_en', null)
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false)
         .order('fecha', { ascending: false });
@@ -49,8 +50,10 @@ export default function LibroIngresosPage() {
     },
   });
 
+  // Orden aplicado aquí: ['pagos_factura','ingresos'] la comparte ResultadoPage sin .order() y la
+  // caché de la primera pantalla que carga es la que se usa (regla de CLAUDE.md).
   const ingresos = useMemo<Ingreso[]>(() => {
-    return (pagos ?? []).map((p) => {
+    return [...(pagos ?? [])].sort((a, b) => b.fecha.localeCompare(a.fecha)).map((p) => {
       const pct = porcentajeIva(p.facturas.tipo_iva);
       const conIva = p.monto;
       const sinIva = pct > 0 ? conIva / (1 + pct / 100) : conIva;

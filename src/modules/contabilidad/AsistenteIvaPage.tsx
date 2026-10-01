@@ -13,7 +13,7 @@ import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
 import { porcentajeIva } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 import { formatearPrecio } from '../finanzas/lineas';
-import { hoyLocalIso, isoLocal } from '../../lib/fechas';
+import { hoyLocalIso, isoLocal, sumarDiasIso } from '../../lib/fechas';
 
 // La sociedad empezó a operar como tal en julio de 2026 — no hay TVA que declarar antes.
 const INICIO_SOCIEDAD_MES = limitesEjercicio(2026).inicio.slice(0, 7);
@@ -58,6 +58,7 @@ type FacturaFr = {
   fecha_factura: string | null;
   tipo_iva: string | null;
   lineas: { es_incluido: boolean; total_sin_iva: number }[];
+  fraccion_tva_exigible: number | null;
 };
 
 // Un pago real (pagos_factura) de una factura de Francia normal/acompte, con el tipo_iva de su
@@ -93,8 +94,11 @@ const TASA_ESTANDAR = porcentajeIva('TVA_20') / 100;
 const TASA_REDUCIDA_10 = porcentajeIva('TVA_10') / 100;
 const CUENTAS_IMMOBILISATIONS = GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? [];
 
+// Base de una rectificativa que regulariza TVA ya declarada: solo la parte que anula lo que la
+// factura original ya había cobrado (fraccion_tva_exigible). La parte de lo no cobrado nunca se
+// declaró (TVA sur encaissements) y deducirla declaraba TVA de menos (auditoría 2026-10-01).
 function baseFactura(f: FacturaFr) {
-  return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_sin_iva), 0);
+  return f.lineas.reduce((s, l) => s + (l.es_incluido ? 0 : l.total_sin_iva), 0) * (f.fraccion_tva_exigible ?? 1);
 }
 
 // Base sin IVA de un pago concreto (cash-basis) — todas las líneas de una factura comparten el
@@ -288,10 +292,32 @@ export default function AsistenteIvaPage() {
         datos: declarado ? filasExportar.map((f) => ({ linea: f.linea, base: f.base, taxe: f.taxe })) : null,
       });
       if (error) throw error;
+      // Mes declarado = periodo cerrado (auditoría 2026-10-01): a partir de aquí lo de este mes no se
+      // puede cambiar (la base de datos lo impide); una corrección va como operación diversa en el
+      // mes abierto. Al desmarcar, el bloqueo vuelve al mes anterior.
+      const { data: config, error: errorConfig } = await supabase
+        .from('empresa_config')
+        .select('fecha_bloqueo_contable')
+        .eq('id', 1)
+        .single();
+      if (errorConfig) throw errorConfig;
+      const actual = config.fecha_bloqueo_contable as string | null;
+      const finMesAnterior = sumarDiasIso(inicioMes, -1);
+      const nuevo = declarado ? (actual && actual > finMes ? actual : finMes) : actual && actual >= inicioMes ? finMesAnterior : actual;
+      if (nuevo !== actual) {
+        const { error: errorBloqueo } = await supabase.from('empresa_config').update({ fecha_bloqueo_contable: nuevo }).eq('id', 1);
+        if (errorBloqueo) throw errorBloqueo;
+      }
+      return nuevo;
     },
-    onSuccess: (_data, declarado) => {
+    onSuccess: (bloqueo, declarado) => {
       queryClient.invalidateQueries({ queryKey: ['declaraciones_iva'] });
-      toast.success(declarado ? 'Declaración marcada como enviada' : 'Declaración desmarcada');
+      queryClient.invalidateQueries({ queryKey: ['empresa_config'] });
+      toast.success(
+        declarado
+          ? `Declaración marcada como enviada. Periodo contable cerrado hasta el ${bloqueo ? fechaCorta(bloqueo) : '—'}.`
+          : 'Declaración desmarcada',
+      );
     },
     onError: (error) => toast.error(error.message),
   });
@@ -321,6 +347,7 @@ export default function AsistenteIvaPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('fecha, monto, facturas!inner(id, numero, cliente_nombre, tipo_iva)')
+        .is('anulado_en', null)
         .eq('facturas.pais', 'Francia')
         .eq('facturas.estructura_anterior', false)
         .is('facturas.eliminado_en', null)
@@ -340,7 +367,7 @@ export default function AsistenteIvaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('facturas')
-        .select('id, numero, cliente_nombre, fecha_factura, tipo_iva, lineas')
+        .select('id, numero, cliente_nombre, fecha_factura, tipo_iva, lineas, fraccion_tva_exigible')
         .is('eliminado_en', null)
         .eq('pais', 'Francia')
         .eq('estructura_anterior', false)

@@ -8,6 +8,7 @@
 // guarda el firmado al firmarse) se sirve de ahí; si no, se descarga de Documenso una vez y se
 // guarda. Así también se recuperan los firmados que el webhook no llegó a guardar.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 
 const DOCUMENSO_API = 'https://firma.ordonezrenov.com/api/v2';
 const BUCKET = 'presupuestos-firmados';
@@ -16,21 +17,6 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Mismo patrón que el resto de funciones (duplicado a propósito: el despliegue vía MCP no resuelve
-// imports relativos entre funciones).
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -67,7 +53,7 @@ async function idPrimerItem(envelopeId: string, apiKey: string): Promise<string>
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   let body: { presupuestoId?: string; tipo?: string } = {};
   try {

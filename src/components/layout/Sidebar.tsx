@@ -44,6 +44,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { contarMensajesNoLeidos } from '../../modules/mensajeria/types';
 import { supabase } from '../../lib/supabase';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
@@ -53,6 +54,7 @@ import {
   type PresupuestoConRespuesta,
   type PresupuestoPendienteEnvio,
   type Solicitud,
+  tieneRespuestaSinRevisar,
 } from '../../modules/solicitudes/types';
 
 type NavItem = { to: string; label: string; icon: LucideIcon };
@@ -105,6 +107,7 @@ const CONTABILIDAD_SECTION: NavSection = {
     { to: '/contabilidad/banco', label: 'Movimientos bancarios', icon: ArrowLeftRight },
     { to: '/contabilidad/diario', label: 'Libro diario (Francia)', icon: NotebookPen },
     { to: '/contabilidad/mayor', label: 'Libro mayor (Francia)', icon: Rows3 },
+    { to: '/contabilidad/operaciones', label: 'Operaciones diversas (Francia)', icon: Scale },
   ],
 };
 const FISCALIDAD_SECTION: NavSection = {
@@ -234,15 +237,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
     queryKey: ['mensajes_equipo', 'no-leidos', user?.id],
     queryFn: async () => {
       if (!user) return 0;
-      const { count, error } = await supabase
-        .from('mensajes_equipo')
-        .select('*', { count: 'exact', head: true })
-        .or(`destinatario_ids.is.null,destinatario_ids.cs.{${user.id}}`)
-        .neq('autor_id', user.id)
-        .not('leido_por', 'cs', `{${user.id}}`)
-        .not('eliminado_por', 'cs', `{${user.id}}`);
-      if (error) throw error;
-      return count ?? 0;
+      return contarMensajesNoLeidos(user.id);
     },
     enabled: !!user,
     refetchInterval: 10000,
@@ -261,7 +256,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
       return data as Solicitud[];
     },
   });
-  const solicitudesNuevasCount = (solicitudesParaBadge ?? []).filter((s) => s.estado === 'Nueva').length;
+  const solicitudesNuevasCount = (solicitudesParaBadge ?? []).filter((s) => s.estado === 'Nueva' || tieneRespuestaSinRevisar(s)).length;
 
   const { error: errorSeguimientosBadge } = useQuery({
     queryKey: ['presupuestos', 'respuestas-pendientes'],
@@ -708,7 +703,7 @@ export function Sidebar({ abiertoMobil, onCerrarMobil }: SidebarProps) {
               <button
                 onClick={() => {
                   setMenuPerfilAbierto(false);
-                  signOut();
+                  signOut().catch((error: Error) => toast.error(`No se pudo cerrar la sesión: ${error.message}`));
                 }}
                 className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-sm text-red-700 hover:bg-gray-50"
               >

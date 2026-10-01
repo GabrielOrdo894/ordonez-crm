@@ -29,7 +29,22 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
   const toast = useToast();
   const [generando, setGenerando] = useState(false);
   const [generandoInventaire, setGenerandoInventaire] = useState(false);
-  const { compteResultat, bilanActivo, bilanPasivo, is, resultadoNeto, activos, pendienteRegistrar, descuadre, cargando } = useLiasse(anio);
+  const {
+    compteResultat,
+    bilanActivo,
+    bilanPasivo,
+    is,
+    isRegistrado,
+    deficitImputado,
+    deficitPendiente,
+    capitauxPropresBajos,
+    resultadoNeto,
+    activos,
+    pendienteRegistrar,
+    descuadre,
+    cargando,
+  } = useLiasse(anio);
+  const isDelEjercicio = Math.abs(isRegistrado) >= 0.005 ? isRegistrado : is.total;
 
   const handleDescargar = async () => {
     setGenerando(true);
@@ -71,9 +86,26 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
 
       <ResumenTitular icono={FileText}>
         Con los datos de {anio}, el resultado neto tras Impôt sur les Sociétés es{' '}
-        <strong className="text-brand">{fmt(resultadoNeto)}</strong> (IS de {fmt(is.total)} sobre un resultado antes de
-        impuestos de {fmt(compteResultat.resultadoAntesIS)}).
+        <strong className="text-brand">{fmt(resultadoNeto)}</strong> (IS de {fmt(isDelEjercicio)}
+        {Math.abs(isRegistrado) >= 0.005 ? ', ya registrado en el libro,' : ''} sobre un resultado antes de impuestos de{' '}
+        {fmt(compteResultat.resultadoAntesIS)}
+        {deficitImputado > 0 ? `, tras imputar ${fmt(deficitImputado)} de pérdidas de ejercicios anteriores` : ''}).
       </ResumenTitular>
+      {deficitPendiente - deficitImputado > 0.5 && (
+        <p className="text-xs text-gray-600 px-1">
+          Quedan {fmt(deficitPendiente - deficitImputado)} de pérdidas de ejercicios anteriores por compensar con beneficios
+          futuros (report en avant, sin límite de tiempo).
+        </p>
+      )}
+      {capitauxPropresBajos && (
+        <p className="text-xs text-red-700 flex items-start gap-1.5 bg-red-50 border border-red-200 rounded-sm px-2.5 py-2">
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          Los capitaux propres ({fmt(bilanPasivo.capitauxPropres)}) quedan por debajo de la mitad del capital social. Por el
+          art. L223-42 del Code de commerce, en los 4 meses siguientes a la aprobación de estas cuentas el associé unique
+          tiene que decidir si continúa la société, registrarlo en el greffe y publicarlo; y reconstituir los capitaux
+          propres antes del cierre del segundo ejercicio siguiente.
+        </p>
+      )}
       {pendienteRegistrar > 0.5 && (
         <p className="text-xs text-amber-700 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-sm px-2.5 py-2">
           <AlertTriangle size={13} className="shrink-0 mt-0.5" />
@@ -96,6 +128,9 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
           <table className="w-full text-sm">
             <tbody>
               <Fila label="Ventes (706)" valor={compteResultat.ventas} />
+              {Math.abs(compteResultat.otrosProductosExplotacion) >= 0.005 && (
+                <Fila label="Production stockée et autres produits (71-75, 781)" valor={compteResultat.otrosProductosExplotacion} />
+              )}
               <Fila label="Charges d'exploitation" valor={-compteResultat.cargasExplotacion} />
               <Fila label="Résultat d'exploitation" valor={compteResultat.resultadoExplotacion} negrita />
               <Fila label="Résultat financier" valor={compteResultat.resultadoFinanciero} />
@@ -131,11 +166,13 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
             <tbody>
               <Fila label="Capital social" valor={bilanPasivo.capitalSocial} />
               <Fila label="Réserves" valor={bilanPasivo.reservas} />
+              {Math.abs(bilanPasivo.reportANouveau) >= 0.005 && <Fila label="Report à nouveau" valor={bilanPasivo.reportANouveau} />}
               <Fila label="Résultat de l'exercice" valor={bilanPasivo.resultadoEjercicio} />
               <Fila label="Dettes fiscales (IS)" valor={bilanPasivo.dettesFiscales} />
               <Fila label="TVA à payer" valor={bilanPasivo.deudaTva} />
               <Fila label="Avances et acomptes reçus (4191)" valor={bilanPasivo.avancesRecibidas} />
               <Fila label="Compte courant d'associé (455)" valor={bilanPasivo.compteCourantAssocie} />
+              {bilanPasivo.dividendosAPagar > 0 && <Fila label="Dividendes à payer (457)" valor={bilanPasivo.dividendosAPagar} />}
               <Fila label="Dettes fournisseurs" valor={bilanPasivo.dettesFournisseurs} />
               <Fila label="Total passif" valor={bilanPasivo.total} negrita />
             </tbody>

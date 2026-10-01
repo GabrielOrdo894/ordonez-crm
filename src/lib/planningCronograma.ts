@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { GRIS_BORDE, GRIS_TEXTO } from './pdfEmpresa';
 import { parsearTextoEnriquecido, estiloFuente, type BloqueTexto } from './textoEnriquecido';
 import { formatearUnidadTexto } from '../modules/finanzas/lineas';
-import { fechaPlanning, fechaPlanningCorta } from './fechas';
+import { fechaPlanning, fechaPlanningCorta, hoyLocalIso } from './fechas';
 import { FUENTE_PDF } from './fuentePdf';
 
 export type FaseObraCronograma = {
@@ -257,7 +257,7 @@ export function dibujarGanttYFases(doc: jsPDF, opts: OpcionesCronograma): void {
     : '';
   const totalDias =
     fasesConFechas.length > 0 ? Math.max(diasInclusive(inicioProyecto, finProyecto), 1) : 1;
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyLocalIso();
   const hoyEnRango = fasesConFechas.length > 0 && hoyISO >= inicioProyecto && hoyISO <= finProyecto;
   const pctHoy = hoyEnRango ? (diasEntreFechas(inicioProyecto, hoyISO) / totalDias) * 100 : 0;
 

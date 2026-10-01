@@ -358,3 +358,92 @@ describe('construirAsientosRectificacion', () => {
     expect(saldoNeto('512')).toBeCloseTo(-150);
   });
 });
+
+describe('auditoría 2026-10-01 — acomptes de la estructura anterior, rectificativas y reembolsos', () => {
+  const linea = (base: number, ref = 'OBR-001'): Linea => ({
+    designacion: 'Obra',
+    referencia: ref,
+    descripcion: '',
+    unidad: 'ud',
+    tipo_servicio: 'Travaux',
+    cantidad: 1,
+    precio_unit: base,
+    total_sin_iva: base,
+    total_con_iva: base * 1.1,
+    es_incluido: false,
+  });
+
+  it('el acompte de la estructura anterior (ACOMPTE_ANT) reduce la venta y no toca 4191', () => {
+    // Caso Bea Vangheluwe: obra de 30.000 €, 5.000 € facturados por la estructura anterior y 10.000 € por la EURL.
+    const asientos = construirAsientosFacturaEmision({
+      id: 'f10',
+      numero: 'F-10',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-10-01',
+      lineas: [linea(30000), linea(-10000, 'ACOMPTE'), linea(-5000, 'ACOMPTE_ANT')],
+      tipo: 'normal',
+    });
+    expect(asientos.find((a) => a.cuenta === '706')?.haber).toBeCloseTo(25000);
+    expect(asientos.find((a) => a.cuenta === '4191')?.debe).toBeCloseTo(10000);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('rectificativa de una factura no cobrada: toda su TVA sale de 44574, nada a 44571', () => {
+    const asientos = construirAsientosFacturaEmision({
+      id: 'r1',
+      numero: 'R-1',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-10-01',
+      lineas: [linea(-1000)],
+      tipo: 'rectificativa',
+      tipo_original: 'normal',
+      fraccion_tva_exigible: 0,
+    });
+    expect(asientos.some((a) => a.cuenta === '44571')).toBe(false);
+    expect(asientos.find((a) => a.cuenta === '44574')?.debe).toBeCloseTo(100);
+    expect(asientos.find((a) => a.cuenta === '706')?.debe).toBeCloseTo(1000);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('rectificativa de una factura cobrada a medias: reparte la TVA entre 44571 y 44574', () => {
+    const asientos = construirAsientosFacturaEmision({
+      id: 'r2',
+      numero: 'R-2',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-10-01',
+      lineas: [linea(-1000)],
+      tipo: 'rectificativa',
+      fraccion_tva_exigible: 0.5,
+    });
+    expect(asientos.find((a) => a.cuenta === '44571')?.debe).toBeCloseTo(50);
+    expect(asientos.find((a) => a.cuenta === '44574')?.debe).toBeCloseTo(50);
+    expect(sumaDebe(asientos)).toBeCloseTo(sumaHaber(asientos));
+  });
+
+  it('rectificativa de un acompte: anula anticipo en 4191, no venta', () => {
+    const asientos = construirAsientosFacturaEmision({
+      id: 'r3',
+      numero: 'R-3',
+      cliente_nombre: 'X',
+      fecha_factura: '2026-10-01',
+      lineas: [linea(-3000)],
+      tipo: 'rectificativa',
+      tipo_original: 'acompte',
+    });
+    expect(asientos.find((a) => a.cuenta === '4191')?.debe).toBeCloseTo(3000);
+    expect(asientos.some((a) => a.cuenta === '706')).toBe(false);
+  });
+
+  it('reembolso de una rectificativa (pago negativo): 411 al debe, 512 al haber, sin TVA', () => {
+    const asientos = construirAsientosFacturaCobro(
+      { id: 'r1', numero: 'R-1', cliente_nombre: 'X', tipo_iva: 'TVA_10', tipo: 'rectificativa' },
+      -1100,
+      '2026-10-05',
+      'p9',
+    );
+    expect(asientos).toHaveLength(2);
+    expect(asientos.find((a) => a.cuenta === '411')?.debe).toBeCloseTo(1100);
+    expect(asientos.find((a) => a.cuenta === '512')?.haber).toBeCloseTo(1100);
+    expect(asientos.every((a) => a.pago_id === 'p9' && a.debe >= 0 && a.haber >= 0)).toBe(true);
+  });
+});

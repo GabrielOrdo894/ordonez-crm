@@ -12,28 +12,13 @@
 // VisitaReprogramarPage.tsx tras mover fecha/hora/duración/empleado de una visita ya agendada.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
+import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { codificarCabeceraMime } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Supabase valida que el JWT esté bien firmado (verify_jwt: true) pero no distingue la clave anon
-// (pública, va en el bundle del frontend) de una sesión real — comprobar el rol cierra ese hueco
-// (revisión de seguridad 2026-08-11). Duplicado en cada función: el despliegue vía MCP no resuelve
-// imports relativos entre funciones (a diferencia de `supabase functions deploy` por CLI).
-function esLlamadaAutorizada(req: Request): boolean {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  const partes = token.split('.');
-  if (partes.length !== 3) return false;
-  try {
-    const payload = JSON.parse(atob(partes[1].replace(/-/g, '+').replace(/_/g, '/')));
-    return payload.role === 'authenticated' || payload.role === 'service_role';
-  } catch {
-    return false;
-  }
-}
 
 // Buzón oficial que SÍ recibe correo — sigue siendo el destinatario por defecto de los avisos
 // internos. El envío ya no sale de aquí: ver REMITENTE_ENVIO (2026-09-19, cuenta info@ordonezrenov.com
@@ -117,32 +102,6 @@ const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // en vez de la API de Gmail (2026-09-19, petición de Gabriel: los avisos automáticos del CRM no
 // deben salir de la cuenta de Gmail personal). Credenciales en secretos de Supabase
 // (SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS) — nunca hardcodeadas.
-// Codificación RFC 2047 de cabeceras con caracteres no ASCII (asunto, nombre del remitente).
-// denomailer lo hace mal por su cuenta: usa Q-encoding con espacios sin codificar y, si la palabra
-// codificada pasa de 74 caracteres, mete un salto de línea en medio de la cabecera — el servidor
-// da por terminadas las cabeceras ahí, From/To/Content-Type acaban dentro del cuerpo y Gmail manda
-// el mensaje a spam (caso real: aviso "Visita agendada — Kepa Etxeburua García · ..." del
-// 2026-09-21). Aquí se codifica en Base64 por trozos de ≤ 45 bytes (≤ 72 caracteres codificados,
-// bajo el límite de 75 de la RFC) separados por espacio, y se inyecta vía un preprocesador de
-// denomailer (ver enviarSmtp) porque pasarlo ya codificado a send() no sirve. Misma copia en las
-// 6 funciones que envían por SMTP (una Edge Function no puede importar de otra).
-function codificarCabeceraMime(texto: string): string {
-  if (!/[^ -~]/.test(texto)) return texto; // nada fuera del ASCII imprimible: se deja tal cual
-  const enc = new TextEncoder();
-  const trozos: string[] = [];
-  let actual = '';
-  for (const ch of texto) {
-    if (enc.encode(actual + ch).length > 45) {
-      trozos.push(actual);
-      actual = ch;
-    } else {
-      actual += ch;
-    }
-  }
-  if (actual) trozos.push(actual);
-  return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
-}
-
 async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
@@ -333,7 +292,7 @@ function construirHtmlCliente(opts: {
   const t = opts.fr
     ? {
         eyebrow: opts.reprogramada ? 'Visite technique reprogrammée' : 'Visite technique confirmée',
-        saludo: `Bonjour${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        saludo: `Bonjour${opts.nombreCliente ? ' ' + esc(opts.nombreCliente) : ''},`,
         intro: opts.reprogramada
           ? 'La date de votre visite technique a été modifiée. Voici la nouvelle date :'
           : 'Nous vous confirmons votre visite technique :',
@@ -345,7 +304,7 @@ function construirHtmlCliente(opts: {
       }
     : {
         eyebrow: opts.reprogramada ? 'Visita técnica reprogramada' : 'Visita técnica confirmada',
-        saludo: `Hola${opts.nombreCliente ? ' ' + opts.nombreCliente : ''},`,
+        saludo: `Hola${opts.nombreCliente ? ' ' + esc(opts.nombreCliente) : ''},`,
         intro: opts.reprogramada
           ? 'La fecha de tu visita técnica ha cambiado. Esta es la nueva fecha:'
           : 'Te confirmamos tu visita técnica:',
@@ -484,7 +443,7 @@ function construirHtml(opts: {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
-  if (!esLlamadaAutorizada(req)) return jsonResponse({ error: 'No autorizado' }, 401);
+  if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
     const { visitaId, motivo } = await req.json();

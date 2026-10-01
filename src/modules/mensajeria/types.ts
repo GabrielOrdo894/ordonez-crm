@@ -1,3 +1,4 @@
+import { supabase } from '../../lib/supabase';
 export type MensajeEquipo = {
   id: string;
   autor_id: string;
@@ -101,4 +102,39 @@ export function participantesHilo(hilo: MensajeEquipo[], userId: string): string
   }
   ids.delete(userId);
   return Array.from(ids);
+}
+
+// Mensajes sin leer de la bandeja (misma definición que enBandeja): sin borradores ni archivados.
+// Única consulta, compartida por la campana y el menú lateral — antes cada uno contaba también
+// borradores y archivados y el aviso no desaparecía nunca (auditoría 2026-10-01).
+export async function contarMensajesNoLeidos(userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('mensajes_equipo')
+    .select('*', { count: 'exact', head: true })
+    .or(`destinatario_ids.is.null,destinatario_ids.cs.{${userId}}`)
+    .neq('autor_id', userId)
+    .eq('borrador', false)
+    .not('leido_por', 'cs', `{${userId}}`)
+    .not('archivado_por', 'cs', `{${userId}}`)
+    .not('eliminado_por', 'cs', `{${userId}}`);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+// Fecha del último mensaje sin leer (misma definición que contarMensajesNoLeidos) — identifica el
+// aviso de la campana para que solo salte cuando llega un mensaje nuevo de verdad.
+export async function ultimoMensajeNoLeido(userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('mensajes_equipo')
+    .select('created_at')
+    .or(`destinatario_ids.is.null,destinatario_ids.cs.{${userId}}`)
+    .neq('autor_id', userId)
+    .eq('borrador', false)
+    .not('leido_por', 'cs', `{${userId}}`)
+    .not('archivado_por', 'cs', `{${userId}}`)
+    .not('eliminado_por', 'cs', `{${userId}}`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0]?.created_at as string | undefined) ?? null;
 }

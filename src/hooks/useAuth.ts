@@ -67,8 +67,10 @@ export function useAuth() {
   const user: User | null = session?.user ?? null;
   const rol: Rol = (user?.user_metadata?.rol as Rol) ?? 'gestion';
 
-  const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
+  // Por defecto solo este dispositivo (sin scope, supabase-js revoca la sesión en todos — también en
+  // el teléfono, donde la sesión no debe caducar). "Cerrar en todos los dispositivos" está en Perfil.
+  const signOut = async (todosLosDispositivos = false) => {
+    const { error } = await supabase.auth.signOut({ scope: todosLosDispositivos ? 'global' : 'local' });
     if (error) throw error;
   };
 

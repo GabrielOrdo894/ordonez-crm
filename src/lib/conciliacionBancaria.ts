@@ -1,8 +1,8 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { registrarEvento } from './eventos';
-import { registrarAsientoFacturaCobro } from './asientosContables';
-import { totalConIvaFactura, estadoCobroDePagos } from '../modules/finanzas/facturas/types';
+import { registrarPagoFactura, anularPagoFactura } from './pagosFactura';
+import { totalConIvaFactura } from '../modules/finanzas/facturas/types';
 import type { Factura } from '../modules/finanzas/facturas/types';
 import type { MovimientoBanco } from '../modules/contabilidad/types';
 import { formatearPrecio } from '../modules/finanzas/lineas';
@@ -48,32 +48,42 @@ export function facturaUnicaParaCobro<F extends Pick<Factura, 'lineas' | 'monto_
   return coincidentes.length === 1 ? coincidentes[0] : null;
 }
 
-/** Facturas que pueden recibir un cobro bancario: ni en papelera ni de la estructura anterior a la
- * EURL (no son ingreso real de la société, ver CLAUDE.md §10). */
+/** Facturas que pueden recibir un cobro en la cuenta de la EURL: de Francia, ni en papelera, ni
+ * rectificativas, ni de la estructura anterior a la EURL (no son ingreso real de la société, ver
+ * CLAUDE.md §10). Antes entraban también las de España y las rectificativas (auditoría 2026-10-01). */
 export async function facturasPendientesDeCobro(): Promise<Factura[]> {
   const { data, error } = await supabase
     .from('facturas')
     .select('*')
     .is('eliminado_en', null)
+    .eq('pais', 'Francia')
     .eq('estructura_anterior', false)
+    .neq('tipo', 'rectificativa')
     .in('estado_cobro', ['Pendiente', 'Cobrada parcialmente', 'Vencida'])
     .order('fecha_factura', { ascending: false });
   if (error) throw error;
   return data as Factura[];
 }
 
-/** Un movimiento bancario conciliado es un pago real: fila en pagos_factura, campos derivados de
- * la factura recalculados, movimiento marcado Vinculado y, si es de Francia, asiento de cobro. El
- * fallo del asiento no deshace el pago (mismo criterio que RegistrarPagoModal): se devuelve como
- * aviso para enseñarlo al usuario. */
+async function soltarMovimiento(movimientoId: string) {
+  const { error } = await supabase
+    .from('movimientos_banco')
+    .update({ estado: 'Pendiente', factura_id: null, pago_id: null })
+    .eq('id', movimientoId);
+  if (error) throw error;
+}
+
+/** Un movimiento bancario conciliado es un pago real (registrarPagoFactura: pago + asiento juntos,
+ * sin pasar de lo pendiente). Si algo falla a mitad, se deshace lo hecho: nunca queda un movimiento
+ * "Vinculado" sin pago ni un pago sin su movimiento. */
 export async function vincularMovimientoAFactura(
   movimiento: Pick<MovimientoBanco, 'id' | 'fecha' | 'importe'>,
   factura: Factura,
   origen: 'manual' | 'automatica',
 ): Promise<{ pagoId: string; avisoAsiento: string | null }> {
+  if (factura.tipo === 'rectificativa') throw new Error('Un cobro no se puede vincular a una factura rectificativa.');
   // Se "reserva" el movimiento antes de crear el pago: solo una pestaña o dispositivo puede pasarlo de
-  // Pendiente a Vinculado. Antes, dos sesiones abiertas a la vez podían registrar el mismo cobro dos
-  // veces (auditoría 2026-09-29).
+  // Pendiente a Vinculado (auditoría 2026-09-29).
   const { data: reservado, error: errorReserva } = await supabase
     .from('movimientos_banco')
     .update({ estado: 'Vinculado', factura_id: factura.id })
@@ -84,70 +94,42 @@ export async function vincularMovimientoAFactura(
   if (errorReserva) throw errorReserva;
   if (!reservado || reservado.length === 0) throw new Error('Este movimiento ya se ha vinculado desde otra sesión.');
 
-  const { data: nuevoPago, error: errorPago } = await supabase
-    .from('pagos_factura')
-    .insert({
-      factura_id: factura.id,
+  let pagoId: string;
+  try {
+    const { pago } = await registrarPagoFactura(factura, {
       fecha: movimiento.fecha,
-      monto: movimiento.importe,
-      creado_por:
-        origen === 'manual' ? 'Conciliación bancaria (OFX)' : 'Conciliación bancaria automática',
-    })
-    .select()
-    .single();
-  if (errorPago) {
-    const { error: errorVuelta } = await supabase
-      .from('movimientos_banco')
-      .update({ estado: 'Pendiente', factura_id: null })
-      .eq('id', movimiento.id);
-    if (errorVuelta) throw errorVuelta;
-    throw errorPago;
+      importe: movimiento.importe,
+      creadoPor: origen === 'manual' ? 'Conciliación bancaria (OFX)' : 'Conciliación bancaria automática',
+    });
+    pagoId = pago.id;
+  } catch (error) {
+    await soltarMovimiento(movimiento.id);
+    throw error;
   }
-
-  const { data: pagosFactura, error: errorPagos } = await supabase
-    .from('pagos_factura')
-    .select('monto, fecha')
-    .eq('factura_id', factura.id);
-  if (errorPagos) throw errorPagos;
-  const totalPagado = Math.round((pagosFactura ?? []).reduce((s, p) => s + p.monto, 0) * 100) / 100;
-  // fecha_pago = la del último pago real, aunque el movimiento sea anterior a otro pago ya registrado.
-  const ultimaFecha = (pagosFactura ?? []).reduce((max, p) => (p.fecha > max ? p.fecha : max), movimiento.fecha);
-  const estado_cobro = estadoCobroDePagos(totalPagado, totalConIvaFactura(factura));
-
-  const { error: errorFactura } = await supabase
-    .from('facturas')
-    .update({ fecha_pago: ultimaFecha, monto_pagado: totalPagado, estado_cobro })
-    .eq('id', factura.id);
-  if (errorFactura) throw errorFactura;
 
   const { error: errorMovimiento } = await supabase
     .from('movimientos_banco')
-    .update({ estado: 'Vinculado', factura_id: factura.id, pago_id: nuevoPago.id })
+    .update({ pago_id: pagoId })
     .eq('id', movimiento.id);
-  if (errorMovimiento) throw errorMovimiento;
-
-  await registrarEvento(
-    'factura',
-    factura.id,
-    origen === 'manual'
-      ? `Pago de ${formatearPrecio(movimiento.importe)} vinculado desde un movimiento bancario`
-      : `Pago de ${formatearPrecio(movimiento.importe)} conciliado automáticamente con el movimiento bancario del ${movimiento.fecha}`,
-  );
+  if (errorMovimiento) {
+    await anularPagoFactura(factura, pagoId, 'Sistema (fallo al vincular el movimiento bancario)');
+    await soltarMovimiento(movimiento.id);
+    throw errorMovimiento;
+  }
 
   let avisoAsiento: string | null = null;
-  if (factura.pais === 'Francia' && !factura.estructura_anterior) {
-    try {
-      await registrarAsientoFacturaCobro(
-        { id: factura.id, numero: factura.numero, cliente_nombre: factura.cliente_nombre, tipo_iva: factura.tipo_iva },
-        movimiento.importe,
-        movimiento.fecha,
-        nuevoPago.id as string,
-      );
-    } catch (error) {
-      avisoAsiento = `Pago vinculado, pero no se pudo registrar en el libro diario: ${(error as Error).message}`;
-    }
+  try {
+    await registrarEvento(
+      'factura',
+      factura.id,
+      origen === 'manual'
+        ? `Pago de ${formatearPrecio(movimiento.importe)} vinculado desde un movimiento bancario`
+        : `Pago de ${formatearPrecio(movimiento.importe)} conciliado automáticamente con el movimiento bancario del ${movimiento.fecha}`,
+    );
+  } catch (error) {
+    avisoAsiento = `Pago vinculado, pero no se pudo anotar en el historial de la factura: ${(error as Error).message}`;
   }
-  return { pagoId: nuevoPago.id as string, avisoAsiento };
+  return { pagoId, avisoAsiento };
 }
 
 /** Recorre los cobros bancarios pendientes y los vincula a su factura cuando la coincidencia es
@@ -171,9 +153,14 @@ export async function conciliarCobrosAutomaticos(): Promise<{
   for (const m of cobros) {
     const factura = facturaUnicaParaCobro(m.importe, facturas);
     if (!factura) continue;
-    const { avisoAsiento } = await vincularMovimientoAFactura(m, factura, 'automatica');
-    conciliados++;
-    if (avisoAsiento) avisos.push(avisoAsiento);
+    // Un fallo en un movimiento no corta la conciliación de los demás.
+    try {
+      const { avisoAsiento } = await vincularMovimientoAFactura(m, factura, 'automatica');
+      conciliados++;
+      if (avisoAsiento) avisos.push(avisoAsiento);
+    } catch (error) {
+      avisos.push(`No se pudo conciliar el cobro del ${m.fecha}: ${(error as Error).message}`);
+    }
     // La factura ya ha cambiado (o está cobrada del todo): se relee para el siguiente cobro.
     facturas = await facturasPendientesDeCobro();
   }

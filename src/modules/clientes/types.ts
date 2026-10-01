@@ -267,12 +267,14 @@ export function agruparPotenciales(
 // distintivo que las solicitudes/orientativos — pero sigue siendo un Cliente normal (agruparClientes
 // no cambia) para Pipeline, Presupuestos, Facturas y Planning, que necesitan verlo desde el primer
 // contacto para poder trabajar las etapas previas a la aceptación.
-export type PresupuestoParaClaves = { estado: string; cliente_tel: string | null; cliente_email: string | null };
+export type PresupuestoParaClaves = { estado: string; tipo?: string | null; cliente_tel: string | null; cliente_email: string | null };
 
 export function clavesPresupuestosAceptados(presupuestos: PresupuestoParaClaves[]): Set<string> {
   const claves = new Set<string>();
   for (const p of presupuestos) {
-    if (p.estado !== 'Aceptado') continue;
+    // Un orientativo 'Aceptado' es un estado interno (lo sustituye un presupuesto normal), no una
+    // aceptación real del cliente (auditoría 2026-10-01).
+    if (p.estado !== 'Aceptado' || p.tipo === 'orientativo') continue;
     if (p.cliente_tel) claves.add(normalizarTelefono(p.cliente_tel));
     if (p.cliente_email) claves.add(p.cliente_email.toLowerCase());
   }

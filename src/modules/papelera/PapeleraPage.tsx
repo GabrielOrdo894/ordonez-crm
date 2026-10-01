@@ -4,7 +4,8 @@ import { RotateCcw, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { avisoDocumentosActivosDeVisita } from '../../lib/avisoVisita';
 import { eliminarEventoVisita } from '../../lib/googleCalendar';
-import { fechaVisitaCorta } from '../../lib/fechas';
+import { fechaVisitaCorta, hoyLocalIso } from '../../lib/fechas';
+import { restaurarEventoVisita } from '../visitas/cambiarEstadoVisita';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Table } from '../../components/ui/Table';
@@ -121,10 +122,8 @@ function TablaVisitas() {
   const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Visita>(
     'visitas',
     async (id) => {
-      // El soft-delete (mover a la papelera) no toca el evento de Google Calendar a propósito —
-      // si se restaura la visita, el evento debe seguir ahí. Solo se borra aquí, al eliminar
-      // definitivamente, que es cuando de verdad no hay vuelta atrás (hallazgo real, revisión
-      // 2026-08-13: antes el evento se quedaba huérfano para siempre).
+      // Desde 2026-10-01 el evento ya se borra al mover la visita a la papelera (y se recrea al
+      // restaurarla); esto cubre las visitas que entraron en la papelera antes de ese cambio.
       const { data: visita, error: errorLectura } = await supabase
         .from('visitas')
         .select('google_event_id')
@@ -167,6 +166,11 @@ function TablaVisitas() {
       const aviso = await avisoDocumentosActivosDeVisita(id);
       return aviso ? `${aviso} Se quedarán sin cliente vinculado tras la purga (las fotos de galería sí se borrarán).` : '';
     },
+    // La visita perdió su evento de Calendar al ir a la papelera: se vuelve a crear si sigue
+    // pendiente y no ha pasado (sin email al equipo).
+    async (v) => {
+      (await restaurarEventoVisita(v, hoyLocalIso())).forEach((aviso) => console.warn(aviso));
+    },
   );
 
   return (
@@ -204,6 +208,21 @@ function TablaPresupuestos() {
   const { data, isLoading, handleRestaurar, handleEliminarDefinitivo } = useSeccionPapelera<Presupuesto>(
     'presupuestos',
     async (id) => {
+      // Con facturas o planning vinculados no se purga: las FK son ON DELETE SET NULL y la factura
+      // final perdía la deducción de sus acomptes y el planning su obra, sin ningún aviso
+      // (auditoría 2026-10-01). Se puede restaurar en su lugar.
+      const [facturas, proyectos] = await Promise.all([
+        supabase.from('facturas').select('numero').eq('presupuesto_id', id),
+        supabase.from('proyectos').select('id').eq('presupuesto_id', id),
+      ]);
+      if (facturas.error) throw facturas.error;
+      if (proyectos.error) throw proyectos.error;
+      if ((facturas.data ?? []).length > 0 || (proyectos.data ?? []).length > 0) {
+        const numeros = (facturas.data ?? []).map((f) => f.numero).filter(Boolean).join(', ');
+        throw new Error(
+          `No se puede eliminar definitivamente: tiene ${numeros ? `facturas (${numeros})` : ''}${numeros && (proyectos.data ?? []).length ? ' y ' : ''}${(proyectos.data ?? []).length ? 'un planning de obra' : ''} vinculados. Restáuralo si hace falta.`,
+        );
+      }
       const { error } = await supabase.from('documento_eventos').delete().eq('documento_tipo', 'presupuesto').eq('documento_id', id);
       if (error) throw error;
       const { error: errorFunnel } = await supabase.from('funnel_eventos').delete().eq('presupuesto_id', id);

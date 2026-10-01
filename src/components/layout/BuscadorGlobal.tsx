@@ -40,11 +40,15 @@ export function BuscadorGlobal({ abierto, onClose }: BuscadorGlobalProps) {
     enabled: activa,
     queryFn: async () => {
       const q = valorIlikeParaOr(queryDebounced);
+      // Teléfono por dígitos (sin espacios ni prefijo): "659884706" o "0659 88 47 06" encuentran
+      // "+34 659 88 47 06" (auditoría 2026-10-01).
+      const digitos = queryDebounced.replace(/\D/g, '');
+      const filtroTelefono = digitos.length >= 4 ? `,telefono_digitos.ilike.%${digitos.slice(-9)}%` : '';
       const { data, error } = await supabase
         .from('visitas')
         .select('*')
         .is('eliminado_en', null)
-        .or(`nombre.ilike.${q},apellidos.ilike.${q},telefono.ilike.${q},email.ilike.${q}`)
+        .or(`nombre.ilike.${q},apellidos.ilike.${q},telefono.ilike.${q},email.ilike.${q}${filtroTelefono}`)
         .limit(20);
       if (error) throw error;
       return data as Visita[];

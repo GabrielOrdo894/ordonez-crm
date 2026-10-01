@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Star, Pencil, Copy, Mail, Gift } from 'lucide-react';
@@ -162,15 +162,23 @@ export function CierreObraBanner() {
   // guardarlo ANTES de mostrar el mensaje (el enlace de reseña lo lleva embebido), no solo al
   // marcar el envío, o el enlace que el cliente ve podría no coincidir con el que luego se busca
   // en resena-redirect.
+  // Un solo intento por factura y sesión: si falla, se avisa en vez de reintentar en bucle (antes
+  // un error no se miraba, se invalidaba y se volvía a intentar sin fin — auditoría 2026-10-01).
+  const tokensIntentados = useRef(new Set<string>());
   useEffect(() => {
-    const sinToken = (pendientesCierre ?? []).filter((f) => !f.resena_token);
+    const sinToken = (pendientesCierre ?? []).filter((f) => !f.resena_token && !tokensIntentados.current.has(f.id));
     if (sinToken.length === 0) return;
+    sinToken.forEach((f) => tokensIntentados.current.add(f.id));
     (async () => {
-      await Promise.all(
+      const resultados = await Promise.all(
         sinToken.map((f) => supabase.from('facturas').update({ resena_token: crypto.randomUUID() }).eq('id', f.id)),
       );
+      const fallo = resultados.find((r) => r.error)?.error;
+      if (fallo) toast.error(`No se pudo preparar el enlace de reseña: ${fallo.message}`);
       queryClient.invalidateQueries({ queryKey: ['facturas', 'cierre-obra-pendiente'] });
     })();
+    // toast se excluye: ToastContext recrea su valor en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendientesCierre, queryClient]);
 
   const invalidarTodo = () => {
@@ -204,7 +212,7 @@ export function CierreObraBanner() {
 
   const enviarEmailMutation = useMutation({
     mutationFn: async (facturaId: string) => {
-      const { error } = await supabase.functions.invoke('enviar-resena-email', { body: { facturaId } });
+      const { error } = await supabase.functions.invoke('enviar-resena-email', { body: { facturaId, reenviar: true } });
       // supabase-js solo expone un mensaje genérico en error.message — el mensaje real va en el
       // cuerpo JSON de la respuesta (mismo patrón que documenso.ts).
       if (error) {

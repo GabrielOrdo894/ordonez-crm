@@ -24,20 +24,26 @@ export function RecordatorioPagoModal({ factura, onClose }: RecordatorioPagoModa
   useEffect(() => {
     if (!factura) return;
     setCargando(true);
+    // Con catch: si fallaba cargarEntidad, el modal se quedaba en "Cargando..." para siempre.
     (async () => {
       const pais = factura.pais ?? paisDesdeTipoIva(factura.tipo_iva) ?? 'España';
       const { entidad } = await cargarEntidad(pais);
       const idioma = factura.idioma === 'Français' ? 'fr' : 'es';
       const { totalConIva } = calcularTotales(factura.lineas);
-      const pendiente = (totalConIva - (factura.monto_pagado ?? 0)).toFixed(2);
+      // Formato de importe y fecha legibles para el cliente ("1 234,50 €", "12/10/2026"), no
+      // "1234.50€" y "2026-10-12" (auditoría 2026-10-01).
+      const pendiente = formatearPrecio(totalConIva - (factura.monto_pagado ?? 0));
+      const vence = factura.fecha_vence
+        ? new Date(`${factura.fecha_vence}T12:00:00`).toLocaleDateString(idioma === 'fr' ? 'fr-FR' : 'es-ES')
+        : '';
       const nombre = idioma === 'fr' ? primerNombre(factura.cliente_nombre ?? '') : (factura.cliente_nombre ?? '');
       const iban = entidad.iban ?? '—';
       const contacto = [entidad.razon_social, entidad.telefono].filter(Boolean).join(' · ');
 
       const texto =
         idioma === 'fr'
-          ? `Bonjour ${nombre}, nous vous rappelons que la facture ${factura.numero ?? ''} d'un montant de ${pendiente}€ est due le ${factura.fecha_vence ?? ''}.\nPaiement par virement bancaire: IBAN ${iban}.\nN'hésitez pas à nous contacter pour toute question.\n${contacto}`
-          : `Estimado/a ${nombre}, le recordamos que tiene pendiente de pago la factura ${factura.numero ?? ''} por importe de ${pendiente}€ con vencimiento el ${factura.fecha_vence ?? ''}.\nPuede realizar el pago mediante transferencia bancaria al IBAN ${iban}.\nQuedamos a su disposición para cualquier consulta.\n${contacto}`;
+          ? `Bonjour ${nombre}, nous vous rappelons que la facture ${factura.numero ?? ''} d'un montant de ${pendiente} est due le ${vence}.\nPaiement par virement bancaire: IBAN ${iban}.\nN'hésitez pas à nous contacter pour toute question.\n${contacto}`
+          : `Estimado/a ${nombre}, le recordamos que tiene pendiente de pago la factura ${factura.numero ?? ''} por importe de ${pendiente} con vencimiento el ${vence}.\nPuede realizar el pago mediante transferencia bancaria al IBAN ${iban}.\nQuedamos a su disposición para cualquier consulta.\n${contacto}`;
 
       setMensaje(texto);
       setAsunto(
@@ -48,7 +54,10 @@ export function RecordatorioPagoModal({ factura, onClose }: RecordatorioPagoModa
       setTelefono((factura.cliente_tel ?? '').replace(/\D/g, ''));
       setEmail(factura.cliente_email ?? '');
       setCargando(false);
-    })();
+    })().catch((error: Error) => {
+      setMensaje(`No se pudieron cargar los datos de la empresa: ${error.message}`);
+      setCargando(false);
+    });
   }, [factura]);
 
   if (!factura) return null;

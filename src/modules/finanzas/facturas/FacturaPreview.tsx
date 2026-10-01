@@ -5,7 +5,7 @@ import { renderizarTC } from '../../../lib/terminos';
 import { notasLegales } from '../../../lib/generarPdfFactura';
 import { mencionIvaReducida } from '../iva';
 import { DocumentoPreview, configPlantillaDesde } from '../DocumentoPreview';
-import { calcularTotales, porcentajeIva, tituloDocumentoFactura } from './types';
+import { calcularTotales, porcentajeIva, tituloDocumentoFactura, textoEstadoDocumentoFactura } from './types';
 import type { Factura } from './types';
 
 const CLASE_ESTADO_COBRO: Record<string, string> = {
@@ -15,12 +15,6 @@ const CLASE_ESTADO_COBRO: Record<string, string> = {
   Vencida: 'text-red-600',
 };
 
-const ESTADO_FR: Record<string, string> = {
-  Pendiente: 'En attente',
-  Cobrada: 'Payée',
-  'Cobrada parcialmente': 'Payée partiellement',
-  Vencida: 'En retard',
-};
 
 export function FacturaPreview({ factura }: { factura: Factura }) {
   const idiomaCorto = factura.idioma === 'Français' ? 'fr' : 'es';
@@ -124,7 +118,7 @@ export function FacturaPreview({ factura }: { factura: Factura }) {
           : []),
         {
           label: idiomaCorto === 'fr' ? 'État' : 'Estado',
-          valor: idiomaCorto === 'fr' ? (ESTADO_FR[factura.estado_cobro] ?? factura.estado_cobro) : factura.estado_cobro,
+          valor: textoEstadoDocumentoFactura(factura.estado_cobro, idiomaCorto),
           claseColor: CLASE_ESTADO_COBRO[factura.estado_cobro] ?? 'text-gray-500',
         },
       ]}

@@ -15,8 +15,7 @@ import {
   calcularAbattementProfesional,
   calcularIRPersonal,
   calcularIRGerante,
-  type ConfigFn,
-} from './calculos';
+  type ConfigFn, deficitArrastrable, imputacionMaximaDeficit, capitauxPropresInferioresMitadCapital } from './calculos';
 
 // Config que siempre devuelve el valor por defecto — para probar la fórmula con las tasas reales.
 const cfgPorDefecto: ConfigFn = (_clave, porDefecto) => porDefecto;
@@ -218,7 +217,7 @@ describe('calcularBilanPasivo', () => {
   it('capital, reservas ya constituidas (sin la dotación del ejercicio), resultado y deuda por IS', () => {
     const is = calcularIS(30000, 6, cfgPorDefecto);
     const reservaLegal = calcularReservaLegal(8508.5, 1000, cfgPorDefecto);
-    const r = calcularBilanPasivo(8508.5, reservaLegal, is, 1000);
+    const r = calcularBilanPasivo(8508.5, reservaLegal, is.total, 1000);
     expect(r.capitalSocial).toBe(1000);
     // La dotación se decide en N+1 y ya está dentro del resultado: no se suma dos veces.
     expect(r.reservas).toBeCloseTo(reservaLegal.reservaAcumuladaPrevia);
@@ -231,7 +230,7 @@ describe('calcularBilanPasivo', () => {
   it('recoge del libro la TVA a pagar, los acomptes recibidos y la cuenta corriente del asociado', () => {
     const is = calcularIS(0, 6, cfgPorDefecto);
     const reservaLegal = calcularReservaLegal(0, 1000, cfgPorDefecto);
-    const r = calcularBilanPasivo(0, reservaLegal, is, 1000, [
+    const r = calcularBilanPasivo(0, reservaLegal, is.total, 1000, [
       { cuenta: '44571', debe: 0, haber: 300 },
       { cuenta: '44566', debe: 100, haber: 0 },
       { cuenta: '4191', debe: 0, haber: 5000 },
@@ -412,5 +411,38 @@ describe('mesesRemuneradosEjercicio', () => {
 describe('fechaLimiteLiasse', () => {
   it('2027: 2º día hábil tras el 1 de mayo (martes 4) + 15 días = 19 de mayo', () => {
     expect(fechaLimiteLiasse(2027)).toBe('2027-05-19');
+  });
+});
+
+describe('auditoría 2026-10-01 — cierre del ejercicio', () => {
+  it('report à nouveau: el resultado de los ejercicios anteriores entra en el pasivo y el balance cuadra', () => {
+    // 2026: ventas 1.000, gastos 3.000 (pérdida de 2.000) pagados por banco/socio.
+    const asientos = [
+      { cuenta: '706', debe: 0, haber: 1000, fecha: '2026-09-01' },
+      { cuenta: '411', debe: 1000, haber: 0, fecha: '2026-09-01' },
+      { cuenta: '606', debe: 3000, haber: 0, fecha: '2026-09-02' },
+      { cuenta: '455', debe: 0, haber: 3000, fecha: '2026-09-02' },
+    ];
+    const reserva = calcularReservaLegal(0, 1000, cfgPorDefecto);
+    const r = calcularBilanPasivo(0, reserva, 0, 1000, asientos, '2027-01-01');
+    expect(r.reportANouveau).toBeCloseTo(-2000);
+    expect(r.capitauxPropres).toBeCloseTo(1000 - 2000);
+    // Activo: 411 = 1.000. Pasivo: capitaux propres -1.000 + cuenta del socio 3.000 = 2.000... sin el
+    // capital depositado en el activo no cuadra; con él (467 = 1.000) cuadra.
+    expect(capitauxPropresInferioresMitadCapital(r.capitauxPropres, r.capitalSocial)).toBe(true);
+  });
+
+  it('deficitArrastrable: las pérdidas se imputan a los beneficios siguientes', () => {
+    expect(deficitArrastrable([-2000])).toBe(2000);
+    expect(deficitArrastrable([-2000, 500])).toBe(1500);
+    expect(deficitArrastrable([-2000, 5000])).toBe(0);
+    expect(imputacionMaximaDeficit(3_000_000)).toBe(2_000_000);
+  });
+
+  it('la reserva legal no se dota mientras haya pérdidas anteriores sin absorber', () => {
+    const r = calcularReservaLegal(1000, 10000, cfgPorDefecto, 0, 1500);
+    expect(r.dotacion).toBe(0);
+    const r2 = calcularReservaLegal(3000, 10000, cfgPorDefecto, 0, 1000);
+    expect(r2.dotacion).toBeCloseTo(100);
   });
 });

@@ -9,7 +9,7 @@ import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
 import { generarPdfPresupuesto, generarPdfPresupuestoBlob, generarPdfPresupuestoTraducido } from '../../../lib/generarPdfPresupuesto';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
-import { fechaCorta } from '../../../lib/fechas';
+import { fechaCorta, hoyLocalIso } from '../../../lib/fechas';
 import { numeroOrdenable } from '../../../lib/numeracion';
 import { registrarEvento } from '../../../lib/eventos';
 import { registrarEtapaPresupuestoConBackfill } from '../../../lib/funnelTracking';
@@ -191,6 +191,11 @@ export default function PresupuestosPage() {
 
   const cambiarEstadoMutation = useMutation({
     mutationFn: async ({ p, estado }: { p: Presupuesto; estado: string }) => {
+      // Un presupuesto firmado por el cliente es un contrato: no vuelve a Borrador ni a Pendiente
+      // (antes se podía con un clic y seguía marcado como firmado — auditoría 2026-10-01).
+      if (p.firmado && (estado === 'Borrador' || estado === 'Pendiente')) {
+        throw new Error(`El presupuesto ${p.numero ?? ''} está firmado por el cliente: no puede volver a ${estado}.`);
+      }
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', p.id);
       if (error) throw error;
       // Congela los T&C al aceptar (no solo al enviar a firmar por Documenso) — cubre también el
@@ -229,6 +234,10 @@ export default function PresupuestosPage() {
 
   const cambiarEstadoVariosMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
+      const firmados = (presupuestos ?? []).filter((p) => (ids as string[]).includes(p.id) && p.firmado);
+      if (firmados.length > 0 && (estado === 'Borrador' || estado === 'Pendiente')) {
+        throw new Error(`${firmados.map((p) => p.numero).join(', ')} están firmados por el cliente: no pueden volver a ${estado}. No se ha cambiado nada.`);
+      }
       const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
       if (error) throw error;
       if (estado === 'Aceptado') {
@@ -375,7 +384,7 @@ export default function PresupuestosPage() {
       const url = URL.createObjectURL(contenido);
       const enlace = document.createElement('a');
       enlace.href = url;
-      enlace.download = `presupuestos_${new Date().toISOString().slice(0, 10)}.zip`;
+      enlace.download = `presupuestos_${hoyLocalIso()}.zip`;
       enlace.click();
       URL.revokeObjectURL(url);
       toast.success(`${paraZip.length} presupuesto(s) descargado(s) en ZIP`);
@@ -396,6 +405,9 @@ export default function PresupuestosPage() {
         : p.estado === 'Borrador'
           ? { icon: Send, label: 'Marcar como pendiente', tono: 'neutro', onClick: cambiar('Pendiente') }
           : { icon: RotateCcw, label: 'Volver a borrador', tono: 'neutro', onClick: cambiar('Borrador') };
+    if (p.firmado && transicion.label === 'Volver a borrador') {
+      return [{ icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(p) }];
+    }
     return [transicion, { icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(p) }];
   };
 

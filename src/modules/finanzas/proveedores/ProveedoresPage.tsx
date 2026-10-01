@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { hoyLocalIso } from '../../../lib/fechas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Archive } from 'lucide-react';
 import JSZip from 'jszip';
@@ -140,7 +141,7 @@ export default function ProveedoresPage() {
       const url = URL.createObjectURL(contenido);
       const enlace = document.createElement('a');
       enlace.href = url;
-      enlace.download = `proveedores_${new Date().toISOString().slice(0, 10)}.zip`;
+      enlace.download = `proveedores_${hoyLocalIso()}.zip`;
       enlace.click();
       URL.revokeObjectURL(url);
       toast.success(`${paraZip.length} proveedor(es) descargado(s) en ZIP`);

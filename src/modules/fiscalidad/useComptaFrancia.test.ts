@@ -100,3 +100,25 @@ describe('calcularBilanActivo', () => {
     expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.capitalPorLiberar + r.inmovilizadoNeto);
   });
 });
+
+describe('auditoría 2026-10-01 — liasse con las clases 6 y 7 completas', () => {
+  it('incluye obras en curso (7133), reprises (781) y cargas excepcionales (687), sin el IS (695)', () => {
+    const asientos = [
+      { cuenta: '706', debe: 0, haber: 10000 },
+      { cuenta: '7133', debe: 0, haber: 2000 },
+      { cuenta: '781', debe: 0, haber: 100 },
+      { cuenta: '606', debe: 4000, haber: 0 },
+      { cuenta: '687', debe: 300, haber: 0 },
+      { cuenta: '695', debe: 900, haber: 0 },
+    ];
+    const r = calcularCompteResultat(asientos);
+    expect(r.otrosProductosExplotacion).toBeCloseTo(2100);
+    expect(r.resultadoExcepcional).toBeCloseTo(-300);
+    expect(r.resultadoAntesIS).toBeCloseTo(10000 + 2100 - 4000 - 300);
+    expect(r.isRegistrado).toBeCloseTo(900);
+    // Misma cifra que useResultadoEjercicio: clase 7 menos clase 6 sin el 695.
+    const clase7 = -asientos.filter((a) => a.cuenta.startsWith('7')).reduce((s, a) => s + a.debe - a.haber, 0);
+    const clase6SinIs = asientos.filter((a) => a.cuenta.startsWith('6') && !a.cuenta.startsWith('695')).reduce((s, a) => s + a.debe - a.haber, 0);
+    expect(r.resultadoAntesIS).toBeCloseTo(clase7 - clase6SinIs);
+  });
+});

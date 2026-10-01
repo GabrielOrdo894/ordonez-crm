@@ -30,8 +30,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { notaSistema } from '../../lib/notaSistema';
-import { eliminarEventoVisita } from '../../lib/googleCalendar';
+import { cambiarEstadoVisita } from './cambiarEstadoVisita';
 import { useAuth, type Rol } from '../../hooks/useAuth';
 import { useEsMobil } from '../../hooks/useEsMobil';
 import { useToast } from '../../hooks/useToast';
@@ -202,6 +201,7 @@ function TarjetaHeader({
 export default function InicioPage() {
   const { abrirNuevaVisita, abrirEditarVisita } = useOutletContext<VisitaModalContext>();
   const { user, rol } = useAuth();
+  const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
   const esMobil = useEsMobil();
   const { echeances } = useEcheances();
   const toast = useToast();
@@ -300,6 +300,7 @@ export default function InicioPage() {
       const { data, error } = await supabase
         .from('pagos_factura')
         .select('fecha, monto, facturas!inner(pais, tipo_iva, tipo, eliminado_en, estructura_anterior)')
+        .is('anulado_en', null)
         .is('facturas.eliminado_en', null)
         .eq('facturas.estructura_anterior', false);
       if (error) throw error;
@@ -345,25 +346,15 @@ export default function InicioPage() {
 
   const cancelarVisitaMutation = useMutation({
     mutationFn: async ({ visita, motivo }: { visita: Visita; motivo: string }) => {
-      const { error } = await supabase.from('visitas').update({ estado: 'Cancelada' }).eq('id', visita.id);
-      if (error) throw error;
-      await notaSistema(visita.id, motivo ? `Visita cancelada — motivo: ${motivo}` : 'Visita cancelada');
-      if (visita.google_event_id) {
-        try {
-          await eliminarEventoVisita(visita.google_event_id);
-        } catch (error) {
-          toast.warning(`No se pudo borrar el evento de Google Calendar: ${(error as Error).message}`);
-        }
-        const { error: errorLimpiar } = await supabase.from('visitas').update({ google_event_id: null }).eq('id', visita.id);
-        if (errorLimpiar) toast.warning(`No se pudo limpiar el evento de Calendar en la visita: ${errorLimpiar.message}`);
-      }
+      const avisos = await cambiarEstadoVisita(visita, 'Cancelada', { motivo, usuario: nombreUsuarioActual });
+      avisos.forEach((aviso) => toast.warning(aviso));
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['visitas'] });
       toast.success('Visita cancelada');
       setVisitaResumen(null);
     },
     onError: (error) => toast.error(error.message),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['visitas'] }),
   });
 
   const hoyISO = useMemo(() => {
@@ -402,8 +393,10 @@ export default function InicioPage() {
       mapa.set(mes, (mapa.get(mes) ?? 0) + p.monto);
     }
 
+    // Sin gastos pendientes de revisar (aún no son gasto real): así el gráfico consolidado cuadra
+    // con la vista por país (auditoría 2026-10-01).
     for (const g of gastos ?? []) {
-      if (!g.fecha) continue;
+      if (!g.fecha || g.estado_gasto === 'pendiente') continue;
       const mes = g.fecha.slice(0, 7);
       const total = (g.importe_base ?? 0) + (g.importe_iva ?? 0);
       const mapa = g.pais === 'Francia' ? salidasFrPorMes : salidasEsPorMes;
@@ -495,9 +488,11 @@ export default function InicioPage() {
     let ingresosConIva = 0;
     for (const f of facturasKpi ?? []) {
       if (!f.fecha_pago || f.monto_pagado == null) continue;
-      const pct = porcentajeIva(f.tipo_iva);
+      // Proporción base/total real de las líneas (mismo criterio que DashboardGeneral): con IVA
+      // mixto, quitar el IVA con el tipo de la cabecera daba otra cifra (auditoría 2026-10-01).
       const conIva = f.monto_pagado;
-      const sinIva = pct > 0 ? conIva / (1 + pct / 100) : conIva;
+      const { totalSinIva, totalConIva } = calcularTotales(f.lineas);
+      const sinIva = totalConIva !== 0 ? conIva * (totalSinIva / totalConIva) : conIva;
       ingresosConIva += conIva;
       ingresosSinIva += sinIva;
     }
@@ -610,7 +605,7 @@ export default function InicioPage() {
         .reduce((s, p) => s + p.monto, 0);
     const gastosPorPais = (pais: string) =>
       (gastos ?? [])
-        .filter((g) => g.pais === pais && (g.fecha ?? '').slice(0, 7) === hoyMesISO)
+        .filter((g) => g.estado_gasto !== 'pendiente' && g.pais === pais && (g.fecha ?? '').slice(0, 7) === hoyMesISO)
         .reduce((s, g) => s + (g.importe_base ?? 0) + (g.importe_iva ?? 0), 0);
     const ingresosEs = ingresosPorPais('España');
     const ingresosFr = ingresosPorPais('Francia');

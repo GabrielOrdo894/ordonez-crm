@@ -137,13 +137,43 @@ export async function registrarEventoFunnel(
     }
     if (existente && existente.length > 0) return;
   }
+  // Una etapa posterior de una solicitud sin su "solicitud_entrada" inflaba la conversión del
+  // embudo (5 casos reales, auditoría 2026-10-01): se crea la entrada con la fecha real de la
+  // solicitud antes de registrar la etapa.
+  if (opts.solicitudId && etapa !== 'solicitud_entrada') {
+    await asegurarEntradaSolicitud(opts.solicitudId);
+  }
   const { error } = await supabase.from('funnel_eventos').insert({
     etapa,
     solicitud_id: opts.solicitudId ?? null,
     presupuesto_id: opts.presupuestoId ?? null,
     fuente: opts.fuente ?? null,
   });
-  if (error) console.warn('No se pudo registrar el evento de funnel:', error.message);
+  // 23505: ya existía (índice único por etapa) — no es un error.
+  if (error && error.code !== '23505') console.warn('No se pudo registrar el evento de funnel:', error.message);
+}
+
+async function asegurarEntradaSolicitud(solicitudId: string) {
+  const { data: existente, error } = await supabase
+    .from('funnel_eventos')
+    .select('id')
+    .eq('etapa', 'solicitud_entrada')
+    .eq('solicitud_id', solicitudId)
+    .limit(1);
+  if (error || (existente && existente.length > 0)) return;
+  const { data: solicitud, error: errorSolicitud } = await supabase
+    .from('solicitudes')
+    .select('created_at, fuente')
+    .eq('id', solicitudId)
+    .maybeSingle();
+  if (errorSolicitud || !solicitud) return;
+  const { error: errorInsert } = await supabase.from('funnel_eventos').insert({
+    etapa: 'solicitud_entrada',
+    solicitud_id: solicitudId,
+    fuente: solicitud.fuente ?? null,
+    created_at: solicitud.created_at,
+  });
+  if (errorInsert && errorInsert.code !== '23505') console.warn('No se pudo registrar la entrada de la solicitud:', errorInsert.message);
 }
 
 // Marcar un presupuesto directamente como Aceptado/Rechazado desde Borrador (sin pasar por
