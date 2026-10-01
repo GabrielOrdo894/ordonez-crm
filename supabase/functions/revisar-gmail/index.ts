@@ -668,7 +668,11 @@ async function revisarRespuestasSolicitudes(token: string, supabase: SupabaseCli
       continue;
     }
     const mensajes = hilo.messages ?? [];
-    if (mensajes.length === 0) continue;
+    // Con un solo mensaje, ese mensaje es el que creó la solicitud (aviso del formulario web o el
+    // email directo del cliente), no una respuesta. Pasa cuando se le contesta por otra vía
+    // (teléfono, WhatsApp, otro hilo): antes se tomaba el aviso de noreply@ordonezrenov.com por una
+    // respuesta del cliente (caso real de Gabriel, 2026-10-02).
+    if (mensajes.length <= 1) continue;
 
     const ultimoMsg = mensajes[mensajes.length - 1];
     const headers = ultimoMsg.payload?.headers ?? [];

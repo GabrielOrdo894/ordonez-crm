@@ -67,7 +67,11 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
   const { data: solicitud, isLoading: cargandoSolicitud } = useQuery({
     queryKey: ['solicitudes', id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('solicitudes').select('*').eq('id', id).single();
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .select('*, visita:visitas!solicitudes_visita_id_fkey(estado)')
+        .eq('id', id)
+        .single();
       if (error) throw error;
       return data as Solicitud;
     },

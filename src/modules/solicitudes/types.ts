@@ -44,7 +44,7 @@ export const TIPO_SOLICITUD_LABEL: Record<TipoSolicitud, string> = {
 // esta constante en la queryFn en vez de escribir el select a mano, para que no pueda volver a
 // desincronizarse.
 export const SELECT_SOLICITUDES =
-  '*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero)';
+  '*, presupuesto_vinculado:presupuestos!solicitudes_presupuesto_vinculado_id_fkey(id, numero), visita:visitas!solicitudes_visita_id_fkey(estado)';
 
 // Mismo motivo que SELECT_SOLICITUDES, para la queryKey ['presupuestos', 'respuestas-pendientes']
 // (Sidebar y notificaciones la comparten).
@@ -71,6 +71,8 @@ export type Solicitud = {
   // SolicitudesPage.tsx (lista), no la de SolicitudDetalle.tsx (que ya tiene su propio desplegable).
   presupuesto_vinculado?: { id: string; numero: string } | null;
   visita_id: string | null;
+  // Embebido vía FK solicitudes_visita_id_fkey (SELECT_SOLICITUDES) — estado de la visita vinculada.
+  visita?: { estado: string } | null;
   notas: string | null;
   ultima_respuesta_cliente_resumen: string | null;
   ultima_respuesta_cliente_fecha: string | null;
@@ -89,9 +91,12 @@ export type Solicitud = {
 // Respuesta del cliente todavía sin atender. Cuenta también en solicitudes ya Aceptadas (visita
 // agendada): cambios de cita o cancelaciones llegan por ahí. Antes la campana buscaba un estado
 // imposible ('Nueva' con mensaje enviado) y nunca avisaba, y las Aceptadas no se veían en ningún
-// sitio (auditoría 2026-10-01).
-export function tieneRespuestaSinRevisar(s: Pick<Solicitud, 'estado' | 'ultima_respuesta_revisada'>): boolean {
-  return s.ultima_respuesta_revisada === false && (s.estado === 'Enviada' || s.estado === 'Aceptada');
+// sitio (auditoría 2026-10-01). Con la visita ya cerrada (Realizada/Cancelada) deja de avisar: a
+// partir de ahí la conversación no es cosa de Solicitudes (Gabriel, 2026-10-02, mismo criterio que
+// la campana desde el 2026-09-30).
+export function tieneRespuestaSinRevisar(s: Pick<Solicitud, 'estado' | 'ultima_respuesta_revisada' | 'visita'>): boolean {
+  const visitaCerrada = s.visita?.estado === 'Realizada' || s.visita?.estado === 'Cancelada';
+  return s.ultima_respuesta_revisada === false && (s.estado === 'Enviada' || s.estado === 'Aceptada') && !visitaCerrada;
 }
 
 export type MensajeConversacion = { de: string; fecha: string; texto: string };

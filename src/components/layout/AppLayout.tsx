@@ -142,6 +142,8 @@ export function AppLayout() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      // Las solicitudes embeben el estado de su visita (deja de avisar de respuestas al cerrarse).
+      queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
     },
   });
 
