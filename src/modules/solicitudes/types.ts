@@ -186,6 +186,7 @@ export const FUENTE_LABEL: Record<string, string> = {
   landbot: 'Landbot (web)',
   web_wordpress: 'Formulario web',
   web_emailjs: 'Formulario de contacto',
+  ordonezfachadas: 'Ordoñez Fachadas (web)',
   autoenvio_gabriel: 'Autoenvío Gabriel',
   email_directo: 'Email directo',
   whatsapp: 'WhatsApp (manual)',

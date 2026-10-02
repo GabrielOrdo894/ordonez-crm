@@ -1137,3 +1137,10 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   - **Pipeline**: solo la factura final (tipo normal) cobrada da la obra por "Finalizado"; un acompte no.
   - **Migraciones**: `supabase/migrations/README.md` lista las 64 que existen en producción sin fichero en el repo;
     toda migración nueva se guarda también aquí con la versión de producción.
+- **Formulario de ordonezfachadas.com → Solicitudes** (Edge Function `solicitud-web`, 2026-10-02): función
+  pública (`verify_jwt: false`, desplegar con `--no-verify-jwt`) que recibe el formulario por pasos de la web
+  de Ordoñez Fachadas, crea la solicitud con `fuente = 'ordonezfachadas'` (etiqueta «Ordoñez Fachadas (web)»),
+  `tipo_solicitud = 'visita'`, municipio y plazo en el comentario, registra `solicitud_entrada` en el embudo y
+  avisa por email a reformasordonezeus@gmail.com (el aviso nunca hace fallar la solicitud). Defensas: CORS y
+  `Origin` solo de ordonezfachadas.com, campo trampa `web`, un envío por teléfono cada 10 minutos. El código de
+  la web vive fuera de este repo (`negocio/equipo-marketing/webs-filiales/ordonezfachadas/sitio/`, git propio).
