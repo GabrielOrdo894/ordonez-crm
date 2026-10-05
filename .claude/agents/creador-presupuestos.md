@@ -177,10 +177,21 @@ set traduccion = jsonb_build_object(
   'lineas', '[ ... array completo de líneas, con designacion/descripcion traducidas, el resto igual ... ]'::jsonb,
   'nota', 'nota traducida, o null si el presupuesto no tenía',
   'plan_pago', '[ ... array de tramos, con concepto traducido, porcentaje/importe iguales ... ]'::jsonb,
-  'generado_en', now()
+  'generado_en', now(),
+  -- Texto original del que se tradujo: copia este bloque tal cual, no lo escribas a mano. El CRM
+  -- lo compara con el presupuesto para avisar de una traducción desactualizada.
+  'fuente', jsonb_build_object(
+    'lineas', (select coalesce(jsonb_agg(jsonb_build_object('designacion', l->>'designacion', 'descripcion', l->>'descripcion') order by n), '[]'::jsonb)
+               from jsonb_array_elements(lineas) with ordinality as x(l, n)),
+    'nota', nota,
+    'plan_pago', (select coalesce(jsonb_agg(t->>'concepto' order by n), '[]'::jsonb)
+                  from jsonb_array_elements(plan_pago) with ordinality as y(t, n))
+  )
 )
 where id = '<id del presupuesto recién creado>';
 ```
+
+**Si modificas un presupuesto de Francia ya existente** (líneas, textos, nota o plan de pago), regenera la traducción completa con este mismo UPDATE en el mismo paso, sin esperar a que te lo pidan (regla de Gabriel, 2026-10-05: la de P-2026-0057 se quedó con 11 de sus 14 líneas).
 
 Confirma a Gabriel que la traducción quedó guardada, y que puede verla/descargarla en `/finanzas/presupuestos` → ficha del presupuesto → sección "Traducción" del panel lateral (Ver PDF / Descargar), o desde el menú de 3 puntos del listado → "Descargar PDF traducido (uso interno)". Recuérdale que, igual que en el CRM, es una copia de uso interno — nunca se envía al cliente tal cual.
 

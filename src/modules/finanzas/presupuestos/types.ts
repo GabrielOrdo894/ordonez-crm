@@ -19,6 +19,15 @@ export type TraduccionPresupuesto = {
   nota: string | null;
   plan_pago: PlazoPago[];
   generado_en: string;
+  /** Texto original del que se tradujo — permite saber si la traducción quedó desactualizada
+   * (ver `traduccionDesactualizada` en traduccion.ts). Las anteriores al 2026-10-05 no lo tienen. */
+  fuente?: FuenteTraduccion;
+};
+
+export type FuenteTraduccion = {
+  lineas: { designacion: string; descripcion: string | null }[];
+  nota: string | null;
+  plan_pago: string[];
 };
 
 export type Presupuesto = {

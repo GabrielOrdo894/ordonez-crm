@@ -28,6 +28,7 @@ import { CondicionesPagoEditor, type CondicionesPagoValor } from '../Condiciones
 import { SelectorIva } from '../SelectorIva';
 import { tipoIvaPorDefecto, mencionIvaReducida } from '../iva';
 import { claseColorEstado } from '../estadoColor';
+import { mismoTextoTraducible, traduccionDesactualizada } from './traduccion';
 import { Modal } from '../../../components/ui/Modal';
 import {
   lineaVacia,
@@ -442,6 +443,24 @@ export function PresupuestoForm({
     }
   };
 
+  // Traducción interna (solo obras en Francia): al guardar a mano desde el CRM se regenera con IA
+  // (Edge Function `traducir-presupuesto`) si todavía no existe o si cambió lo traducido — petición
+  // de Gabriel 2026-10-05, la de P-2026-0057 se quedó con 11 de sus 14 líneas. Best-effort: un fallo
+  // aquí no impide guardar, y la ficha del presupuesto la sigue marcando "Desactualizada".
+  const regenerarTraduccionSiHaceFalta = async (p: Presupuesto, anterior?: Presupuesto) => {
+    if (p.pais !== 'Francia' || p.lineas.length === 0) return;
+    const alDia = !!p.traduccion && !traduccionDesactualizada(p) && (!anterior || mismoTextoTraducible(anterior, p));
+    if (alDia) return;
+    try {
+      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id: p.id } });
+      if (error) throw new Error(await mensajeError(error));
+      if (data?.error) throw new Error(data.error);
+    } catch (err) {
+      const mensaje = err instanceof Error ? err.message : String(err);
+      toast.warning(`El presupuesto se guardó, pero su traducción interna no se pudo actualizar (${mensaje}).`);
+    }
+  };
+
   const guardarMutation = useMutation({
     mutationFn: async () => {
       const nuevo: NuevoPresupuesto = {
@@ -492,6 +511,7 @@ export function PresupuestoForm({
           { ...presupuesto, ...nuevo, id: presupuesto.id },
           firmaRelevante(presupuesto) !== firmaRelevante(nuevo),
         );
+        await regenerarTraduccionSiHaceFalta({ ...presupuesto, ...nuevo, id: presupuesto.id }, presupuesto);
         return presupuesto.id;
       }
 
@@ -515,6 +535,7 @@ export function PresupuestoForm({
         await registrarEvento('presupuesto', desdeOrientativo.id, `Presupuesto normal ${numero} creado a partir de este orientativo`);
       }
       await generarEnlaceDocumensoSiHaceFalta(data as Presupuesto);
+      await regenerarTraduccionSiHaceFalta(data as Presupuesto);
       return data.id;
     },
     onSuccess: async () => {

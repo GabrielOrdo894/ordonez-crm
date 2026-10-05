@@ -177,6 +177,13 @@ Responde SIEMPRE llamando a la herramienta entregar_traduccion.`;
       nota: resultado.nota,
       plan_pago: planPagoTraducido,
       generado_en: new Date().toISOString(),
+      // Texto original del que se tradujo: el CRM lo compara con el presupuesto para avisar de una
+      // traducción desactualizada (`traduccionDesactualizada` en presupuestos/traduccion.ts).
+      fuente: {
+        lineas: payload.lineas,
+        nota: payload.nota,
+        plan_pago: payload.plan_pago_conceptos,
+      },
     };
 
     const { error: errorUpdate } = await supabase.from('presupuestos').update({ traduccion }).eq('id', id);

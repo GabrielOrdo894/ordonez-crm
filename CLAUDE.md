@@ -1144,3 +1144,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   avisa por email a reformasordonezeus@gmail.com (el aviso nunca hace fallar la solicitud). Defensas: CORS y
   `Origin` solo de ordonezfachadas.com, campo trampa `web`, un envío por teléfono cada 10 minutos. El código de
   la web vive fuera de este repo (`negocio/equipo-marketing/webs-filiales/ordonezfachadas/sitio/`, git propio).
+- **Traducción interna de presupuestos siempre al día** (2026-10-05, petición de Gabriel: la de P-2026-0057
+  se quedó con 11 de sus 14 líneas y Ricardo necesitaba la versión española en obra). `traduccion` guarda
+  ahora `fuente` (el texto original del que se tradujo: designación/descripción de cada línea, nota y
+  conceptos del plan de pago). `traduccionDesactualizada()` (`presupuestos/traduccion.ts`, con tests) marca
+  la traducción como desactualizada si cambia el número de líneas o de plazos, una referencia, cantidad,
+  precio o importe del plan, o —si hay `fuente`— cualquier texto traducible; las traducciones anteriores no
+  tienen `fuente` y en ellas solo se detecta lo estructural. Al guardar a mano un presupuesto de Francia en
+  `PresupuestoForm.tsx` se llama a la Edge Function `traducir-presupuesto` (API de Anthropic) si no había
+  traducción o cambió lo traducido — best-effort, un fallo no impide guardar. Los cambios hechos por Claude o
+  por el agente `creador-presupuestos` regeneran la traducción ellos mismos por SQL (sin gastar API), con el
+  bloque `fuente` documentado en el agente.
