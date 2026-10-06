@@ -234,7 +234,7 @@ export function ProveedorForm({ open, onClose, proveedor, onCreado, variante = '
           hint="La API de empresas francesas no da el número de TVA — se rellena a mano"
         />
       )}
-      <div className="col-span-2">
+      <div className="sm:col-span-2">
         {/* Sugerencias de Google Maps (petición de Gabriel 2026-09-26): si se elige una, se guarda la
             dirección completa de Google; si no, se queda exactamente lo escrito. Sin Maps, campo normal. */}
         <MapsAutocomplete

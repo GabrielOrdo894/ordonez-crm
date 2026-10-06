@@ -124,7 +124,7 @@ function ReprogramarForm({ visita }: { visita: Visita }) {
           <p className="text-sm font-semibold text-gray-900">Nueva fecha y hora</p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="col-span-2">
+          <div className="sm:col-span-2">
             <CalendarPicker
               label="Fecha"
               value={form.fecha_visita}

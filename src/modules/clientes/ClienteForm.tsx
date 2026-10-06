@@ -275,7 +275,7 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
               onBlur={verificarClienteRepetidor}
             />
             {clienteRepetidor && (
-              <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
+              <div className="sm:col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
                 <Star size={14} className="shrink-0" />
                 <span>
                   Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
@@ -313,7 +313,7 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
             <p className="text-sm font-semibold text-gray-900">Dirección</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <MapsAutocomplete
                 label="Dirección completa"
                 value={form.direccion}
@@ -334,7 +334,7 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
                 }
               />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Input
                 label="Piso / puerta / referencia (opcional)"
                 hint="Ej.: 2º piso, puerta B — étage 4, porte gauche"

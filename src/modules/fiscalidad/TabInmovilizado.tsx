@@ -104,7 +104,7 @@ function ActivoForm({ open, onClose, activo }: { open: boolean; onClose: () => v
       }
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Input label="Descripción" value={form.descripcion} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} />
         </div>
         <Select

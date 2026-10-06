@@ -305,7 +305,7 @@ export function IniciarPlanningPage({ presupuestosSinPlanning, onCancelar, onCre
                   value={clienteNuevo.email}
                   onChange={(e) => setClienteNuevo((c) => ({ ...c, email: e.target.value }))}
                 />
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <MapsAutocomplete
                     label="Dirección"
                     value={clienteNuevo.direccion}

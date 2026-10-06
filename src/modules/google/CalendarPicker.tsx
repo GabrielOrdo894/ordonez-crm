@@ -86,8 +86,8 @@ export function CalendarPicker({ label, value, onChange, error, min }: CalendarP
   return (
     <div>
       {label && <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">{label}</label>}
-      <div className="flex items-start gap-3">
-        <div className={`border rounded-sm p-3 w-[316px] shrink-0 ${error ? 'border-red-400' : 'border-gray-200'}`}>
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+        <div className={`border rounded-sm p-3 w-full sm:w-[316px] shrink-0 ${error ? 'border-red-400' : 'border-gray-200'}`}>
           <div className="flex items-center justify-between mb-2.5">
             <button
               type="button"
@@ -138,7 +138,7 @@ export function CalendarPicker({ label, value, onChange, error, min }: CalendarP
                   disabled={deshabilitado}
                   title={esDomingo ? 'No se trabaja los domingos' : undefined}
                   onClick={() => onChange(iso)}
-                  className={`h-10 w-10 flex items-center justify-center rounded-sm text-xs border ${colorFondo} ${
+                  className={`h-10 w-full sm:w-10 flex items-center justify-center rounded-sm text-xs border ${colorFondo} ${
                     deshabilitado
                       ? 'text-gray-200 cursor-not-allowed hover:border-transparent'
                       : `${!delMes ? 'text-gray-300' : 'text-gray-700'} hover:border-brand`

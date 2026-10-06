@@ -923,7 +923,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 <button
                   type="button"
                   onClick={handleCambiarCliente}
-                  className="col-span-2 text-xs text-gray-500 hover:text-brand text-left -mb-1"
+                  className="sm:col-span-2 text-xs text-gray-500 hover:text-brand text-left -mb-1"
                 >
                   ← Buscar cliente o potencial en vez de escribir a mano
                 </button>
@@ -957,7 +957,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 onBlur={verificarClienteRepetidor}
               />
               {clienteRepetidor && (
-                <div className="col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
+                <div className="sm:col-span-2 bg-brand-light border border-gray-200 rounded-sm px-3 py-2 flex items-center gap-2 text-xs text-brand">
                   <Star size={14} className="shrink-0" />
                   <span>
                     Cliente conocido — {clienteRepetidor.nombre} ya tiene{' '}
@@ -1013,7 +1013,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
         <Seccion numero={2} titulo="Dirección de la obra" icono={MapPin}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <MapsAutocomplete
                 label="Dirección completa"
                 value={form.direccion}
@@ -1040,7 +1040,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 }
               />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Input
                 label="Piso / puerta / referencia (opcional)"
                 hint="Ej.: 2º piso, puerta B — étage 4, porte gauche"
@@ -1066,7 +1066,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
               value={form.zona}
               onChange={(e) => setForm((f) => ({ ...f, zona: e.target.value }))}
             />
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-sm px-2.5 py-1.5">
                 {estadoFiscal(form.pais)}
               </p>
@@ -1169,7 +1169,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
 
         <Seccion numero={4} titulo="Visita técnica" icono={CalendarClock}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <CalendarPicker
                 label="Fecha"
                 value={form.fecha_visita}
@@ -1233,7 +1233,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                 onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value as EstadoVisita }))}
               />
             )}
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <EditorTexto
                 label="Notas internas"
                 rows={3}

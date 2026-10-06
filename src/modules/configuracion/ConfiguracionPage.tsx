@@ -221,7 +221,7 @@ function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentifi
             hint="Número de inmatriculation RCS citado en los documentos societarios (décisions, PV, compte courant) — distinto del SIRET de arriba."
           />
         )}
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Input label="Dirección" value={datos.direccion} onChange={(e) => onChange({ direccion: e.target.value })} />
         </div>
         <Input label="Teléfono" value={datos.telefono} onChange={(e) => onChange({ telefono: e.target.value })} />
@@ -235,7 +235,7 @@ function BloquePais({ titulo, datos, onChange, labelIdentificador, labelIdentifi
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Input label="Banco" value={datos.banco} onChange={(e) => onChange({ banco: e.target.value })} />
         <Input label="BIC / SWIFT" value={datos.bic} onChange={(e) => onChange({ bic: e.target.value })} />
-        <div className="col-span-2">
+        <div className="sm:col-span-2">
           <Input label="IBAN" value={datos.iban} onChange={(e) => onChange({ iban: e.target.value })} />
         </div>
       </div>

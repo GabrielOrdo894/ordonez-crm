@@ -661,7 +661,7 @@ export function FacturaForm({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input label="Nombre" disabled={emitida} value={form.cliente_nombre} onChange={(e) => setForm((f) => ({ ...f, cliente_nombre: e.target.value }))} />
               <Input label="Teléfono" value={form.cliente_tel} onChange={(e) => setForm((f) => ({ ...f, cliente_tel: e.target.value }))} />
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <Input label="Dirección" disabled={emitida} value={form.cliente_dir} onChange={(e) => setForm((f) => ({ ...f, cliente_dir: e.target.value }))} />
               </div>
               <Input label="Email" value={form.cliente_email} onChange={(e) => setForm((f) => ({ ...f, cliente_email: e.target.value }))} />

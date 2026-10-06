@@ -793,7 +793,7 @@ export function ClienteDetalleContenido({
               <p className="text-xs uppercase tracking-wide text-gray-400">Email</p>
               <p className="text-gray-900">{cliente.email || '—'}</p>
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <p className="text-xs uppercase tracking-wide text-gray-400">Dirección</p>
               {ultimaVisita.direccion ? (
                 direccionEnDosLineas(ultimaVisita.direccion)
@@ -825,7 +825,7 @@ export function ClienteDetalleContenido({
               <p className="text-gray-900">{ultimaVisita.idioma || '—'}</p>
             </div>
             {ultimaVisita.es_empresa && (
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <p className="text-xs uppercase tracking-wide text-gray-400">Empresa</p>
                 <p className="text-gray-900">
                   {ultimaVisita.empresa_nombre || '—'}
@@ -836,7 +836,7 @@ export function ClienteDetalleContenido({
               </div>
             )}
             {ultimaVisita.referido_por && (
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <p className="text-xs uppercase tracking-wide text-gray-400">Cómo nos conoció</p>
                 <p className="text-gray-900">{ultimaVisita.referido_por}</p>
               </div>
@@ -877,14 +877,14 @@ export function ClienteDetalleContenido({
               value={formEdicion.email}
               onChange={(e) => setFormEdicion((f) => f && { ...f, email: e.target.value })}
             />
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Input
                 label="Dirección"
                 value={formEdicion.direccion}
                 onChange={(e) => setFormEdicion((f) => f && { ...f, direccion: e.target.value })}
               />
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <Input
                 label="Piso / puerta / referencia (opcional)"
                 hint="Ej.: 2º piso, puerta B — étage 4, porte gauche"

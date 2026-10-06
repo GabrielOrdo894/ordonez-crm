@@ -600,7 +600,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                   </button>
                 </div>
                 {esInmovilizado && (
-                  <div className="col-span-2 bg-purple-50 border border-purple-200 rounded-sm p-2.5">
+                  <div className="sm:col-span-2 bg-purple-50 border border-purple-200 rounded-sm p-2.5">
                     <Input
                       label="Duración de amortización (años)"
                       type="number"
@@ -615,7 +615,7 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                     />
                   </div>
                 )}
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <Input
                     label="Descripción"
                     value={form.descripcion}
