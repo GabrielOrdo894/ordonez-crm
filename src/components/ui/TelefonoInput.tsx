@@ -1,7 +1,8 @@
-import { useEffect, useState, type FocusEventHandler } from 'react';
+import { useEffect, useRef, useState, type FocusEventHandler } from 'react';
 import { Select } from './Select';
 import {
   formatearNucleoTelefono,
+  nucleoDeValorParcial,
   nucleoDesdeTexto,
   nucleoTelefono,
   telefonoInternacional,
@@ -39,29 +40,42 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
 
   // El valor puede cambiar desde fuera (prefill de una solicitud, elegir un cliente, "Cambiar"
   // que lo vacía): el selector sigue al prefijo del valor nuevo, y se vacía si el valor se vacía.
+  // Los cambios que hace el propio campo no cuentan: borrar todos los dígitos deja el valor vacío,
+  // y sin esta marca el selector volvía solo a "País" a mitad de escribir.
+  const cambioPropio = useRef(false);
   useEffect(() => {
+    if (cambioPropio.current) {
+      cambioPropio.current = false;
+      return;
+    }
     const info = nucleoTelefono(value);
     if (info) setPais(info.pais);
     else if (value.trim() === '') setPais('');
   }, [value]);
 
   const info = nucleoTelefono(value);
-  const textoVisible = pais ? formatearNucleoTelefono(pais, info ? info.nucleo : nucleoDesdeTexto(pais, value)) : value;
+  const textoVisible = pais ? formatearNucleoTelefono(pais, info ? info.nucleo : nucleoDeValorParcial(pais, value)) : value;
+
+  const emitir = (nuevo: string) => {
+    if (nuevo === value) return;
+    cambioPropio.current = true;
+    onChange(nuevo);
+  };
 
   const alEscribir = (texto: string) => {
     // Pegado o tecleado con prefijo: el país lo dice el propio número.
     const detectado = nucleoTelefono(texto);
     if (detectado && texto.replace(/\D/g, '').length >= 11) {
       setPais(detectado.pais);
-      onChange(telefonoInternacional(detectado.pais, detectado.nucleo));
+      emitir(telefonoInternacional(detectado.pais, detectado.nucleo));
       return;
     }
     if (!pais) {
-      onChange(texto);
+      emitir(texto);
       return;
     }
     const nucleo = nucleoDesdeTexto(pais, texto);
-    onChange(nucleo ? telefonoInternacional(pais, nucleo) : '');
+    emitir(nucleo ? telefonoInternacional(pais, nucleo) : '');
   };
 
   const alCambiarPais = (nuevo: string) => {
@@ -70,9 +84,10 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
       return;
     }
     setPais(nuevo);
-    const base = info ? info.nucleo : value;
+    // Al cambiar de país con el número a medias se conserva lo tecleado, sin el prefijo anterior.
+    const base = info ? info.nucleo : pais ? nucleoDeValorParcial(pais, value) : value;
     const nucleo = nucleoDesdeTexto(nuevo, base);
-    onChange(nucleo ? telefonoInternacional(nuevo, nucleo) : '');
+    emitir(nucleo ? telefonoInternacional(nuevo, nucleo) : '');
   };
 
   return (

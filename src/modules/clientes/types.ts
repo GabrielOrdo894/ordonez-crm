@@ -113,6 +113,15 @@ export function nucleoDesdeTexto(pais: PaisTelefono, texto: string): string {
   return digitos.slice(0, 9);
 }
 
+// Núcleo de un valor que TelefonoInput ya guardó con su prefijo pero todavía a medias ("+34 6",
+// "+33 7 44"): nucleoTelefono() solo reconoce números completos, y sin quitar antes el prefijo sus
+// dígitos se colaban en el número ("+34 6" se leía como "346" — hallazgo real de Gabriel).
+export function nucleoDeValorParcial(pais: PaisTelefono, valor: string): string {
+  const limpio = valor.trim();
+  const prefijo = PREFIJO_TELEFONO[pais];
+  return nucleoDesdeTexto(pais, limpio.startsWith(prefijo) ? limpio.slice(prefijo.length) : limpio);
+}
+
 // Agrupa un núcleo (completo o a medias, mientras se escribe): "659 88 47 06" / "7 44 50 11 73".
 export function formatearNucleoTelefono(pais: PaisTelefono, nucleo: string): string {
   const trozos: string[] = [];

@@ -4,6 +4,7 @@ import {
   formatearTelefonoVisual,
   normalizarNombre,
   normalizarTelefono,
+  nucleoDeValorParcial,
   nucleoDesdeTexto,
   telefonoInternacional,
   tieneCodigoPais,
@@ -84,5 +85,13 @@ describe('TelefonoInput — reformateo en vivo (nucleoDesdeTexto / formatearNucl
     expect(formatearNucleoTelefono('ES', '6598')).toBe('659 8');
     expect(formatearNucleoTelefono('FR', '744')).toBe('7 44');
     expect(nucleoDesdeTexto('ES', '65988470612345')).toBe('659884706');
+  });
+
+  it('con el país elegido y el número a medias, el prefijo guardado no se cuela en el número', () => {
+    expect(nucleoDeValorParcial('ES', '+34 6')).toBe('6');
+    expect(nucleoDeValorParcial('ES', '+34 659 8')).toBe('6598');
+    expect(nucleoDeValorParcial('FR', '+33 7 44')).toBe('744');
+    expect(nucleoDeValorParcial('FR', '0744')).toBe('744');
+    expect(nucleoDeValorParcial('ES', '659')).toBe('659');
   });
 });
