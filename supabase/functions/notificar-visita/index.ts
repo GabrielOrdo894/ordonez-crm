@@ -37,6 +37,16 @@ function enlaceMaps(direccion: string, lat: number | null, lng: number | null): 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+// La calle lleva nuestro propio enlace a Maps y el piso/puerta va aparte: si todo era texto plano,
+// Gmail enlazaba él solo «calle — 1 D» y Maps no encontraba la dirección (hallazgo real de Gabriel).
+function direccionEnHtml(direccion: string | null, extra: string | null, mapsUrl: string | null, vacio: string): string {
+  if (!direccion) return esc(extra || vacio);
+  const calle = mapsUrl
+    ? `<a href="${mapsUrl}" style="color:#111827;text-decoration:underline">${esc(direccion)}</a>`
+    : esc(direccion);
+  return extra ? `${calle}<div style="font-size:12px;color:#6b7280;margin-top:2px">${esc(extra)}</div>` : calle;
+}
+
 // Distancia/tiempo real por carretera vía Google Distance Matrix API, usando el secreto de
 // servidor GOOGLE_MAPS_API_KEY. OJO: si esa key tiene restricción de referrer HTTP (la típica
 // para uso en frontend, `VITE_GMAPS_API_KEY`), Google la RECHAZA para llamadas servidor-a-servidor
@@ -278,7 +288,7 @@ function construirHtmlCliente(opts: {
   nombreCliente: string;
   fechaTxt: string;
   hora: string;
-  direccionTexto: string;
+  direccionHtml: string;
   mapsUrl: string | null;
   tipo: string;
   telefonoEmpresa: string | null;
@@ -328,7 +338,7 @@ function construirHtmlCliente(opts: {
       </div>
 
       ${seccion(t.adresse)}
-      <div style="font-size:13px;color:#111827;margin-bottom:10px">${esc(opts.direccionTexto)}</div>
+      <div style="font-size:13px;color:#111827;margin-bottom:10px">${opts.direccionHtml}</div>
       ${
         opts.mapsUrl
           ? `<a href="${opts.mapsUrl}" style="display:inline-block;background:#1a5c38;color:#ffffff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 14px;border-radius:6px">${esc(t.verMaps)}</a>`
@@ -360,7 +370,7 @@ function construirHtml(opts: {
   telefono: string;
   email: string;
   idioma: string;
-  direccionTexto: string;
+  direccionHtml: string;
   mapsUrl: string | null;
   distanciaTexto: string | null;
   tipo: string;
@@ -390,7 +400,7 @@ function construirHtml(opts: {
       </table>
 
       ${seccion('Dirección')}
-      <div style="font-size:13px;color:#111827;margin-bottom:10px">${esc(opts.direccionTexto)}</div>
+      <div style="font-size:13px;color:#111827;margin-bottom:10px">${opts.direccionHtml}</div>
       ${
         opts.mapsUrl
           ? `<a href="${opts.mapsUrl}" style="display:inline-block;background:#1a5c38;color:#ffffff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 14px;border-radius:6px">Ver en Google Maps</a>`
@@ -468,11 +478,11 @@ Deno.serve(async (req: Request) => {
     const hora = String(v.hora_visita).slice(0, 5);
     const asunto = `${reprogramada ? 'Visita reprogramada' : 'Visita agendada'} — ${v.nombre ?? ''} ${v.apellidos ?? ''} · ${v.fecha_visita} ${hora}`.trim();
 
-    const direccionTexto = [v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'No indicada';
     const tieneCoords = typeof v.lat === 'number' && typeof v.lng === 'number';
     const oficina = v.pais === 'Francia' ? OFICINA_FR : OFICINA_ES;
     const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat, v.lng) : null;
     const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
+    const direccionHtml = direccionEnHtml(v.direccion, v.direccion_extra, mapsUrl, 'No indicada');
 
     // Fotos y PDFs previos del cliente (bucket privado `fotos-visita`) — solo en el aviso interno
     // del equipo, no en la confirmación al cliente (no le aporta nada ver sus propios archivos).
@@ -513,7 +523,7 @@ Deno.serve(async (req: Request) => {
       telefono: formatearTelefonoVisual(v.telefono) || 'No indicado',
       email: v.email || 'No indicado',
       idioma: v.idioma || 'No indicado',
-      direccionTexto,
+      direccionHtml,
       mapsUrl,
       distanciaTexto,
       tipo: v.tipo || 'Sin especificar',
@@ -545,7 +555,7 @@ Deno.serve(async (req: Request) => {
           nombreCliente: v.nombre ?? '',
           fechaTxt: fechaLegible(v.fecha_visita),
           hora,
-          direccionTexto,
+          direccionHtml,
           mapsUrl,
           tipo: v.tipo || (fr ? 'À définir' : 'Sin especificar'),
           telefonoEmpresa: contactoEmpresa?.telefono || null,

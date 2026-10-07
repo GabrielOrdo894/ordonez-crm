@@ -34,6 +34,16 @@ function enlaceMaps(direccion: string, lat: number | null, lng: number | null): 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+// La calle lleva nuestro propio enlace a Maps y el piso/puerta va aparte: si todo era texto plano,
+// Gmail enlazaba él solo «calle — 1 D» y Maps no encontraba la dirección (hallazgo real de Gabriel).
+function direccionEnHtml(direccion: string | null, extra: string | null, mapsUrl: string | null, vacio: string): string {
+  if (!direccion) return esc(extra || vacio);
+  const calle = mapsUrl
+    ? `<a href="${mapsUrl}" style="color:#111827;text-decoration:underline">${esc(direccion)}</a>`
+    : esc(direccion);
+  return extra ? `${calle}<div style="font-size:12px;color:#6b7280;margin-top:2px">${esc(extra)}</div>` : calle;
+}
+
 // Distancia/tiempo real por carretera vía Google Distance Matrix API. Si la key de servidor
 // GOOGLE_MAPS_API_KEY no está disponible o Google la rechaza (restricción de referrer, ver el
 // mismo comentario en notificar-visita/index.ts), cae al fallback Haversine de abajo — nunca
@@ -144,8 +154,8 @@ type VisitaAgenda = {
 async function tarjetaVisita(v: VisitaAgenda): Promise<string> {
   const nombreCliente = `${v.nombre ?? ''} ${v.apellidos ?? ''}`.trim() || 'Sin nombre';
   const hora = String(v.hora_visita).slice(0, 5);
-  const direccionTexto = [v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'Dirección no indicada';
   const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
+  const direccionHtml = direccionEnHtml(v.direccion, v.direccion_extra, mapsUrl, 'Dirección no indicada');
   const tieneCoords = typeof v.lat === 'number' && typeof v.lng === 'number';
   const oficina = v.pais === 'Francia' ? OFICINA_FR : OFICINA_ES;
   const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat as number, v.lng as number) : null;
@@ -157,7 +167,7 @@ async function tarjetaVisita(v: VisitaAgenda): Promise<string> {
       <div style="color:#1a5c38;font-weight:600;font-size:14px">${esc(hora)} · ${esc(nombreCliente)}</div>
       <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.03em">${esc(idiomaTexto)}</div>
     </div>
-    <div style="font-size:13px;color:#111827;margin-bottom:4px">${esc(direccionTexto)}</div>
+    <div style="font-size:13px;color:#111827;margin-bottom:4px">${direccionHtml}</div>
     <div style="font-size:12px;color:#6b7280;margin-bottom:8px">${esc(descripcionTexto)}</div>
     ${
       mapsUrl

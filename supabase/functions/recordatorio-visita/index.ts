@@ -89,6 +89,16 @@ function enlaceMaps(direccion: string, lat: number | null, lng: number | null): 
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+// La calle lleva nuestro propio enlace a Maps y el piso/puerta va aparte: si todo era texto plano,
+// Gmail enlazaba él solo «calle — 1 D» y Maps no encontraba la dirección (hallazgo real de Gabriel).
+function direccionEnHtml(direccion: string | null, extra: string | null, mapsUrl: string | null, vacio: string): string {
+  if (!direccion) return esc(extra || vacio);
+  const calle = mapsUrl
+    ? `<a href="${mapsUrl}" style="color:#111827;text-decoration:underline">${esc(direccion)}</a>`
+    : esc(direccion);
+  return extra ? `${calle}<div style="font-size:12px;color:#6b7280;margin-top:2px">${esc(extra)}</div>` : calle;
+}
+
 // Plantilla corta a propósito (sin "Tipo de trabajo" ni datos internos) — es un recordatorio, la
 // confirmación completa ya se mandó al agendar/reprogramar (construirHtmlCliente en
 // notificar-visita/index.ts), no hace falta repetir todo.
@@ -97,7 +107,7 @@ function construirHtmlRecordatorio(opts: {
   nombreCliente: string;
   fechaTxt: string;
   hora: string;
-  direccionTexto: string;
+  direccionHtml: string;
   mapsUrl: string | null;
   telefonoEmpresa: string | null;
   emailEmpresa: string;
@@ -140,7 +150,7 @@ function construirHtmlRecordatorio(opts: {
       </div>
 
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;font-weight:600;margin:0 0 6px">${esc(t.adresse)}</div>
-      <div style="font-size:13px;color:#111827;margin-bottom:10px">${esc(opts.direccionTexto)}</div>
+      <div style="font-size:13px;color:#111827;margin-bottom:10px">${opts.direccionHtml}</div>
       ${
         opts.mapsUrl
           ? `<a href="${opts.mapsUrl}" style="display:inline-block;background:#1a5c38;color:#ffffff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 14px;border-radius:6px">${esc(t.verMaps)}</a>`
@@ -218,8 +228,8 @@ Deno.serve(async (req: Request) => {
         const fr = v.idioma === 'Français';
         const contactoEmpresa = fr ? datos.fr : datos.es;
         const hora = String(v.hora_visita).slice(0, 5);
-        const direccionTexto = [v.direccion, v.direccion_extra].filter(Boolean).join(' — ') || 'No indicada';
         const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
+        const direccionHtml = direccionEnHtml(v.direccion, v.direccion_extra, mapsUrl, 'No indicada');
         const asunto = fr
           ? `Rappel — votre visite technique aujourd'hui à ${hora}`
           : `Recordatorio — tu visita técnica hoy a las ${hora}`;
@@ -228,7 +238,7 @@ Deno.serve(async (req: Request) => {
           nombreCliente: v.nombre ?? '',
           fechaTxt: fechaLegible(v.fecha_visita),
           hora,
-          direccionTexto,
+          direccionHtml,
           mapsUrl,
           telefonoEmpresa: contactoEmpresa?.telefono || null,
           emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
