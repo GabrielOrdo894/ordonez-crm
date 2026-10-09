@@ -748,7 +748,13 @@ async function construirPdfFactura(f: Factura) {
     : [];
 
   // Estimación de altura de cada columna con las mismas fórmulas que se usan al dibujar más abajo.
-  let alturaColResumen = (tieneAcomptes ? 8 + (2 + 1 + acomptesPrevios.length + 2 + 1 + 1) * 5 : 26) + 5;
+  // Resumen con anticipos: 6 mm por fila (con 5 mm las ocho filas quedaban apretadas) y 3 mm más de
+  // aire antes del «Reste à payer TTC», con la línea separadora por encima del texto y no cruzándolo
+  // (petición de Gabriel 2026-10-09, facturas F-2026-0008 a 0010).
+  const PASO_RESUMEN = 6;
+  const AIRE_TOTAL_RESUMEN = 3;
+  const filasResumenAcomptes = 2 + 1 + acomptesPrevios.length + 2 + 1 + 1;
+  let alturaColResumen = (tieneAcomptes ? 8 + filasResumenAcomptes * PASO_RESUMEN + AIRE_TOTAL_RESUMEN : 26) + 5;
   if (mencionIvaReducida(f.tipo_iva)) alturaColResumen += 6;
   let alturaColCondForma = 0;
   if (camposCond.length > 0) {
@@ -775,8 +781,7 @@ async function construirPdfFactura(f: Factura) {
     const pctIva = porcentajeIva(f.tipo_iva);
     const resteHt = pctIva > 0 ? resteTtc / (1 + pctIva / 100) : resteTtc;
     const resteTva = resteTtc - resteHt;
-    const filas = 2 + 1 + acomptesPrevios.length + 2 + 1 + 1;
-    const altoResumen = 8 + filas * 5;
+    const altoResumen = 8 + filasResumenAcomptes * PASO_RESUMEN + AIRE_TOTAL_RESUMEN;
 
     doc.setFillColor(...colorClaroRgb);
     doc.roundedRect(xColIzq, y, anchoCol, altoResumen, 2, 2, 'FD');
@@ -787,7 +792,7 @@ async function construirPdfFactura(f: Factura) {
       doc.setTextColor(...(opts?.color ?? GRIS_TEXTO));
       doc.text(label, xColIzq + 4 + (opts?.indent ? 3 : 0), yy);
       doc.text(valor, xColIzq + anchoCol - 4, yy, { align: 'right' });
-      yy += 5;
+      yy += PASO_RESUMEN;
     };
     fila(idioma === 'fr' ? 'Total HT' : 'Total base', formatearPrecio(pctIva > 0 ? totalOriginalTtc / (1 + pctIva / 100) : totalOriginalTtc));
     fila(idioma === 'fr' ? 'Total TTC' : 'Total con IVA', formatearPrecio(totalOriginalTtc));
@@ -798,7 +803,8 @@ async function construirPdfFactura(f: Factura) {
     fila(idioma === 'fr' ? 'Reste à payer HT' : 'Resto a pagar (base)', formatearPrecio(resteHt));
     fila(t.iva, formatearPrecio(resteTva));
     fila(`${idioma === 'fr' ? 'Dont' : 'De los cuales'} ${pctIva}%`, formatearPrecio(resteTva), { small: true, indent: true });
-    doc.line(xColIzq + 4, yy - 2, xColIzq + anchoCol - 4, yy - 2);
+    yy += AIRE_TOTAL_RESUMEN;
+    doc.line(xColIzq + 4, yy - 5.5, xColIzq + anchoCol - 4, yy - 5.5);
     fila(idioma === 'fr' ? 'Reste à payer TTC' : 'Resto a pagar', formatearPrecio(resteTtc), { bold: true, color: colorRgb });
     yIzq = y + altoResumen + 5;
   } else {
