@@ -158,6 +158,7 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Crédit de TVA" valor={bilanActivo.creditoTva} />
               <Fila label="Capital déposé, à libérer (467)" valor={bilanActivo.capitalPorLiberar} />
               <Fila label="Immobilisations (valeur nette)" valor={bilanActivo.inmovilizadoNeto} />
+              {Math.abs(bilanActivo.otrosActivos) >= 0.005 && <Fila label="Autres actifs (en-cours, charges constatées d'avance…)" valor={bilanActivo.otrosActivos} />}
               <Fila label="Total actif" valor={bilanActivo.total} negrita />
             </tbody>
           </table>
@@ -173,6 +174,7 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Avances et acomptes reçus (4191)" valor={bilanPasivo.avancesRecibidas} />
               <Fila label="Compte courant d'associé (455)" valor={bilanPasivo.compteCourantAssocie} />
               {bilanPasivo.dividendosAPagar > 0 && <Fila label="Dividendes à payer (457)" valor={bilanPasivo.dividendosAPagar} />}
+              {Math.abs(bilanPasivo.otrasDeudas) >= 0.005 && <Fila label="Autres dettes" valor={bilanPasivo.otrasDeudas} />}
               <Fila label="Dettes fournisseurs" valor={bilanPasivo.dettesFournisseurs} />
               <Fila label="Total passif" valor={bilanPasivo.total} negrita />
             </tbody>

@@ -297,6 +297,27 @@ export function calcularIRGerante(
   return { remuneracionNeta, montante1GB, abattement, ingresosConyuge, abattementConyuge, revenuNetImposable, parts, ...ir };
 }
 
+// Cuentas de balance (clases 1 a 5) que el bilan no nombra línea a línea. Todo lo demás (335 obras en
+// curso, 486 gastos anticipados, 164 préstamos, 401, 421...) va a «otros»: al activo si su saldo es
+// deudor y al pasivo si es acreedor. Antes esas cuentas no estaban en ningún lado y la OD de cierre
+// de obras en curso (335/7133) descuadraba el bilan por su importe (auditoría fiscal 2026-10-09).
+const CUENTAS_NOMBRADAS_BILAN = ['101', '106', '11', '12', '2', '411', '445', '467', '4191', '455', '444', '457', '512'];
+export function otrosSaldosBalance(asientos: { cuenta: string; debe: number; haber: number }[]) {
+  const porGrupo = new Map<string, number>();
+  for (const a of asientos) {
+    if (!/^[1-5]/.test(a.cuenta) || CUENTAS_NOMBRADAS_BILAN.some((p) => a.cuenta.startsWith(p))) continue;
+    const grupo = a.cuenta.slice(0, 3);
+    porGrupo.set(grupo, (porGrupo.get(grupo) ?? 0) + a.debe - a.haber);
+  }
+  let deudor = 0;
+  let acreedor = 0;
+  for (const saldo of porGrupo.values()) {
+    if (saldo > 0) deudor += saldo;
+    else acreedor -= saldo;
+  }
+  return { deudor, acreedor };
+}
+
 // Bilan (pasivo) del ejercicio desde el libro diario (auditoría 2026-10-01). El libro no lleva asientos
 // de cierre, así que el resultado de los ejercicios anteriores (sus cuentas 6 y 7) entra como report
 // à nouveau, junto con lo que se haya movido a mano a 110/119 (reparto del resultado). Capital (101) y
@@ -329,6 +350,9 @@ export function calcularBilanPasivo(
   const compteCourantAssocie = acreedor(['455']);
   const dettesFiscales = acreedor(['444']) + isPendienteDeRegistrar;
   const dividendosAPagar = acreedor(['457']);
+  // Saldos al revés de lo habitual (cliente con saldo a su favor, descubierto en banco, depósito de
+  // capital acreedor) y el resto de cuentas de balance con saldo acreedor.
+  const otrasDeudas = otrosSaldosBalance(asientosBalance).acreedor + acreedor(['411']) + acreedor(['467']) + acreedor(['512']);
   const capitauxPropres = capital + reservas + reportANouveau + resultadoNeto;
   return {
     capitalSocial: capital,
@@ -341,8 +365,9 @@ export function calcularBilanPasivo(
     avancesRecibidas,
     compteCourantAssocie,
     dividendosAPagar,
+    otrasDeudas,
     dettesFournisseurs: 0,
-    total: capitauxPropres + dettesFiscales + deudaTva + avancesRecibidas + compteCourantAssocie + dividendosAPagar,
+    total: capitauxPropres + dettesFiscales + deudaTva + avancesRecibidas + compteCourantAssocie + dividendosAPagar + otrasDeudas,
   };
 }
 

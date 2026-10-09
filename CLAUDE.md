@@ -1173,3 +1173,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   - **`ImporteInput`** (`components/ui`): campo de importe que admite coma o punto, arranca vacío y avisa en rojo si se
     teclea algo que no vale, sin borrar lo escrito. Usado en el importe de Gastos (un `type="number"` lo borraba todo
     al escribir una coma).
+  - **Segunda ronda del mismo día** (estado completo al final del informe): el **bilan sale entero del libro** — el
+    inmovilizado es el saldo de la clase 2 (ya no el registro, que queda para el detalle y para avisar de la
+    diferencia), y toda cuenta de balance no nombrada (335, 486, 164, 401…) va a «otros activos» u «otras deudas» según
+    su saldo (`otrosSaldosBalance`); los saldos al revés (cliente acreedor, banco en descubierto, 444 o 455 deudores)
+    cruzan de lado. La **reserva legal la lleva solo el libro** (cuenta 106): aprobar las cuentas ya no toca
+    `reserva_legal_acumulada`. No se aprueba un ejercicio sin el IS registrado ni se repite el reparto a la reserva si
+    ya está en el libro. `useDeficitAnterior` aplica los déficits anteriores también en TabIS, Dashboard y alertas.
+    El calendario fiscal de un año se considera generado por los títulos de sus CA3, no por las fechas. En la CA3, un
+    mes declarado conserva su línea 22, solo se arrastra el crédito de un mes anterior declarado, y no se puede
+    desmarcar un mes con otros posteriores declarados. Una segunda rectificativa descuenta lo ya anulado por las
+    anteriores (`fraccionTvaExigibleRectificativa`, cuarto parámetro).

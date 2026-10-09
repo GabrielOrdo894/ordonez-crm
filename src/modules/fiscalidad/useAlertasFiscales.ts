@@ -3,7 +3,8 @@ import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
 import { useEcheances } from './useEcheances';
-import { calcularIS, calcularTNS, limitesEjercicio, mesesRemuneradosEjercicio } from './calculos';
+import { useDeficitAnterior } from './useEjercicioFiscal';
+import { calcularIS, calcularTNS, imputacionMaximaDeficit, limitesEjercicio, mesesRemuneradosEjercicio } from './calculos';
 import { formatearPrecio } from '../finanzas/lineas';
 
 export type TipoAlertaFiscal = 'tramo_cerca' | 'tramo_superado' | 'tva_declarable' | 'tva_urgente' | 'echeance_urgente';
@@ -30,6 +31,7 @@ export function useAlertasFiscales() {
   const ejercicio = limitesEjercicio(anio);
   const { beneficioBruto, remuneracionRegistrada, cotisacionesRegistradas, cargando: cargandoResultado } = useResultadoEjercicio(ejercicio.inicio, ejercicio.fin);
   const { echeances, cargando: cargandoEcheances } = useEcheances();
+  const deficitAnterior = useDeficitAnterior(anio);
 
   const alertas = useMemo<AlertaFiscal[]>(() => {
     const lista: AlertaFiscal[] = [];
@@ -47,8 +49,9 @@ export function useAlertasFiscales() {
     const cotisacionesPeriodo =
       cotisacionesRegistradas > 0 ? cotisacionesRegistradas : calcularTNS(remuneracionAnual, config).total * (mesesRemunerados / 12);
     const beneficioNeto = Math.max(0, beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo);
-    const is = calcularIS(beneficioNeto, ejercicio.meses, config);
-    const pctPlafond = is.plafondReducido > 0 ? beneficioNeto / is.plafondReducido : 0;
+    const baseImponible = beneficioNeto - Math.min(deficitAnterior, imputacionMaximaDeficit(beneficioNeto));
+    const is = calcularIS(baseImponible, ejercicio.meses, config);
+    const pctPlafond = is.plafondReducido > 0 ? baseImponible / is.plafondReducido : 0;
     const umbralAviso = config('alerta_tramo_umbral', 0.85);
 
     if (pctPlafond >= 1) {

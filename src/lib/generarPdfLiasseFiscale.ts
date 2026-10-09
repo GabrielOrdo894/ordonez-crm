@@ -48,6 +48,7 @@ type BilanActivo = {
   creditoTva: number;
   capitalPorLiberar: number;
   inmovilizadoNeto: number;
+  otrosActivos: number;
   total: number;
 };
 type BilanPasivo = {
@@ -60,6 +61,7 @@ type BilanPasivo = {
   avancesRecibidas: number;
   compteCourantAssocie: number;
   dividendosAPagar: number;
+  otrasDeudas: number;
   dettesFournisseurs: number;
   total: number;
 };
@@ -143,6 +145,7 @@ export async function generarPdfLiasseFiscale(
       ['Crédit de TVA', fmt(datos.bilanActivo.creditoTva)],
       ['Capital déposé, à libérer (467)', fmt(datos.bilanActivo.capitalPorLiberar)],
       ['Immobilisations (valeur nette)', fmt(datos.bilanActivo.inmovilizadoNeto)],
+      ["Autres actifs (en-cours, charges constatées d'avance…)", fmt(datos.bilanActivo.otrosActivos)],
       ['Total actif', fmt(datos.bilanActivo.total)],
       ['PASSIF', ''],
       ['Capital social', fmt(datos.bilanPasivo.capitalSocial)],
@@ -154,6 +157,7 @@ export async function generarPdfLiasseFiscale(
       ['Avances et acomptes reçus (4191)', fmt(datos.bilanPasivo.avancesRecibidas)],
       ["Compte courant d'associé (455)", fmt(datos.bilanPasivo.compteCourantAssocie)],
       ['Dividendes à payer (457)', fmt(datos.bilanPasivo.dividendosAPagar)],
+      ['Autres dettes', fmt(datos.bilanPasivo.otrasDeudas)],
       ['Dettes fournisseurs (non suivies dans le CRM — voir note)', fmt(datos.bilanPasivo.dettesFournisseurs)],
       ['Total passif', fmt(datos.bilanPasivo.total)],
     ],

@@ -244,6 +244,18 @@ describe('calcularBilanPasivo', () => {
     expect(r.compteCourantAssocie).toBeCloseTo(42);
     expect(r.total).toBeCloseTo(1000 + 200 + 5000 + 42);
   });
+
+  it('un cliente con saldo a su favor, un descubierto y un préstamo van a «otras deudas»', () => {
+    const reservaLegal = calcularReservaLegal(0, 1000, cfgPorDefecto);
+    const r = calcularBilanPasivo(0, reservaLegal, 0, 1000, [
+      { cuenta: '411', debe: 0, haber: 1100 },
+      { cuenta: '512', debe: 0, haber: 250 },
+      { cuenta: '164', debe: 0, haber: 8000 },
+      { cuenta: '335', debe: 15000, haber: 0 },
+    ]);
+    expect(r.otrasDeudas).toBeCloseTo(9350);
+    expect(r.total).toBeCloseTo(1000 + 9350);
+  });
 });
 
 describe('calcularQuotientFamiliar', () => {

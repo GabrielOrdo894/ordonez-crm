@@ -28,6 +28,8 @@ type Declaracion = {
   datos: LineaDeclarada[] | null;
 };
 type EstadoMes = 'en_curso' | 'disponible' | 'declarado';
+// Primer mes de actividad de la EURL: antes no hay declaración anterior que echar en falta.
+const PRIMER_MES_EURL = '2026-07';
 
 function mesISODe(anio: number, mes: number) {
   return `${anio}-${String(mes).padStart(2, '0')}`;
@@ -268,10 +270,21 @@ export default function AsistenteIvaPage() {
   // El crédit reporté (ligne 22) se carga solo desde la ligne 27 guardada del mes ANTERIOR —
   // antes se reseteaba siempre a 0 y había que volver a teclearlo a mano cada mes (bug real
   // corregido 2026-08-11). Sigue siendo editable por si el importe declarado de verdad difiere.
+  // Un mes ya declarado conserva la línea 22 con la que se declaró (antes se pisaba con la del mes
+  // anterior al recargar y la pantalla avisaba de «líneas cambiadas» en una declaración recién hecha).
+  // Y solo se arrastra el crédito de un mes anterior realmente declarado (auditoría fiscal 2026-10-09).
   useEffect(() => {
+    const propia = declaraciones?.find((d) => d.mes === mesISO);
+    const guardada = propia?.declarado ? propia.datos?.find((l) => l.linea === '22')?.taxe : undefined;
+    if (guardada != null) {
+      setCreditoAnterior(guardada);
+      return;
+    }
     const declaracionAnterior = declaraciones?.find((d) => d.mes === mesAnteriorISO(mesISO));
-    setCreditoAnterior(declaracionAnterior?.credito_reportado ?? 0);
+    setCreditoAnterior(declaracionAnterior?.declarado ? (declaracionAnterior.credito_reportado ?? 0) : 0);
   }, [mesISO, declaraciones]);
+  const anteriorSinDeclarar =
+    mesISO > PRIMER_MES_EURL && !declaraciones?.find((d) => d.mes === mesAnteriorISO(mesISO))?.declarado;
 
   const declaracionMesActivo = declaraciones?.find((d) => d.mes === mesISO);
   // `>=` (no `===`) para que un mes FUTURO (alcanzable eligiéndolo a mano en los selectores de
@@ -282,6 +295,10 @@ export default function AsistenteIvaPage() {
 
   const marcarDeclaradaMutation = useMutation({
     mutationFn: async (declarado: boolean) => {
+      // Desmarcar un mes con otros posteriores declarados dejaba esos meses editables para siempre.
+      if (!declarado && declaraciones?.some((d) => d.declarado && d.mes > mesISO)) {
+        throw new Error('Desmarca antes los meses posteriores que ya están declarados.');
+      }
       // Guarda también la ligne 27 (crédit à reporter) ya calculada de este mes, para que el mes
       // siguiente la cargue sola como su ligne 22 en vez de tener que teclearla a mano.
       const ligne27 = datos.credito.find((f) => f.linea === '27')?.taxe ?? 0;
@@ -680,6 +697,7 @@ export default function AsistenteIvaPage() {
             type="number"
             value={creditoAnterior}
             onChange={(e) => setCreditoAnterior(Number(e.target.value))}
+            hint={anteriorSinDeclarar ? 'El mes anterior no está declarado: no se arrastra su crédito. Revísalo a mano.' : undefined}
           />
         </div>
         <BotonExportar

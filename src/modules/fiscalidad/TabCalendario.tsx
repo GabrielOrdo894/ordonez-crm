@@ -120,6 +120,9 @@ export function TabCalendario() {
   const { echeances, generar, generando, marcarCompletada } = useEcheances();
 
   const delAnio = echeances.filter((e) => e.fecha_limite.startsWith(String(anio)));
+  // Generar 2026 crea también échéances con fecha de 2027 (CA3 de diciembre, solde del IS, liasse…):
+  // mirar solo la fecha impedía generar nunca el calendario de 2027 (auditoría fiscal 2026-10-09).
+  const calendarioGenerado = echeances.some((e) => e.tipo === 'CA3' && e.titulo.endsWith(` ${anio}`));
 
   const pendientes = echeances
     .filter((e) => !e.completada)
@@ -152,7 +155,7 @@ export function TabCalendario() {
       <AssuranceDecennaleCard />
       <div className="flex items-center justify-between">
         <Select label="Año" options={ANIOS.map((a) => ({ value: String(a), label: String(a) }))} value={String(anio)} onChange={(e) => setAnio(Number(e.target.value))} className="w-32" />
-        {delAnio.length === 0 && (
+        {!calendarioGenerado && (
           <Button onClick={() => generar(generarEcheances(anio, config))} disabled={generando}>
             {generando ? 'Generando...' : `Generar calendario fiscal ${anio}`}
           </Button>

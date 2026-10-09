@@ -88,16 +88,41 @@ describe('calcularBilanActivo', () => {
     expect(r.creditoTva).toBe(50);
   });
 
-  it('inmovilizado neto usa el valor neto contable de cada activo en el año dado', () => {
-    // 12000 / 5 = 2400/año; a 2026 (2 años completos: 2025, 2026) amortizado 4800 -> VNC 7200
-    const r = calcularBilanActivo([], [activo], 2026);
-    expect(r.inmovilizadoNeto).toBeCloseTo(7200);
+  it('inmovilizado neto sale del libro (clase 2 menos 28xx); el del registro se devuelve aparte para comparar', () => {
+    // Registro: 12000 / 5 = 2400/año; a 2026 (2 años completos: 2025, 2026) amortizado 4800 -> VNC 7200
+    const sinLibro = calcularBilanActivo([], [activo], 2026);
+    expect(sinLibro.inmovilizadoRegistro).toBeCloseTo(7200);
+    expect(sinLibro.inmovilizadoNeto).toBe(0);
+    // Libro: compra 12.000 y una sola dotación de 2.400 registrada -> 9.600 en el bilan.
+    const conLibro = calcularBilanActivo(
+      [{ cuenta: '2183', debe: 12000, haber: 0 }, { cuenta: '28183', debe: 0, haber: 2400 }],
+      [activo],
+      2026,
+    );
+    expect(conLibro.inmovilizadoNeto).toBeCloseTo(9600);
+  });
+
+  it('las cuentas de cierre (335, 486) y los saldos al revés entran en «otros activos»', () => {
+    const r = calcularBilanActivo(
+      [
+        { cuenta: '335', debe: 15000, haber: 0 },
+        { cuenta: '486', debe: 400, haber: 0 },
+        { cuenta: '444', debe: 300, haber: 0 },
+        { cuenta: '512', debe: 0, haber: 250 },
+      ],
+      [],
+      2026,
+    );
+    expect(r.otrosActivos).toBeCloseTo(15700);
+    // Un banco en descubierto no es tesorería negativa: va al pasivo.
+    expect(r.tresoreria).toBe(0);
+    expect(r.total).toBeCloseTo(15700);
   });
 
   it('total es la suma de los componentes', () => {
     const asientos: AsientoContable[] = [{ cuenta: '512', debe: 300, haber: 0 }, { cuenta: '411', debe: 1100, haber: 0 }];
     const r = calcularBilanActivo(asientos, [activo], 2026);
-    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.capitalPorLiberar + r.inmovilizadoNeto);
+    expect(r.total).toBeCloseTo(r.tresoreria + r.creancesClients + r.creditoTva + r.capitalPorLiberar + r.inmovilizadoNeto + r.otrosActivos);
   });
 });
 

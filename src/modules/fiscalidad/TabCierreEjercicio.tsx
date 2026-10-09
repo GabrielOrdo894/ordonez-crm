@@ -16,7 +16,6 @@ import { hoyLocalIso } from '../../lib/fechas';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { useLiasse } from './useLiasse';
 import { useEcheances } from './useEcheances';
-import { useFiscalConfig } from './useFiscalConfig';
 import { fmt, fmtFecha } from './format';
 import { Faq } from './Faq';
 import { ResumenTitular } from './ResumenTitular';
@@ -58,9 +57,8 @@ export function TabCierreEjercicio() {
   const [generandoAprobacion, setGenerandoAprobacion] = useState(false);
   const [generandoLiasse, setGenerandoLiasse] = useState(false);
 
-  const { compteResultat, bilanActivo, bilanPasivo, is, resultadoNeto, capitalSocial, reservaLegal, activos, cargando } = useLiasse(anio);
+  const { compteResultat, bilanActivo, bilanPasivo, is, isRegistrado, resultadoNeto, capitalSocial, reservaLegal, activos, cargando } = useLiasse(anio);
   const { echeances, marcarCompletada } = useEcheances();
-  const { guardar: guardarFiscal } = useFiscalConfig();
 
 
   const echeancesDelEjercicio = useMemo(
@@ -93,6 +91,12 @@ export function TabCierreEjercicio() {
     // cobro, y desde la pantalla no hay vuelta atrás (auditoría fiscal 2026-10-09).
     if (hoyLocalIso() <= `${anio}-12-31`) {
       toast.error(`El ejercicio ${anio} no ha terminado: las cuentas se aprueban después del 31/12/${anio}.`);
+      return;
+    }
+    // El IS tiene que estar en el libro antes de cerrar: después el periodo queda bloqueado y ya no se
+    // puede registrar a 31/12, y el report à nouveau del año siguiente saldría inflado.
+    if (is.total > 0.5 && Math.abs(isRegistrado) < 0.005) {
+      toast.error(`Registra antes el IS del ejercicio (${fmt(is.total)}) en Operaciones diversas, con fecha 31/12/${anio}.`);
       return;
     }
     // Se captura antes de disparar nada: si ya se había aprobado este ejercicio, repetir el botón
@@ -128,7 +132,16 @@ export function TabCierreEjercicio() {
       if (primeraAprobacion) {
         try {
           // Reparto a la reserva legal en el libro (sale del report à nouveau y va a la 106).
-          if (reservaLegal.dotacion > 0) {
+          // Si el reparto de este ejercicio ya está en el libro (un intento anterior que falló a medias), no
+          // se repite: la reserva quedaría dotada dos veces.
+          const { data: repartoPrevio, error: errorReparto } = await supabase
+            .from('asientos_contables')
+            .select('id')
+            .eq('documento_tipo', 'operacion')
+            .ilike('concepto', `%exercice ${anio} — réserve légale%`)
+            .limit(1);
+          if (errorReparto) throw errorReparto;
+          if (reservaLegal.dotacion > 0 && (repartoPrevio ?? []).length === 0) {
             await registrarOperacionDiversa(
               [
                 { cuenta: '110', debe: reservaLegal.dotacion, haber: 0 },
@@ -150,21 +163,6 @@ export function TabCierreEjercicio() {
         } catch (err) {
           toast.warning(`Acta generada, pero no se pudo registrar el reparto o cerrar el ejercicio: ${mensajeError(err)}`);
         }
-      }
-      if (primeraAprobacion && reservaLegal.dotacion > 0) {
-        guardarFiscal(
-          [
-            {
-              clave: 'reserva_legal_acumulada',
-              valor: reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion,
-              descripcion: `Actualizado automáticamente al aprobar las cuentas del ejercicio ${anio}`,
-            },
-          ],
-          {
-            onSuccess: () => toast.success(`Reserva legal acumulada actualizada a ${fmt(reservaLegal.reservaAcumuladaPrevia + reservaLegal.dotacion)} para el próximo ejercicio.`),
-            onError: (err) => toast.error(`No se pudo actualizar la reserva legal acumulada: ${mensajeError(err)}`),
-          },
-        );
       }
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el documento'));

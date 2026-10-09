@@ -80,6 +80,8 @@ export function useLiasse(anio: number) {
       activos,
       pendienteRegistrar,
       descuadre: bilanActivo.total - bilanPasivo.total,
+      // Diferencia entre el inmovilizado del registro y el del libro (dotación sin generar, alta a mano).
+      diferenciaInmovilizado: bilanActivo.inmovilizadoRegistro - bilanActivo.inmovilizadoNeto,
       cargando,
     };
   }, [anio, compteResultat, bilanActivo, asientosBalance, activos, cargando, fiscal]);

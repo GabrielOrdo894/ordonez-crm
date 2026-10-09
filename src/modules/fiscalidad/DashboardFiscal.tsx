@@ -46,7 +46,7 @@ function diasRestantes(fecha: string) {
 
 export function DashboardFiscal() {
   const anioActual = new Date().getFullYear();
-  const { ejercicio, config, gerantConfig, remuneracionAnual, cotisacionesPeriodo, is } = useEjercicioFiscal(anioActual);
+  const { ejercicio, config, gerantConfig, remuneracionAnual, cotisacionesPeriodo, mesesRemunerados, is } = useEjercicioFiscal(anioActual);
   const { bilanActivo } = useComptaFrancia(anioActual);
   const { data: asientos } = useAsientosContables();
   const { echeances } = useEcheances();
@@ -220,7 +220,9 @@ export function DashboardFiscal() {
             <PiggyBank size={13} className="text-brand" /> Cotisations URSSAF
           </p>
           <p className="text-2xl font-semibold text-gray-900">{fmt(cotisacionesPeriodo)}</p>
-          <p className="text-xs text-gray-400">estimado del ejercicio · {fmt(cotisacionesPeriodo / ejercicio.meses)}/mes</p>
+          <p className="text-xs text-gray-400">
+            devengado hasta hoy · {fmt(mesesRemunerados > 0 ? cotisacionesPeriodo / mesesRemunerados : 0)}/mes
+          </p>
         </div>
 
         <div className="bg-surface border border-gray-200 rounded-sm p-4">

@@ -2,7 +2,35 @@ import { useMemo } from 'react';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { calcularIS, calcularReservaLegal, calcularTNS, limitesEjercicio, mesesRemuneradosEjercicio, mesesTranscurridosEjercicio } from './calculos';
+import { useAsientosContables } from '../contabilidad/useAsientosContables';
+import { calcularCompteResultat } from './useComptaFrancia';
+import {
+  calcularIS,
+  calcularReservaLegal,
+  calcularTNS,
+  deficitArrastrable,
+  imputacionMaximaDeficit,
+  limitesEjercicio,
+  mesesRemuneradosEjercicio,
+  mesesTranscurridosEjercicio,
+} from './calculos';
+
+const PRIMER_EJERCICIO = 2026;
+
+// Déficit de ejercicios anteriores todavía sin imputar al empezar `anio` (art. 209-I CGI), desde el
+// libro. La liasse ya lo aplicaba; TabIS, el Dashboard y las alertas no, y en 2027 habrían dado un
+// IS distinto al de la liasse (auditoría fiscal 2026-10-09).
+export function useDeficitAnterior(anio: number) {
+  const { data: asientos } = useAsientosContables();
+  return useMemo(() => {
+    const resultados: number[] = [];
+    for (let a = PRIMER_EJERCICIO; a < anio; a++) {
+      const lim = limitesEjercicio(a);
+      resultados.push(calcularCompteResultat((asientos ?? []).filter((x) => x.fecha >= lim.inicio && x.fecha <= lim.fin)).resultadoAntesIS);
+    }
+    return deficitArrastrable(resultados);
+  }, [asientos, anio]);
+}
 
 // Cadena de cálculo del ejercicio (rémunération del gérant → sus cotisations TNS → beneficio neto
 // imponible → Impôt sur les Sociétés → resultado neto → reserva legal obligatoria) usada, antes de
@@ -29,6 +57,7 @@ export function useEjercicioFiscal(anio: number = new Date().getFullYear()) {
     [ejercicio, gerantConfig?.remuneracion_desde],
   );
   const tns = calcularTNS(remuneracionAnual, config);
+  const deficitAnterior = useDeficitAnterior(anio);
   const remuneracionPeriodo = remuneracionRegistrada > 0 ? remuneracionRegistrada : remuneracionAnual * (mesesRemunerados / 12);
   const cotisacionesPeriodo = cotisacionesRegistradas > 0 ? cotisacionesRegistradas : tns.total * (mesesRemunerados / 12);
   // Sin Math.max(0, ...) aquí a propósito (bug real corregido 2026-08-18): un ejercicio con
@@ -37,7 +66,8 @@ export function useEjercicioFiscal(anio: number = new Date().getFullYear()) {
   // internamente, así que pasarles un beneficio negativo es seguro y no genera IS ni reserva legal
   // negativos.
   const beneficioNeto = beneficioBruto - remuneracionPeriodo - cotisacionesPeriodo;
-  const is = calcularIS(beneficioNeto, ejercicio.meses, config);
+  const deficitImputado = Math.min(deficitAnterior, imputacionMaximaDeficit(beneficioNeto));
+  const is = calcularIS(beneficioNeto - deficitImputado, ejercicio.meses, config);
   const resultadoNeto = beneficioNeto - is.total;
   const reservaLegal = calcularReservaLegal(resultadoNeto, capitalSocial, config);
 
@@ -59,6 +89,7 @@ export function useEjercicioFiscal(anio: number = new Date().getFullYear()) {
     tns,
     cotisacionesPeriodo,
     beneficioNeto,
+    deficitImputado,
     is,
     resultadoNeto,
     reservaLegal,

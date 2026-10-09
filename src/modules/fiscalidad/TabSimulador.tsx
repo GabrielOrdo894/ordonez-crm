@@ -14,7 +14,7 @@ import { registrarDecision } from '../../lib/registroDecisiones';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { simularEjercicio, limitesEjercicio, mesesTranscurridosEjercicio, calcularIRGerante, remuneracionNetaParaCoste } from './calculos';
+import { simularEjercicio, limitesEjercicio, calcularIRGerante, remuneracionNetaParaCoste } from './calculos';
 import { DESGLOSE_REFERENCIA } from './desgloseReferencia';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -47,8 +47,8 @@ export function TabSimulador() {
   const anio = new Date().getFullYear();
   const ejercicioActual = limitesEjercicio(anio);
   const { config } = useFiscalConfig();
-  const { gerantConfig, guardar: guardarGerante, guardando: guardandoFamilia } = useGerantConfig();
-  const { ingresosHT, gastosHT } = useResultadoEjercicio(ejercicioActual.inicio, ejercicioActual.fin);
+  const { gerantConfig, cargando: cargandoGerant, guardar: guardarGerante, guardando: guardandoFamilia } = useGerantConfig();
+  const { ingresosHT, gastosHT, cargando: cargandoResultado } = useResultadoEjercicio(ejercicioActual.inicio, ejercicioActual.fin);
   const capitalSocialReal = gerantConfig?.capital_social ?? 1000;
   const compteCourantMedio = gerantConfig?.compte_courant_medio ?? 0;
   const indemniteLocauxMensual = gerantConfig?.indemnite_locaux_mensual ?? 0;
@@ -101,8 +101,9 @@ export function TabSimulador() {
   // ingresos/gastos, sin esperar a que carguen los de gerant_config.
   const [precargado, setPrecargado] = useState(false);
   useEffect(() => {
-    if (precargado) return;
-    if (ingresosHT === 0 && gastosHT === 0 && !gerantConfig) return;
+    // Se espera a las dos cargas: si llegaba antes la configuración que el libro, ingresos y gastos se
+    // quedaban en 0 hasta recargar la página.
+    if (precargado || cargandoGerant || cargandoResultado) return;
     setIngresos(Math.round(ingresosHT));
     setGastos(Math.round(gastosHT));
     setCapitalSocialSim(gerantConfig?.capital_social ?? 1000);
@@ -111,14 +112,17 @@ export function TabSimulador() {
     setIngresosConyuge(gerantConfig?.ingresos_conyuge_anual ?? 0);
     setReembolsoTelefono(gerantConfig?.reembolso_telefono_mensual ?? 0);
     setPrecargado(true);
-  }, [ingresosHT, gastosHT, gerantConfig, precargado]);
+  }, [ingresosHT, gastosHT, gerantConfig, precargado, cargandoGerant, cargandoResultado]);
 
   // "Ejercicio en curso" usa los meses YA TRANSCURRIDOS, no la duración total del ejercicio — igual
   // que TabIS.tsx/TabSalarioDividendos.tsx, para que el plafond del 15% de IS sea coherente con las
   // demás pestañas cuando se simula con el beneficio real de hoy (bug real, auditoría 2026-08-15).
   // "Año completo" sigue usando 12 meses tal cual: es una proyección explícita a un año entero, no
   // el progreso real del ejercicio actual.
-  const meses = duracion === 'completo' ? 12 : mesesTranscurridosEjercicio(ejercicioActual);
+  // «Ejercicio en curso» usa la duración completa del ejercicio (6 meses en 2026): con los meses
+  // transcurridos el plafond del 15 % salía más bajo que el real (mismo criterio que Salario vs
+  // Dividendos desde el 2026-09-29).
+  const meses = duracion === 'completo' ? 12 : ejercicioActual.meses;
   const beneficioBruto = ingresos - gastos;
 
   // Al no repartir dividendos, todo el margen operativo se declara íntegro como rémunération del

@@ -128,6 +128,9 @@ describe('auditoría 2026-10-01', () => {
   it('fraccionTvaExigibleRectificativa: solo corrige TVA de lo ya cobrado', () => {
     expect(fraccionTvaExigibleRectificativa(-1100, 1100, 0)).toBe(0);
     expect(fraccionTvaExigibleRectificativa(-1100, 1100, 1100)).toBe(1);
+    // Segunda rectificativa: la primera ya anuló los 550 pendientes, esta corrige lo cobrado.
+    expect(fraccionTvaExigibleRectificativa(-550, 1100, 550, 550)).toBe(1);
+    expect(fraccionTvaExigibleRectificativa(-550, 1100, 550)).toBe(0);
     expect(fraccionTvaExigibleRectificativa(-550, 1100, 550)).toBe(0);
     expect(fraccionTvaExigibleRectificativa(-1100, 1100, 550)).toBe(0.5);
   });

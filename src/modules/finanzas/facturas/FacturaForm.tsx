@@ -410,6 +410,7 @@ export function FacturaForm({
           calcularTotales(form.lineas).totalConIva,
           totalConIvaFactura(facturaOriginal),
           cobradoOriginal,
+          (rectificativasPrevias ?? []).reduce((s, r) => s + Math.abs(totalConIvaFactura(r)), 0),
         );
       }
 

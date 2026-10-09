@@ -117,10 +117,17 @@ export function estadoCobroDePagos(
 // por encima de lo que la factura original aún tenía pendiente de cobro. Una rectificativa de una
 // factura no cobrada solo anula TVA en espera (nunca declarada, régimen de TVA sur encaissements):
 // deducirla en la línea 21 de la CA3 declaraba TVA de menos (auditoría 2026-10-01).
-export function fraccionTvaExigibleRectificativa(totalRectificativa: number, totalOriginal: number, cobradoOriginal: number): number {
+// `anuladoPrevio`: total ya anulado por rectificativas anteriores de la misma factura (sin él, una
+// segunda rectificativa volvía a contar como pendiente lo que la primera ya había anulado).
+export function fraccionTvaExigibleRectificativa(
+  totalRectificativa: number,
+  totalOriginal: number,
+  cobradoOriginal: number,
+  anuladoPrevio = 0,
+): number {
   const anulado = Math.abs(totalRectificativa);
   if (anulado < 0.005) return 1;
-  const pendienteOriginal = Math.max(0, Math.abs(totalOriginal) - cobradoOriginal);
+  const pendienteOriginal = Math.max(0, Math.abs(totalOriginal) - cobradoOriginal - Math.abs(anuladoPrevio));
   const exigible = Math.max(0, anulado - pendienteOriginal);
   return Math.round(Math.min(1, exigible / anulado) * 1000000) / 1000000;
 }

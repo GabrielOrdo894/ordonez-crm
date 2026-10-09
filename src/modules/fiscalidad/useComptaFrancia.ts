@@ -4,7 +4,7 @@ import { useAsientosContables } from '../contabilidad/useAsientosContables';
 import { supabase } from '../../lib/supabase';
 import type { Linea } from '../finanzas/lineas';
 import { valorNetoContable, type ActivoInmovilizado } from '../../lib/inmovilizado';
-import { limitesEjercicio } from './calculos';
+import { limitesEjercicio, otrosSaldosBalance } from './calculos';
 
 export type AsientoContable = { cuenta: string; debe: number; haber: number; fecha?: string };
 export type FacturaPendiente = { lineas: Linea[]; monto_pagado: number | null };
@@ -69,7 +69,7 @@ export function calcularCompteResultat(asientos: AsientoContable[]) {
 // clients salía de las facturas pendientes y el pasivo no recogía ni la TVA a pagar, ni los acomptes
 // recibidos, ni la cuenta corriente del asociado, así que no cuadraba (auditoría 2026-09-29).
 export function calcularBilanActivo(asientos: AsientoContable[], activos: ActivoInmovilizado[], anio: number) {
-  const tresoreria = saldoNetoCuentas(asientos, ['512']);
+  const tresoreria = Math.max(0, saldoNetoCuentas(asientos, ['512']));
   const creancesClients = Math.max(0, saldoNetoCuentas(asientos, ['411']));
   // TVA: saldo deudor de las cuentas 445 = crédito a favor de la empresa.
   const creditoTva = Math.max(0, saldoNetoCuentas(asientos, ['445']));
@@ -82,17 +82,28 @@ export function calcularBilanActivo(asientos: AsientoContable[], activos: Activo
   // tuviera hasta el mes de la baja para siempre (calcularDotacionAnual devuelve 0 en años
   // posteriores, así que amortizacionAcumulada deja de crecer): un activo vendido/desechado
   // aparecía con un VNC fantasma indefinidamente en el Bilan (hallazgo real, auditoría 2026-09-21).
-  const inmovilizadoNeto = activos.reduce((s, a) => {
+  const inmovilizadoRegistro = activos.reduce((s, a) => {
     if (a.dado_de_baja_en && a.dado_de_baja_en <= `${anio}-12-31`) return s;
     return s + valorNetoContable(a, anio);
   }, 0);
+  // El inmovilizado del bilan sale del LIBRO (clase 2 completa: 2xx en el debe menos 28xx/29xx en el
+  // haber), no del registro: si la dotación del año no se ha generado, o un activo se dio de alta a
+  // mano sin asiento, el registro y el libro no coinciden y el bilan descuadraba (auditoría fiscal
+  // 2026-10-09). El registro queda para el detalle y para avisar de la diferencia.
+  const inmovilizadoNeto = saldoNetoCuentas(asientos, ['2']);
+  // Stocks y obras en curso (clase 3), gastos anticipados (486) y demás cuentas de balance con saldo
+  // deudor, más los saldos al revés de lo habitual (socio, acomptes, IS o dividendos deudores).
+  const deudor = (prefijos: string[]) => Math.max(0, saldoNetoCuentas(asientos, prefijos));
+  const otrosActivos = otrosSaldosBalance(asientos).deudor + deudor(['455']) + deudor(['4191']) + deudor(['444']) + deudor(['457']);
   return {
     tresoreria,
     creancesClients,
     creditoTva,
     capitalPorLiberar,
     inmovilizadoNeto,
-    total: tresoreria + creancesClients + creditoTva + capitalPorLiberar + inmovilizadoNeto,
+    inmovilizadoRegistro,
+    otrosActivos,
+    total: tresoreria + creancesClients + creditoTva + capitalPorLiberar + inmovilizadoNeto + otrosActivos,
   };
 }
 
