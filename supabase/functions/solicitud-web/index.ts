@@ -11,7 +11,7 @@
 // Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, web }
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
-import { codificarCabeceraMime } from '../_shared/correo.ts';
+import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
 import { esc } from '../_shared/html.ts';
 
 const ORIGENES = ['https://ordonezfachadas.com', 'https://www.ordonezfachadas.com'];
@@ -53,7 +53,7 @@ async function enviarAviso(asunto: string, cuerpoHtml: string): Promise<void> {
     },
   });
   try {
-    await client.send({ from: `Ordoñez Fachadas <${REMITENTE_ENVIO}>`, to: [DESTINATARIO], subject: asunto, content: 'auto', html: cuerpoHtml });
+    await client.send({ from: `Ordoñez Fachadas <${REMITENTE_ENVIO}>`, to: [DESTINATARIO], subject: asunto, content: 'auto', html: limpiarHtmlCorreo(cuerpoHtml) });
   } finally {
     await client.close();
   }

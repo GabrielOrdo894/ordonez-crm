@@ -23,3 +23,11 @@ export function codificarCabeceraMime(texto: string): string {
   if (actual) trozos.push(actual);
   return trozos.map((t) => `=?UTF-8?B?${btoa(String.fromCharCode(...enc.encode(t)))}?=`).join(' ');
 }
+
+// denomailer codifica el cuerpo en quoted-printable y deja a la vista un "=20" por cada línea que
+// acaba en espacio — en las plantillas, las líneas que se quedan solo con la sangría cuando un dato
+// opcional viene vacío (caso real: aviso de visita del 2026-10-09, "=20" tras el botón de Maps y
+// tras la descripción). Se quitan los espacios de final de línea antes de enviar.
+export function limpiarHtmlCorreo(html: string): string {
+  return html.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '');
+}

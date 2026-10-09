@@ -34,7 +34,7 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
-import { codificarCabeceraMime } from '../_shared/correo.ts';
+import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -151,7 +151,7 @@ async function enviarSmtp(destinatarios: string[], asunto: string, cuerpoHtml: s
       to: destinatarios,
       subject: asunto,
       content: 'auto',
-      html: cuerpoHtml,
+      html: limpiarHtmlCorreo(cuerpoHtml),
     });
   } finally {
     await client.close();
