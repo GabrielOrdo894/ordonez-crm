@@ -97,7 +97,7 @@ export async function generarPdfLiasseFiscale(
     head: [[`2058-A — Détermination du résultat fiscal (exercice ${anio})`, '']],
     body: [
       ['Résultat comptable avant IS', fmt(datos.compteResultat.resultadoAntesIS)],
-      ['Impôt sur les Sociétés', fmt(-datos.is.total)],
+      ['Impôt sur les Sociétés', fmt(datos.resultadoNeto - datos.compteResultat.resultadoAntesIS)],
       ['Résultat net', fmt(datos.resultadoNeto)],
     ],
     styles: { font: FUENTE_PDF, fontSize: 8.5, lineColor: GRIS_BORDE, lineWidth: 0.1 },

@@ -30,6 +30,14 @@ export function calcularDotacionAnual(activo: ActivoInmovilizado, anio: number):
   const meses = Math.max(0, solapeFin - solapeInicio);
   if (meses === 0) return 0;
 
+  // El último año se lleva lo que quede por amortizar: redondeando cada año por separado, 1.000 € a 3
+  // años daban 333,33 × 3 = 999,99 y quedaba un céntimo de valor neto para siempre.
+  if (solapeFin === finExclusivo) {
+    let previas = 0;
+    for (let a = Number(activo.fecha_adquisicion.slice(0, 4)); a < anio; a++) previas += calcularDotacionAnual(activo, a);
+    return Math.round((activo.valor_adquisicion - previas) * 100) / 100;
+  }
+
   const dotacionMensual = activo.valor_adquisicion / activo.duracion_anios / 12;
   return Math.round(dotacionMensual * meses * 100) / 100;
 }

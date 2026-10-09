@@ -71,3 +71,11 @@ describe('FEC — numeración estable (auditoría 2026-10-01)', () => {
     expect(fila[15]).toBe('20261001');
   });
 });
+
+describe('codificarLatin9: signos tipográficos', () => {
+  it('pasa la raya larga y el apóstrofo curvo a su equivalente simple en vez de «?»', () => {
+    const bytes = codificarLatin9('F-2026-0001 — Compte d’attente');
+    const texto = String.fromCharCode(...bytes);
+    expect(texto).toBe("F-2026-0001 - Compte d'attente");
+  });
+});

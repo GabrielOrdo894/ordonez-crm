@@ -132,10 +132,15 @@ export function construirFec(
 // ISO 8859-15: igual que Latin-1 salvo 8 posiciones (€, Š, š, Ž, ž, Œ, œ, Ÿ).
 const LATIN9: Record<string, number> = { '€': 0xa4, Š: 0xa6, š: 0xa8, Ž: 0xb4, ž: 0xb8, Œ: 0xbc, œ: 0xbd, Ÿ: 0xbe };
 
+// Signos tipográficos que no existen en ISO 8859-15 y salían como «?» en el fichero (los conceptos del
+// libro llevan raya larga y apóstrofo curvo): se pasan a su equivalente simple.
+const SIMPLES: Record<string, string> = { '—': '-', '–': '-', '’': "'", '‘': "'", '“': '"', '”': '"', '…': '.' };
+
 export function codificarLatin9(texto: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(texto.length);
   let i = 0;
-  for (const caracter of texto) {
+  for (const original of texto) {
+    const caracter = SIMPLES[original] ?? original;
     const especial = LATIN9[caracter];
     const codigo = caracter.codePointAt(0) ?? 63;
     bytes[i++] = especial ?? (codigo < 256 && ![0xa4, 0xa6, 0xa8, 0xb4, 0xb8, 0xbc, 0xbd, 0xbe].includes(codigo) ? codigo : 63);

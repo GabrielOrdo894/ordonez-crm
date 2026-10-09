@@ -229,7 +229,8 @@ export function TabInmovilizado({ anio, onAnioChange }: { anio: number; onAnioCh
         ...a,
         dotacionEsteAnio: calcularDotacionAnual(a, anioActual),
         acumulada: amortizacionAcumulada(a, anioActual),
-        vnc: valorNetoContable(a, anioActual),
+        // Un activo dado de baja ya salió del balance: su valor neto es 0 (antes se quedaba congelado).
+        vnc: a.dado_de_baja_en && a.dado_de_baja_en <= `${anioActual}-12-31` ? 0 : valorNetoContable(a, anioActual),
       })),
     [activos, anioActual],
   );

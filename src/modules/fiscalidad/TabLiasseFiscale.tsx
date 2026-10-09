@@ -136,7 +136,8 @@ export function TabLiasseFiscale({ anio, onAnioChange }: { anio: number; onAnioC
               <Fila label="Résultat financier" valor={compteResultat.resultadoFinanciero} />
               <Fila label="Résultat exceptionnel" valor={compteResultat.resultadoExcepcional} />
               <Fila label="Résultat comptable avant IS" valor={compteResultat.resultadoAntesIS} negrita />
-              <Fila label="Impôt sur les Sociétés" valor={-is.total} />
+              {/* El IS que de verdad se resta: el registrado en el libro si ya existe, si no el calculado. */}
+              <Fila label="Impôt sur les Sociétés" valor={resultadoNeto - compteResultat.resultadoAntesIS} />
               <Fila label="Résultat net" valor={resultadoNeto} negrita />
             </tbody>
           </table>

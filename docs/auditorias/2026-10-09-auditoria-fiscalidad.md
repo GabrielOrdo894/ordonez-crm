@@ -105,3 +105,9 @@ Auditoría de solo lectura, en tres frentes: TVA y asistente CA3; IS, cotizacion
 - Medios: I3 e I4 (proyecciones de TabIS con la remuneración de un solo mes y con el mes en curso entero), I6 (un pago pequeño en 646 sustituye toda la estimación), I9 (asistente de renta: cotisations pagadas y casillas DSCA/DSEA, hay que contrastarlo), I10 (gráfico de carga fiscal mensual), L8 (baja de un activo con la dotación ya generada), L10 (asientos de apertura en el FEC, hace falta para 2027), L11 (línea de IS de la liasse cuando el IS está registrado), L12 (activos dados de baja en la pestaña y en el PDF), T7 y T8 (casillas de importaciones y de servicios intracomunitarios, hay que contrastarlo con la notice 3310-CA3).
 - Todos los bajos.
 - Cifras sin contrastar con fuente oficial y claves fiscales sin año.
+
+### Tercera ronda (9 de octubre de 2026, última hora)
+
+**Corregido y publicado además:** I3 (proyección de TabIS), L11 (línea de IS de la liasse y del PDF), L12 (valor neto 0 en activos dados de baja), céntimo residual del último año de amortización y signos tipográficos del FEC.
+
+**Sigue pendiente:** I4, I6, I9, I10, L8, L10, T7, T8, el resto de bajos, las cifras sin contrastar y las claves fiscales sin año.

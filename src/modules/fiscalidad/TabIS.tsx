@@ -7,7 +7,7 @@ import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { useEvolucionAcumulada } from './useEvolucionAcumulada';
 import { useEcheances } from './useEcheances';
 import { useEjercicioFiscal } from './useEjercicioFiscal';
-import { calcularIS } from './calculos';
+import { calcularIS, mesesRemuneradosEjercicio } from './calculos';
 import { fmt, fmtPct, fmtFechaCorta } from './format';
 import { Fuente } from './Fuente';
 import { Faq } from './Faq';
@@ -27,6 +27,8 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
     fuente,
     remuneracionAnual,
     ingresosHT,
+    beneficioBruto,
+    tns,
     beneficioNeto,
     is,
     resultadoNeto,
@@ -39,10 +41,14 @@ export function TabIS({ anio, onAnioChange }: { anio: number; onAnioChange: (ani
   const evolucionAcumulada = useEvolucionAcumulada(anio, ejercicio, remuneracionAnual, config, gerantConfig?.remuneracion_desde ?? null);
 
   const proyeccion = useMemo(() => {
-    const beneficioMedioMensual = beneficioNeto / mesesTranscurridos;
-    const beneficioProyectado = beneficioMedioMensual * ejercicio.meses;
+    // Se proyecta el beneficio bruto al ritmo actual y se le resta la rémunération (y sus cotisations)
+    // de TODOS los meses remunerados del ejercicio. Antes se extrapolaba el beneficio neto, que solo
+    // llevaba la rémunération de los meses ya pasados, como si fuese la media (auditoría 2026-10-09).
+    const brutoProyectado = (beneficioBruto / mesesTranscurridos) * ejercicio.meses;
+    const mesesRemuneradosTotal = mesesRemuneradosEjercicio(ejercicio, gerantConfig?.remuneracion_desde ?? null, new Date(`${ejercicio.fin}T00:00:00`));
+    const beneficioProyectado = brutoProyectado - (remuneracionAnual + tns.total) * (mesesRemuneradosTotal / 12);
     return { beneficioProyectado, is: calcularIS(Math.max(0, beneficioProyectado), ejercicio.meses, config) };
-  }, [beneficioNeto, mesesTranscurridos, ejercicio.meses, config]);
+  }, [beneficioBruto, mesesTranscurridos, ejercicio, config, gerantConfig?.remuneracion_desde, remuneracionAnual, tns.total]);
 
   // Acomptes y solde se generan juntos, en el mismo "Generar calendario fiscal {anio}" — filtrar
   // por si el título incluye ese año evita mezclar los de otros ejercicios ahora que hay selector

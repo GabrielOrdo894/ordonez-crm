@@ -65,3 +65,13 @@ describe('valorNetoContable', () => {
     expect(valorNetoContable(activo, 2025)).toBe(24000);
   });
 });
+
+describe('último año de amortización', () => {
+  it('absorbe el resto para que no quede un céntimo de valor neto', () => {
+    const a: ActivoInmovilizado = { ...activo, fecha_adquisicion: '2026-01-10', valor_adquisicion: 1000, duracion_anios: 3 };
+    expect(calcularDotacionAnual(a, 2026)).toBeCloseTo(333.33, 2);
+    expect(calcularDotacionAnual(a, 2027)).toBeCloseTo(333.33, 2);
+    expect(calcularDotacionAnual(a, 2028)).toBeCloseTo(333.34, 2);
+    expect(valorNetoContable(a, 2028)).toBe(0);
+  });
+});
