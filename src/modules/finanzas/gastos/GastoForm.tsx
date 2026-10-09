@@ -5,6 +5,7 @@ import { ArrowLeft, Paperclip, Receipt, UploadCloud, X, Eye, Building2, Coins, C
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
 import { Input } from '../../../components/ui/Input';
+import { ImporteInput } from '../../../components/ui/ImporteInput';
 import { FechaPicker } from '../../../components/ui/FechaPicker';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
@@ -712,11 +713,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : form.importe_total}
-                      onChange={(e) => handleImporteChange(Number(e.target.value))}
+                    <ImporteInput
+                      value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : Number(form.importe_total.toFixed(2))}
+                      onChange={handleImporteChange}
                     />
                     {esIntracomunitario || esImportacion ? (
                       <p className="text-xs text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5 bg-gray-50 self-center">

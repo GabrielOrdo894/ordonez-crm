@@ -325,7 +325,7 @@ export function DashboardFiscal() {
           },
           {
             q: '¿Cómo se calcula exactamente el "IS del ejercicio"?',
-            a: 'Ejemplo con números: si en el ejercicio hay 60.000 € de ingresos (Facturas) y 20.000 € de gastos (Gastos), el beneficio bruto es 40.000 €. Si el gérant se paga 25.000 € de rémunération y sus cotisations son 8.325 € (25.000 × 74% × 45%), el beneficio neto imposable es 40.000 − 25.000 − 8.325 = 6.675 €. Ese importe tributa al 15% (o al 15%/25% combinado si supera el plafond del tramo) — ver el desglose completo con el mismo cálculo en la pestaña "Impôt sur les Sociétés". La barra verde de la tarjeta muestra qué parte del tramo del 15% ya se ha "llenado" con ese beneficio.',
+            a: 'Ejemplo con números: si en el ejercicio hay 60.000 € de ingresos (Facturas) y 20.000 € de gastos (Gastos), el beneficio bruto es 40.000 €. Si el gérant se paga 25.000 € netos de rémunération, sus cotisations (que paga la société aparte) rondan los 12.481 €, y el beneficio neto imposable es 40.000 − 25.000 − 12.481 = 2.519 €. Ese importe tributa al 15% (o al 15%/25% combinado si supera el plafond del tramo) — ver el desglose completo con el mismo cálculo en la pestaña "Impôt sur les Sociétés". La barra verde de la tarjeta muestra qué parte del tramo del 15% ya se ha "llenado" con ese beneficio.',
           },
           {
             q: '¿Por qué "TVA del mes" no coincide exactamente con la pestaña TVA?',

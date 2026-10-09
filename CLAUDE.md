@@ -1155,3 +1155,21 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   traducción o cambió lo traducido — best-effort, un fallo no impide guardar. Los cambios hechos por Claude o
   por el agente `creador-presupuestos` regeneran la traducción ellos mismos por SQL (sin gastar API), con el
   bloque `fuente` documentado en el agente.
+- **Auditoría de fiscalidad y primeros arreglos** (2026-10-09, informe en `docs/auditorias/2026-10-09-auditoria-fiscalidad.md`;
+  el resto de hallazgos sigue pendiente, ver el orden propuesto al final del informe):
+  - **La «rémunération» del gérant es NETA en todo el módulo** (decisión de Gabriel: los 2.000 €/mes son lo que llega al
+    banco). Las cotisations TNS las paga la société aparte, encima. `calcularIRGerante` ya no recibe ni resta las
+    cotisations, `netoDisponible` de `simularEjercicio` no las vuelve a restar, y el Simulador lleva a rémunération
+    la neta máxima que cabe en el margen (`remuneracionNetaParaCoste`: neta + cotisations = margen). La décision y la
+    attestation en PDF dicen «rémunération nette» y que las cotisations van a cargo de la société. Antes unas funciones
+    la trataban como neta y otras como bruta y las cotisations se contaban dos veces.
+  - **CA3 en euros enteros** (`euroEntero` en `finanzas/iva.ts`): el formulario no admite decimales. Regla legal (CGI
+    art. 1649 undecies): euro más próximo, 0,50 sube. Cada línea se redondea y los totales (A1, 08, 16, 23, 25, 28) son
+    suma de líneas ya redondeadas, como los calcula impots.gouv; la taxe de 08, 9B, 17 y 24 sale de su base redondeada.
+    El desglose de cada línea conserva los céntimos. La comparación con una declaración ya guardada se hace en euros.
+  - **Protecciones**: no se puede aprobar las cuentas de un ejercicio que no ha terminado (bloqueaba todo hasta el 31/12
+    sin vuelta atrás desde la pantalla) ni con los datos aún cargando; si falla la lectura de cobros o gastos, la CA3 no
+    se muestra ni se puede marcar como declarada.
+  - **`ImporteInput`** (`components/ui`): campo de importe que admite coma o punto, arranca vacío y avisa en rojo si se
+    teclea algo que no vale, sin borrar lo escrito. Usado en el importe de Gastos (un `type="number"` lo borraba todo
+    al escribir una coma).

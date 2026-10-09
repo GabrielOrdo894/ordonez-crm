@@ -126,7 +126,7 @@ export function TabDeclaracionRenta() {
   // 2026-08 contra el simulador oficial de la DGFiP, nunca reimplementado aquí. Se pasa
   // tns.csgNoDeducible para que montante1GB (la cifra real de la casilla 1GB) sume de vuelta el
   // CSG/CRDS no deducible, confirmado 2026-08-26 con la doctrina oficial (BOFiP BOI-RSA-GER-20).
-  const resultado = calcularIRGerante(remuneracion, tns.total, ingresosConyuge, casado, hijosACargo, config, tns.csgNoDeducible);
+  const resultado = calcularIRGerante(remuneracion, ingresosConyuge, casado, hijosACargo, config, tns.csgNoDeducible);
 
   const casillas = useMemo(() => {
     const filas = [

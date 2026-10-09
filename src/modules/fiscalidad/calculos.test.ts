@@ -15,6 +15,7 @@ import {
   calcularAbattementProfesional,
   calcularIRPersonal,
   calcularIRGerante,
+  remuneracionNetaParaCoste,
   type ConfigFn, deficitArrastrable, imputacionMaximaDeficit, capitauxPropresInferioresMitadCapital } from './calculos';
 
 // Config que siempre devuelve el valor por defecto — para probar la fórmula con las tasas reales.
@@ -201,7 +202,9 @@ describe('simularEjercicio', () => {
     expect(r.dividendos).toBeCloseTo(2084.56, 1);
     expect(r.divCalc.total).toBeCloseTo(1178.47, 1);
     expect(r.totalPrelevements).toBeCloseTo(16909.36, 1);
-    expect(r.netoDisponible).toBeCloseTo(15928.57, 1);
+    // Rémunération neta (30.000) + dividendos (2.084,56) − su carga (1.178,47): las cotisations no se
+    // restan otra vez, las ha pagado la société.
+    expect(r.netoDisponible).toBeCloseTo(30906.09, 1);
   });
 
   it('sin beneficio (0), no hay IS ni dividendos, solo las cotisations TNS mínimas sobre la rémunération', () => {
@@ -209,7 +212,7 @@ describe('simularEjercicio', () => {
     expect(r.beneficioTrasSalario).toBe(0);
     expect(r.is.total).toBe(0);
     expect(r.dividendos).toBe(0);
-    expect(r.netoDisponible).toBeCloseTo(20000 - r.tns.total, 1);
+    expect(r.netoDisponible).toBeCloseTo(20000, 1);
   });
 });
 
@@ -311,8 +314,8 @@ describe('calcularIRPersonal', () => {
 
 describe('calcularIRGerante', () => {
   it('sin ingresos del cónyuge: encadena abattement + quotient familial sobre la rémunération neta del gérant', () => {
-    // Mismos 30.000 € de rémunération y 9.990 € de cotisations TNS que el ejemplo de simularEjercicio.
-    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto);
+    // 20.010 € de rémunération neta (lo que cobra el gérant).
+    const r = calcularIRGerante(20010, 0, true, 1, cfgPorDefecto);
     expect(r.remuneracionNeta).toBeCloseTo(20010);
     expect(r.abattement).toBeCloseTo(2001);
     expect(r.revenuNetImposable).toBeCloseTo(18009);
@@ -325,9 +328,7 @@ describe('calcularIRGerante', () => {
     // Verificado a mano en simulateur-ir-ifi.impots.gouv.fr (2026-08): rémunération neta 40.020 €
     // (declarante 1) + 18.000 € del cónyuge (declarante 2), casado + 1 hijo (2,5 partes) → la
     // Administración da exactamente droits simples 2.554 €, décote 327 € e impôt net 2.227 €.
-    // remuneracion/tnsTotal se pasan ya restados (40.020 = remuneración neta directamente, con
-    // tnsTotal=0) porque lo que se está verificando aquí es el tramo del IR, no el cálculo de TNS.
-    const r = calcularIRGerante(40020, 0, 18000, true, 1, cfgPorDefecto);
+    const r = calcularIRGerante(40020, 18000, true, 1, cfgPorDefecto);
     expect(r.remuneracionNeta).toBeCloseTo(40020, 0);
     expect(r.abattement).toBeCloseTo(4002, 0);
     expect(r.abattementConyuge).toBeCloseTo(1800, 0);
@@ -339,12 +340,12 @@ describe('calcularIRGerante', () => {
   });
 
   it('sin csgNoDeducible (por defecto 0), montante1GB coincide con la rémunération neta — retrocompatible', () => {
-    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto);
+    const r = calcularIRGerante(20010, 0, true, 1, cfgPorDefecto);
     expect(r.montante1GB).toBeCloseTo(r.remuneracionNeta);
   });
 
   it('con csgNoDeducible, se suma a la rémunération neta ANTES del abattement (afecta a montante1GB, abattement y revenuNetImposable)', () => {
-    const r = calcularIRGerante(30000, 9990, 0, true, 1, cfgPorDefecto, 500);
+    const r = calcularIRGerante(20010, 0, true, 1, cfgPorDefecto, 500);
     expect(r.remuneracionNeta).toBeCloseTo(20010);
     expect(r.montante1GB).toBeCloseTo(20510);
     expect(r.abattement).toBeCloseTo(2051);
@@ -444,5 +445,20 @@ describe('auditoría 2026-10-01 — cierre del ejercicio', () => {
     expect(r.dotacion).toBe(0);
     const r2 = calcularReservaLegal(3000, 10000, cfgPorDefecto, 0, 1000);
     expect(r2.dotacion).toBeCloseTo(100);
+  });
+});
+
+describe('remuneracionNetaParaCoste', () => {
+  it('devuelve la rémunération neta que, sumadas sus cotisations, agota el coste', () => {
+    const neta = remuneracionNetaParaCoste(60000, cfgPorDefecto);
+    expect(neta + calcularTNS(neta, cfgPorDefecto).total).toBeCloseTo(60000, 0);
+    // 60.000 € de margen = 40.020 € netos + 19.980 € de cotisations (mismo neto que el caso
+    // contrastado con el simulador de la DGFiP).
+    expect(neta).toBeCloseTo(40020, -1);
+  });
+
+  it('sin margen no hay rémunération', () => {
+    expect(remuneracionNetaParaCoste(0, cfgPorDefecto)).toBe(0);
+    expect(remuneracionNetaParaCoste(-500, cfgPorDefecto)).toBe(0);
   });
 });

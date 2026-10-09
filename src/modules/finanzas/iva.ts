@@ -39,3 +39,11 @@ export function mencionIvaReducida(tipo: string | null): string | null {
   if (tipo === 'TVA_10') return 'Taux de TVA réduit, article 279-0 bis du Code Général des Impôts';
   return null;
 }
+
+// Las declaraciones fiscales francesas solo admiten euros enteros (el formulario en línea de la CA3
+// no deja teclear decimales). Regla legal (CGI art. 1649 undecies): redondeo al euro más próximo, y
+// 0,50 cuenta como 1. Se pasa antes por céntimos para que un 12,4999999 de coma flotante no se
+// quede en 12.
+export function euroEntero(n: number): number {
+  return Math.round(Math.round(n * 100) / 100);
+}

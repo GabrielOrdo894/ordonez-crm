@@ -58,6 +58,10 @@ export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
   return { plafondReducido, baseReducida, baseNormal, isReducido, isNormal, total: isReducido + isNormal };
 }
 
+// Convención única en todo el módulo (decisión de Gabriel 2026-10-09): la «rémunération» es NETA, lo
+// que le llega al banco al gérant. Las cotisations TNS las paga la société aparte, encima de ese
+// importe. Antes unas funciones la trataban como neta y otras como bruta, y las cotisations se
+// restaban dos veces (auditoría fiscal 2026-10-09, hallazgo C1).
 export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   const abattementPct = config('tns_abattement', 0.26);
   const tauxGlobal = config('tns_taux_global', 0.45);
@@ -167,8 +171,24 @@ export function simularEjercicio(
   const dividendos = beneficioDistribuible * (pctDividendos / 100);
   const divCalc = calcularDividendos(dividendos, capitalSocial, compteCourantMedio, config);
   const totalPrelevements = tns.total + is.total + divCalc.total;
-  const netoDisponible = remuneracion - tns.total + dividendos - divCalc.total;
+  // La rémunération ya es neta: las cotisations las ha pagado la société (restadas arriba del beneficio).
+  const netoDisponible = remuneracion + dividendos - divCalc.total;
   return { tns, is, beneficioTrasSalario, reservaLegal, beneficioDistribuible, dividendos, divCalc, totalPrelevements, netoDisponible };
+}
+
+// Rémunération neta máxima que la société puede pagar con un coste total dado (neta + sus
+// cotisations = coste). Se resuelve por bisección porque las cotisations dependen de la propia
+// rémunération. La usa el Simulador para llevar todo el margen a rémunération sin dejar déficit.
+export function remuneracionNetaParaCoste(costeTotal: number, config: ConfigFn) {
+  if (costeTotal <= 0) return 0;
+  let bajo = 0;
+  let alto = costeTotal;
+  for (let i = 0; i < 60; i++) {
+    const medio = (bajo + alto) / 2;
+    if (medio + calcularTNS(medio, config).total > costeTotal) alto = medio;
+    else bajo = medio;
+  }
+  return Math.round(bajo * 100) / 100;
 }
 
 // Número de parts del quotient familial del foyer fiscal del gérant — 2 partes de base para un
@@ -254,7 +274,6 @@ export function calcularIRPersonal(revenuNetImposableFoyer: number, parts: numbe
 // No incluye los dividendos (PFU aparte, ver calcularIRPersonal).
 export function calcularIRGerante(
   remuneracion: number,
-  tnsTotal: number,
   ingresosConyuge: number,
   casado: boolean,
   hijosACargo: number,
@@ -264,7 +283,7 @@ export function calcularIRGerante(
   // TabDeclaracionRenta.tsx la pasa siempre; TabSimulador.tsx igual desde 2026-08-26.
   csgNoDeducible: number = 0,
 ) {
-  const remuneracionNeta = Math.max(0, remuneracion - tnsTotal);
+  const remuneracionNeta = Math.max(0, remuneracion);
   // montante1GB es el importe real que va en la casilla 1GB del 2042 — remuneracionNeta se queda
   // como el "neto en mano" para mostrar aparte (ver TabCotisations/TabSalarioDividendos), pero la
   // base fiscal antes del abattement del 10% es siempre montante1GB (confirmado 2026-08-26).

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { porcentajeIva, paisDesdeTipoIva, tiposIvaPorPais, tipoIvaPorDefecto, etiquetaCortaIva } from './iva';
+import { porcentajeIva, paisDesdeTipoIva, tiposIvaPorPais, tipoIvaPorDefecto, etiquetaCortaIva, euroEntero } from './iva';
 
 describe('porcentajeIva', () => {
   it('devuelve el porcentaje correcto para cada tipo conocido', () => {
@@ -65,5 +65,21 @@ describe('etiquetaCortaIva', () => {
   it('tipo desconocido o null devuelve cadena vacía', () => {
     expect(etiquetaCortaIva(null)).toBe('');
     expect(etiquetaCortaIva('X')).toBe('');
+  });
+});
+
+describe('euroEntero', () => {
+  it('redondea al euro más próximo y 0,50 sube', () => {
+    expect(euroEntero(1234.49)).toBe(1234);
+    expect(euroEntero(1234.5)).toBe(1235);
+    expect(euroEntero(1234.51)).toBe(1235);
+    expect(euroEntero(0)).toBe(0);
+  });
+
+  it('no baja un x,50 por el ruido de la coma flotante', () => {
+    // 1.005 * 100 = 100.49999999999999 y 8.325 * 100 = 832.4999999999999 en coma flotante
+    expect(euroEntero(0.1 + 0.2 + 12.2)).toBe(13);
+    expect(euroEntero(2412.5)).toBe(2413);
+    expect(euroEntero(165 * 0.1 * 5 + 0.0000001)).toBe(83);
   });
 });

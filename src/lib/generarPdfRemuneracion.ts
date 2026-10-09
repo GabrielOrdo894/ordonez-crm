@@ -56,7 +56,7 @@ export async function generarPdfDecisionRemuneracion(anio: number, remuneracionA
   parrafo('Article unique — Rémunération du gérant', { negrita: true, espacioDespues: 4 });
   parrafo(
     `Conformément à l'article 12 des statuts, qui prévoit que la rémunération du gérant est fixée par décision de ` +
-      `l'associé unique, la rémunération annuelle brute allouée à ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'}, ` +
+      `l'associé unique, la rémunération annuelle nette allouée à ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'}, ` +
       `au titre de son mandat de gérant, pour l'exercice ${anio}, est fixée à ${fmtEur(remuneracionAnual)}, soit ` +
       `${fmtEur(remuneracionAnual / 12)} par mois.`,
   );
@@ -205,10 +205,10 @@ export async function generarPdfResumenTNS(anio: number, mes: number, remuneraci
     margin: { left: margen, right: margen },
     head: [['Concepto', 'Cálculo', 'Importe']],
     body: [
-      ['Rémunération brute mensuelle', `${fmtEur(remuneracionAnual)} / 12`, fmtEur(remuneracionMensual)],
-      ['Assiette TNS (abattement)', `${fmtEur(remuneracionAnual)} × ${((1 - abattement) * 100).toFixed(0)}%`, fmtEur(tns.assiette)],
+      ['Rémunération nette mensuelle (versée)', `${fmtEur(remuneracionAnual)} / 12`, fmtEur(remuneracionMensual)],
+      ['Assiette TNS (abattement)', `(Rémunération + cotisations) × ${((1 - abattement) * 100).toFixed(0)}%`, fmtEur(tns.assiette)],
       ['Cotisations TNS (mensuel)', `Assiette × ${(tauxGlobal * 100).toFixed(0)}% ÷ 12`, fmtEur(cotisacionesMensuales)],
-      ['Net avant impôt sur le revenu', 'Rémunération − cotisations', fmtEur(remuneracionMensual - cotisacionesMensuales)],
+      ['Coût mensuel pour la société', 'Rémunération + cotisations', fmtEur(remuneracionMensual + cotisacionesMensuales)],
     ],
     styles: { font: FUENTE_PDF, fontSize: 8.5, lineColor: GRIS_BORDE, lineWidth: 0.1, valign: 'middle' },
     headStyles: { fillColor: colorRgb, textColor: 255, fontStyle: 'bold', fontSize: 9 },

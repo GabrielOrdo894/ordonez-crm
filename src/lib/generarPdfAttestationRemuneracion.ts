@@ -23,7 +23,6 @@ export async function generarPdfAttestationRemuneracion(
 
   const fecha = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   const tns = calcularTNS(remuneracionAnual, config);
-  const netoEstimado = Math.max(0, remuneracionAnual - tns.total);
 
   let y = 40;
   doc.setFont(FUENTE_PDF, 'normal');
@@ -48,13 +47,13 @@ export async function generarPdfAttestationRemuneracion(
   parrafo('ATTESTE PAR LA PRÉSENTE :', { negrita: true, espacioAntes: 4, espacioDespues: 8 });
   parrafo(
     `Que M. ${entidad.nombre_titular || 'Mario Ricardo Ordoñez Quevedo'} perçoit, au titre de son mandat de gérant de ` +
-      `la société pour l'exercice ${anio}, une rémunération annuelle brute de ${fmtEur(remuneracionAnual)}, soit ` +
-      `${fmtEur(remuneracionAnual / 12)} par mois.`,
+      `la société pour l'exercice ${anio}, une rémunération annuelle nette de ${fmtEur(remuneracionAnual)}, soit ` +
+      `${fmtEur(remuneracionAnual / 12)} par mois, versée sur son compte bancaire.`,
   );
   parrafo(
-    `Après déduction des cotisations sociales des travailleurs non-salariés (TNS) dues auprès de la Sécurité Sociale ` +
-      `des Indépendants (SSI), soit ${fmtEur(tns.total)} par an, la rémunération nette estimée s'élève à ` +
-      `${fmtEur(netoEstimado)} par an, soit ${fmtEur(netoEstimado / 12)} par mois.`,
+    `Cette rémunération s'entend nette de cotisations sociales : les cotisations des travailleurs non-salariés (TNS) ` +
+      `dues auprès de la Sécurité Sociale des Indépendants (SSI), estimées à ${fmtEur(tns.total)} par an, sont prises ` +
+      `en charge par la société en sus de cette rémunération.`,
   );
   parrafo(
     "Cette rémunération est fixée par décision de l'associé unique, conformément à l'article 12 des statuts de la " +

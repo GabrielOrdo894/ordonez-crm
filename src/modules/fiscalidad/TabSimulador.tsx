@@ -14,7 +14,7 @@ import { registrarDecision } from '../../lib/registroDecisiones';
 import { useFiscalConfig } from './useFiscalConfig';
 import { useGerantConfig } from './useGerantConfig';
 import { useResultadoEjercicio } from './useResultadoEjercicio';
-import { simularEjercicio, limitesEjercicio, mesesTranscurridosEjercicio, calcularIRGerante } from './calculos';
+import { simularEjercicio, limitesEjercicio, mesesTranscurridosEjercicio, calcularIRGerante, remuneracionNetaParaCoste } from './calculos';
 import { DESGLOSE_REFERENCIA } from './desgloseReferencia';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -125,9 +125,11 @@ export function TabSimulador() {
   // gérant (es lo que decidiste: "el margen neto se convierte directamente en el salario anual") —
   // en cuanto cambian ingresos o gastos, la rémunération se ajusta sola a ese mismo importe. Cambiar
   // la rémunération a mano después queda tal cual hasta el siguiente cambio de ingresos/gastos.
+  // La rémunération es neta: se lleva la mayor que cabe en el margen una vez pagadas sus cotisations
+  // (neta + cotisations = margen). Antes se ponía el margen entero y la société quedaba en déficit.
   useEffect(() => {
-    setRemuneracion(Math.max(0, beneficioBruto));
-  }, [beneficioBruto]);
+    setRemuneracion(remuneracionNetaParaCoste(Math.max(0, beneficioBruto), config));
+  }, [beneficioBruto, config]);
 
   const resultado = useMemo(
     () => simularEjercicio(remuneracion, pctDividendos, beneficioBruto, capitalSocialSim, compteCourantMedio, meses, config),
@@ -142,20 +144,19 @@ export function TabSimulador() {
     () =>
       calcularIRGerante(
         remuneracion,
-        resultado.tns.total,
         ingresosConyuge,
         casado,
         hijosACargo,
         config,
         resultado.tns.csgNoDeducible,
       ),
-    [remuneracion, resultado.tns.total, resultado.tns.csgNoDeducible, ingresosConyuge, casado, hijosACargo, config],
+    [remuneracion, resultado.tns.csgNoDeducible, ingresosConyuge, casado, hijosACargo, config],
   );
 
   // El neto disponible "de empresa" (resultado.netoDisponible) todavía no resta el impôt sur le
   // revenu personal de Mario — este sí es el importe real que le queda en el bolsillo tras TODO
   // (cotisations TNS + Impôt sur les Sociétés + IR personal + carga sobre dividendos si los hay).
-  const netoRealFinal = remuneracion - resultado.tns.total - irGerante.impotFinal + (resultado.dividendos - resultado.divCalc.total);
+  const netoRealFinal = remuneracion - irGerante.impotFinal + (resultado.dividendos - resultado.divCalc.total);
   const netoRealMensual = netoRealFinal / 12;
 
   const pctNetoSobreIngresos = ingresos > 0 ? netoRealFinal / ingresos : 0;
@@ -178,7 +179,7 @@ export function TabSimulador() {
   // anual/12) y % sobre la facturación HT, restas siempre con "−" delante y en rojo. `anual` se
   // guarda siempre en positivo; `negativo` decide el signo y el color al pintarlo.
   const filasCascada = useMemo(() => {
-    const netoAntesDeclaracion = Math.max(0, remuneracion - resultado.tns.total) + resultado.dividendos - resultado.divCalc.total;
+    const netoAntesDeclaracion = remuneracion + resultado.dividendos - resultado.divCalc.total;
     const totalRetenciones = resultado.tns.total + resultado.is.total + resultado.divCalc.total;
     const filas: { concepto: string; anual: number; negativo?: boolean; destacado?: boolean; final?: boolean; destino: string }[] = [
       { concepto: 'Facturación total neta (HT)', anual: ingresos, destino: 'Total de ingresos por obras, sin IVA' },
@@ -192,7 +193,7 @@ export function TabSimulador() {
         concepto: 'Margen operativo disponible',
         anual: beneficioBruto,
         destacado: true,
-        destino: 'Se declara íntegro como rémunération bruta del gérant',
+        destino: 'Se reparte entre la rémunération neta del gérant y sus cotisations',
       },
       {
         concepto: 'Cotisations URSSAF (TNS)',
@@ -322,7 +323,7 @@ export function TabSimulador() {
         Con {fmt(ingresos)} de ingresos y {fmt(gastos)} de gastos, a Mario le queda el{' '}
         <strong className="text-brand">{fmtPct(pctNetoSobreIngresos)}</strong> limpio de lo facturado tras pagarlo todo:{' '}
         <strong className="text-brand">{fmt(netoRealFinal)}</strong> ({fmt(netoRealMensual)}/mes), con una rémunération de{' '}
-        {fmt(remuneracion)}/año y sin repartir dividendos — tras {fmt(resultado.tns.total)} de cotisations URSSAF y{' '}
+        {fmt(remuneracion)}/año netos y sin repartir dividendos — la société paga además {fmt(resultado.tns.total)} de cotisations URSSAF, y quedan{' '}
         {fmt(irGerante.impotFinal)} de impôt sur le revenu del hogar
         {irGerante.ingresosConyuge > 0 ? ' (declaración conjunta, incluye los ingresos del cónyuge)' : ''}.
       </ResumenTitular>
@@ -901,7 +902,7 @@ export function TabSimulador() {
           },
           {
             q: '¿Qué pasos sigue el cálculo, en orden?',
-            a: '1) Se calculan las cotisations TNS sobre la rémunération elegida (assiette = rémunération × 74%, cotisations = assiette × ~45%). 2) Se resta la rémunération y sus cotisations al beneficio bruto (ingresos − gastos) para obtener el beneficio imponible. 3) Se calcula el Impôt sur les Sociétés sobre ese beneficio (15% hasta el plafond prorrateado, 25% el exceso). 4) Si activas "Usar dividendos", se detrae la reserva legal obligatoria y se reparte el % elegido como dividendos. Todo esto es lo que ves en la tabla "De la facturación al bolsillo" — es lo que gestiona la sociedad. 5) Aparte, ya a título personal, sobre la rémunération neta de Mario se aplica el abattement del 10% y el impôt sur le revenu con el quotient familial de su foyer fiscal — eso vive en la sección "Declaración de la renta personal", más abajo, porque es un trámite tuyo, no de la sociedad.',
+            a: '1) Se calculan las cotisations TNS sobre la rémunération neta elegida (assiette = (rémunération + cotisations) × 74%, cotisations = assiette × ~45%; las paga la société aparte). 2) Se resta la rémunération y sus cotisations al beneficio bruto (ingresos − gastos) para obtener el beneficio imponible. 3) Se calcula el Impôt sur les Sociétés sobre ese beneficio (15% hasta el plafond prorrateado, 25% el exceso). 4) Si activas "Usar dividendos", se detrae la reserva legal obligatoria y se reparte el % elegido como dividendos. Todo esto es lo que ves en la tabla "De la facturación al bolsillo" — es lo que gestiona la sociedad. 5) Aparte, ya a título personal, sobre la rémunération neta de Mario se aplica el abattement del 10% y el impôt sur le revenu con el quotient familial de su foyer fiscal — eso vive en la sección "Declaración de la renta personal", más abajo, porque es un trámite tuyo, no de la sociedad.',
           },
           {
             q: '¿Por qué la rémunération se calcula sola, sin dividendos?',
@@ -929,7 +930,7 @@ export function TabSimulador() {
           },
           {
             q: '¿Cómo se calcula el impôt sur le revenu personal y el quotient familial?',
-            a: 'La rémunération neta de Mario (rémunération − sus cotisations TNS) MÁS el CSG/CRDS no deducible (2,9% de la assiette, que sus cotisations ya restaron de más al usar un taux global único) tributa personalmente en la categoría "traitements et salaires", con un abattement forfaitario del 10% (topado entre 509 € y 14.555 € para revenus 2025, aplicado a CADA declarante por separado — igual con el sueldo del cónyuge si lo tiene). Sobre lo que queda entre los dos ("revenu net imposable" del hogar) se aplica el barème progresivo (0% hasta 11.600 €, 11% hasta 29.579 €, 30% hasta 84.577 €, 41% hasta 181.917 €, 45% en adelante) — pero no directamente: primero se divide entre el número de "partes" del foyer fiscal (quotient familial: 2 partes por estar casado + 0,5 por cada uno de los dos primeros hijos a cargo, configurable en "Situación familiar"), se calcula el impôt de esa cifra por parte, y se multiplica de nuevo por el número de partes. Cuantas más partes, menos impôt para el mismo ingreso — con un tope: el ahorro de cada media parte extra por hijos está limitado a 1.807 € (plafonnement, art. 197 CGI). Por último se aplica la décote, una rebaja adicional automática para impôts brutos bajos. Los dividendos NO entran en este cálculo — tributan aparte al PFU (o TNS si superan el umbral), que ya se ve en la tabla como "carga sobre dividendos".',
+            a: 'La rémunération neta de Mario (lo que le llega al banco; las cotisations TNS las paga la société aparte) MÁS el CSG/CRDS no deducible (2,9% de la assiette) tributa personalmente en la categoría "traitements et salaires", con un abattement forfaitario del 10% (topado entre 509 € y 14.555 € para revenus 2025, aplicado a CADA declarante por separado — igual con el sueldo del cónyuge si lo tiene). Sobre lo que queda entre los dos ("revenu net imposable" del hogar) se aplica el barème progresivo (0% hasta 11.600 €, 11% hasta 29.579 €, 30% hasta 84.577 €, 41% hasta 181.917 €, 45% en adelante) — pero no directamente: primero se divide entre el número de "partes" del foyer fiscal (quotient familial: 2 partes por estar casado + 0,5 por cada uno de los dos primeros hijos a cargo, configurable en "Situación familiar"), se calcula el impôt de esa cifra por parte, y se multiplica de nuevo por el número de partes. Cuantas más partes, menos impôt para el mismo ingreso — con un tope: el ahorro de cada media parte extra por hijos está limitado a 1.807 € (plafonnement, art. 197 CGI). Por último se aplica la décote, una rebaja adicional automática para impôts brutos bajos. Los dividendos NO entran en este cálculo — tributan aparte al PFU (o TNS si superan el umbral), que ya se ve en la tabla como "carga sobre dividendos".',
           },
           {
             q: '¿Se declara junto con mi mujer, o cada uno por su cuenta?',

@@ -89,6 +89,12 @@ export function TabCierreEjercicio() {
   const pasoDepositoHecho = !!echeanceDeposito?.completada;
 
   const handleAprobacionCuentas = async () => {
+    // Un ejercicio en curso no se aprueba: cerrarlo bloquea hasta el 31/12 cualquier factura, gasto o
+    // cobro, y desde la pantalla no hay vuelta atrás (auditoría fiscal 2026-10-09).
+    if (hoyLocalIso() <= `${anio}-12-31`) {
+      toast.error(`El ejercicio ${anio} no ha terminado: las cuentas se aprueban después del 31/12/${anio}.`);
+      return;
+    }
     // Se captura antes de disparar nada: si ya se había aprobado este ejercicio, repetir el botón
     // (permitido, ver FAQ) no debe volver a sumar la dotación a reserva_legal_acumulada — la
     // sumaría dos veces y corrompería el cálculo real de los próximos ejercicios.
@@ -229,7 +235,7 @@ export function TabCierreEjercicio() {
             }
           >
             <div className="flex items-center gap-3 flex-wrap">
-              <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion}>
+              <Button onClick={handleAprobacionCuentas} disabled={generandoAprobacion || cargando}>
                 {generandoAprobacion ? 'Generando...' : `Décision d'approbation des comptes ${anio} (PDF)`}
               </Button>
               {echeanceAsamblea && (

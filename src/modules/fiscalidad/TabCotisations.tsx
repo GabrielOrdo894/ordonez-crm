@@ -170,7 +170,8 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
           </div>
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          Cálculo: assiette = {fmt(remuneracion)} × {((1 - config('tns_abattement', 0.26)) * 100).toFixed(0)}% ={' '}
+          Cálculo: assiette = (rémunération neta {fmt(remuneracion)} + sus cotisations) ×{' '}
+          {((1 - config('tns_abattement', 0.26)) * 100).toFixed(0)}% ={' '}
           {fmt(tns.assiette)}. Cotisations = assiette × {(config('tns_taux_global', 0.45) * 100).toFixed(0)}% (taux global
           efectivo) = {fmt(tns.total)}.
         </p>
