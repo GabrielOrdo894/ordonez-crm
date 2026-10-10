@@ -3,6 +3,7 @@ import { calcularKmIdaYVuelta } from '../../lib/calcularKmIdaYVuelta';
 import { insertarGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
 import type { NuevoGasto } from '../finanzas/gastos/types';
 import { abrirOCrearFichaGaleria, cargarObrasDisponibles, type ObraGaleria } from '../galeria/obras';
+import { errorDeCupo, guardarFotos, siguienteOrden, subirArchivo, borrarArchivos, MAX_FOTOS_PROYECTO } from '../galeria/media';
 import type { FotoGaleria, TipoFoto } from '../galeria/types';
 import { esErrorDeRed, listarPendientes, marcarError, mensajeError, quitarPendiente, type ArchivoPendiente, type EnvioKm, type Pendiente } from './colaOffline';
 
@@ -111,32 +112,35 @@ export async function enviarTicket(
 
 // ---- Fotos de obra → galería -------------------------------------------------------------------
 
-export const MAX_FOTOS_PROYECTO = 20;
+export { MAX_FOTOS_PROYECTO };
 
-// Mismo flujo que GaleriaMediaPage.tsx: ficha creada al vuelo si la obra no la tiene todavía
-// (abrirOCrearFichaGaleria, sin duplicados), bucket público `galeria`, y las fotos nuevas se añaden
-// al final de su categoría respetando el máximo de 20 por proyecto.
+// Mismo flujo que la ficha de obra de la galería (galeria/media.ts): ficha creada al vuelo si la obra
+// no la tiene todavía (abrirOCrearFichaGaleria, sin duplicados), original + miniatura al bucket
+// `galeria`, y las fotos nuevas se añaden al final de su categoría con escritura optimista.
 export async function enviarFotosObra({ obra, tipoFoto, fotos }: { obra: ObraGaleria; tipoFoto: TipoFoto; fotos: ArchivoPendiente[] }) {
   const galeriaId = await abrirOCrearFichaGaleria(obra);
   const { data: proyecto, error: errorProyecto } = await supabase.from('galeria').select('fotos').eq('id', galeriaId).single();
   if (errorProyecto) throw errorProyecto;
-  const actuales = ((proyecto?.fotos ?? []) as FotoGaleria[]).slice();
-  if (actuales.length + fotos.length > MAX_FOTOS_PROYECTO) {
-    throw new Error(`Máximo ${MAX_FOTOS_PROYECTO} fotos por obra (ya hay ${actuales.length})`);
-  }
-  const deCategoria = actuales.filter((f) => f.tipo === tipoFoto);
-  let orden = deCategoria.length > 0 ? Math.max(...deCategoria.map((f) => f.orden)) + 1 : 0;
+  const actuales = (proyecto?.fotos ?? []) as FotoGaleria[];
+  const cupo = errorDeCupo(actuales, fotos.length);
+  if (cupo) throw new Error(cupo);
+  let orden = siguienteOrden(actuales, tipoFoto);
   const nuevas: FotoGaleria[] = [];
   for (const foto of fotos) {
-    const path = `${galeriaId}/${crypto.randomUUID()}_${foto.nombre}`;
-    const { error: errorSubida } = await supabase.storage.from('galeria').upload(path, foto.archivo, { contentType: foto.mime });
-    if (errorSubida) throw errorSubida;
-    const { data } = supabase.storage.from('galeria').getPublicUrl(path);
-    nuevas.push({ url: data.publicUrl, nombre: foto.nombre, tipo: tipoFoto, orden, tipo_archivo: 'foto', titulo: null, descripcion: null });
+    nuevas.push(await subirArchivo(galeriaId, foto, tipoFoto, orden));
     orden += 1;
   }
-  const { error } = await supabase.from('galeria').update({ fotos: [...actuales, ...nuevas] }).eq('id', galeriaId);
-  if (error) throw error;
+  try {
+    await guardarFotos(galeriaId, null, (fotos) => {
+      const cupoAhora = errorDeCupo(fotos, nuevas.length);
+      if (cupoAhora) throw new Error(cupoAhora);
+      let ord = siguienteOrden(fotos, tipoFoto);
+      return [...fotos, ...nuevas.map((n) => ({ ...n, orden: ord++ }))];
+    });
+  } catch (err) {
+    await borrarArchivos(nuevas); // no dejar archivos sin ficha
+    throw err;
+  }
   return { galeriaId, subidas: nuevas.length };
 }
 

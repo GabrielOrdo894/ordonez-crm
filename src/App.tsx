@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import LoginPage from './modules/auth/LoginPage';
@@ -54,7 +54,6 @@ const PipelinePage = lazy(() => import('./modules/pipeline/PipelinePage'));
 const PlanningObraPage = lazy(() => import('./modules/planning/PlanningObraPage'));
 const GaleriaPage = lazy(() => import('./modules/galeria/GaleriaPage'));
 const GaleriaDetallePage = lazy(() => import('./modules/galeria/GaleriaDetallePage'));
-const GaleriaMediaPage = lazy(() => import('./modules/galeria/GaleriaMediaPage'));
 const GaleriaNuevaPage = lazy(() => import('./modules/galeria/GaleriaNuevaPage'));
 const PresupuestosPage = lazy(() => import('./modules/finanzas/presupuestos/PresupuestosPage'));
 const FacturasPage = lazy(() => import('./modules/finanzas/facturas/FacturasPage'));
@@ -80,6 +79,12 @@ const PapeleraPage = lazy(() => import('./modules/papelera/PapeleraPage'));
 const PerfilPage = lazy(() => import('./modules/perfil/PerfilPage'));
 const AvatarGaleriaPage = lazy(() => import('./modules/perfil/AvatarGaleriaPage'));
 const MensajeriaPage = lazy(() => import('./modules/mensajeria/MensajeriaPage'));
+
+// La antigua página de medios de la galería (/galeria/:id/media) se fundió en la ficha (v2, 2026-10-10).
+function RedirigirAFichaGaleria() {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/galeria/${id}`} replace />;
+}
 
 export default function App() {
   const { session, loading, recuperandoContrasena, contrasenaActualizada } = useAuth();
@@ -184,7 +189,7 @@ export default function App() {
             <Route path="/galeria" element={<GaleriaPage />} />
             <Route path="/galeria/nueva" element={<GaleriaNuevaPage />} />
             <Route path="/galeria/:id" element={<GaleriaDetallePage />} />
-            <Route path="/galeria/:id/media" element={<GaleriaMediaPage />} />
+            <Route path="/galeria/:id/media" element={<RedirigirAFichaGaleria />} />
             <Route path="/finanzas/presupuestos" element={<PresupuestosPage />} />
             <Route path="/finanzas/facturas" element={<FacturasPage />} />
             <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />

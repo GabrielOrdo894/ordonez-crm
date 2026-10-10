@@ -1184,3 +1184,41 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     mes declarado conserva su línea 22, solo se arrastra el crédito de un mes anterior declarado, y no se puede
     desmarcar un mes con otros posteriores declarados. Una segunda rectificativa descuenta lo ya anulado por las
     anteriores (`fraccionTvaExigibleRectificativa`, cuarto parámetro).
+  - **Tercera ronda (2026-10-10, contrastada con 81 páginas oficiales; informe ampliado al final):** en la CA3 los
+    **servicios** comprados a proveedores no establecidos van en **A3** (sin línea 17) y solo los **bienes** en B2 + 17
+    (`esServicioSegunCuenta` en `finanzas/iva.ts`: cuentas 61x, 62x y 604 son servicios); las importaciones llevan su TVA en
+    **I1**, no en la 08. Las cotisations TNS ya no son un 45 % fijo: `cotisacionesSobreAssiette` aplica el **baremo URSSAF
+    2026** línea a línea (maladie progresiva, IJ, retraite base y complémentaire, invalidité-décès, AF, CSG-CRDS, CFP) y
+    `calcularTNS` devuelve el desglose; 24.000 € netos ≈ 10.500 € de cotisations. En la renta del gérant, DSCA/DSEA ya no
+    existen (campaña 2026): se declara una sola cifra en **DSEC** = neto + cotisations pagadas por la société. No
+    implementado a propósito: Acre (desde 2026 no es automática), A2/B4 de subcontratación, calendario real de pagos URSSAF.
+- **Galería v2** (2026-10-10, auditoría en `docs/auditorias/2026-10-10-auditoria-galeria.md`, 81 páginas de investigación):
+  - **Dos pantallas en vez de tres**: `/galeria` (lista con buscador, chips de tipo de obra con contador, zona, destacadas,
+    «en la web») y `/galeria/:id` (toda la obra: subida, rejilla por categoría, visor, comparador, datos y acciones).
+    `/galeria/:id/media` redirige a la ficha. Toda la lógica de archivos y del array `fotos` vive en `galeria/media.ts` y
+    la usan la ficha y `/rapido` (`envios.ts`).
+  - **Supabase no tiene transformaciones de imagen en este plan** (`/render/image/` → `FeatureNotEnabled`): cada foto se
+    guarda dos veces, original ≤ 2000 px **WebP** y miniatura 480 px WebP (`thumb_url`), más `ancho`/`alto` para que las
+    rejillas no salten; los vídeos llevan `poster_url` (fotograma capturado en el navegador con `requestVideoFrameCallback`)
+    y `duracion`. Las fotos antiguas sin miniatura se completan solas la primera vez que se abre su obra
+    (`completarMiniaturas`). Nunca usar `<video>` como miniatura ni el original en una rejilla: `miniaturaDe(f)`.
+  - **Escritura del array `fotos` siempre con `guardarFotos`** (comprobación optimista sobre `galeria.updated_at`, trigger
+    `galeria_updated_at`): si otro usuario guardó entre medias, relee y reaplica el cambio en vez de pisarlo. **Borrar:
+    primero la fila, después los archivos** (`borrarArchivos`, una sola llamada `remove`). Rutas únicas e inmutables en el
+    bucket (`<obra>/<uuid>.webp`, `_thumb.webp`, `_poster.webp`) con `cacheControl` de un año.
+  - **Validación antes de subir** (`validarArchivo`, con tests): HEIC/HEIF se rechaza con explicación para el iPhone de
+    Ricardo (con `accept="image/*"` iOS entrega JPEG; nunca poner `image/heic` en `accept`, Safari 17 convertiría todo a
+    HEIC); vídeos solo MP4/MOV/WebM hasta 50 MB (tope del plan) y si el navegador no los decodifica (HEVC) se avisa.
+  - **Dependencias nuevas** (todas MIT, ~43 kB gzip): `yet-another-react-lightbox` (visor: Esc/flechas, deslizar, arrastrar
+    para cerrar, pinch-zoom, contador, pie), `@dnd-kit/core` + `sortable` (reordenar con el dedo y con teclado, anuncios en
+    español; el arrastre nativo HTML5 no funcionaba en el móvil) y `client-zip` (ZIP en streaming; JSZip sigue en
+    Facturas/Presupuestos/Proveedores). Comparador antes/después a mano (`input type=range` + `clip-path`), con el par
+    elegible y vista lado a lado.
+  - **Clasificación**: `galeria.tipo_obra_clave` (lista cerrada `TIPOS_OBRA` en `types.ts`; `tipo_obra` libre se conserva
+    como texto heredado) y `portada_url` (portada elegida; si no, la primera de «Después» — `portadaDe`). «Destacada» y
+    «Visible en la web» son botones explícitos; «Visible en la web» todavía no conecta con WordPress (fase 4 pendiente:
+    función pública + fragmento en `/nos-renovations/` y `/proyectos/`, con «texto para la web» FR/ES aparte, y enlace de obra
+    con token para el cliente — decidido con Gabriel el 2026-10-10).
+  - Compartir: Web Share API con archivos (fotos convertidas a JPEG, porque un WebP a WhatsApp puede llegar como sticker)
+    y «Copiar enlaces». Selección múltiple con `useSeleccionMultiple` + `BulkActionsBar` (mover de categoría, ZIP, enlaces,
+    compartir, eliminar).
