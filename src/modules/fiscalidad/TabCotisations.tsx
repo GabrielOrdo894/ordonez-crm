@@ -172,8 +172,13 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
         <p className="text-xs text-gray-400 mt-3">
           Cálculo: assiette = (rémunération neta {fmt(remuneracion)} + sus cotisations) ×{' '}
           {((1 - config('tns_abattement', 0.26)) * 100).toFixed(0)}% ={' '}
-          {fmt(tns.assiette)}. Cotisations = assiette × {(config('tns_taux_global', 0.45) * 100).toFixed(0)}% (taux global
-          efectivo) = {fmt(tns.total)}.
+          {fmt(tns.assiette)}. Sobre esa assiette se aplica el baremo de la URSSAF de 2026 línea a línea (maladie{' '}
+          {fmt(tns.desglose.maladie)}, IJ {fmt(tns.desglose.indemnites)}, retraite de base {fmt(tns.desglose.retraiteBase)},
+          complémentaire {fmt(tns.desglose.retraiteComplementaire)}, invalidité-décès {fmt(tns.desglose.invaliditeDeces)},
+          CSG-CRDS {fmt(tns.desglose.csgCrds)}, formation {fmt(tns.desglose.formation)}) = {fmt(tns.total)}, un{' '}
+          {(tns.tauxEfectivo * 100).toFixed(1).replace('.', ',')} % de la assiette. Es una estimación del año completo: los
+          dos primeros años la URSSAF cobra primero sobre una base fija (unos 3.500 € al año) y regulariza la diferencia
+          tras la declaración de la renta.
         </p>
       </div>
 
@@ -310,8 +315,8 @@ export function TabCotisations({ anio, onAnioChange }: { anio: number; onAnioCha
             a: 'La Sécurité Sociale des Indépendants exige unas cotisations mínimas (sobre todo retraite de base e invalidité-décès) incluso con rémunération de 0 €, para garantizar al gérant una cobertura social mínima (que le cuenten trimestres de jubilación, por ejemplo) aunque no se pague ningún salario ese año. En la práctica suelen ser unos pocos cientos de euros al año, no los miles que verías con una rémunération alta — este simulador simplificado no calcula ese mínimo exacto, solo avisa de que existe.',
           },
           {
-            q: '¿De dónde sale el 45% de "taux global efectivo"? ¿Por qué no se desglosa exactamente?',
-            a: 'El taux real es progresivo (cambia según el nivel de ingresos) y resulta de sumar todas las cotisations individuales de la tabla de abajo (Maladie, ambas jubilaciones, invalidité-décès, CSG-CRDS, CFP...). Sumar ese barème completo da, en la práctica, un taux global entre el 40% y el 45% aproximadamente. El simulador usa ese 45% como aproximación única configurable en vez de replicar el barème progresivo exacto de la URSSAF, que además cambia cada año — así el cálculo se mantiene simple y siempre editable desde fiscal_config sin tocar código.',
+            q: '¿Cómo se calculan las cotisations? ¿Qué tipo sale?',
+            a: 'Con el baremo de la URSSAF de 2026 para artisans y commerçants, línea a línea sobre la assiette: maladie progresiva (0 % por debajo del 20 % del PASS, hasta 8,5 %), IJ 0,5 %, retraite de base 17,87 % hasta el PASS, complémentaire 8,1 %, invalidité-décès 1,3 %, CSG-CRDS 9,7 % y la formation (139 €). Para una rémunération de 24.000 € netos al año salen unos 10.500 €: el 41 % de la assiette, el 44 % del neto. Hasta el 2026-10-09 se usaba un 45 % fijo sobre la assiette, que daba unos 980 € de más. Los tipos son los de 2026; habrá que revisarlos cuando la URSSAF publique los de 2027.',
           },
           {
             q: '¿Qué es la "régularisation" del primer año?',

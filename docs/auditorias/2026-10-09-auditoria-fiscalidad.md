@@ -111,3 +111,27 @@ Auditoría de solo lectura, en tres frentes: TVA y asistente CA3; IS, cotizacion
 **Corregido y publicado además:** I3 (proyección de TabIS), L11 (línea de IS de la liasse y del PDF), L12 (valor neto 0 en activos dados de baja), céntimo residual del último año de amortización y signos tipográficos del FEC.
 
 **Sigue pendiente:** I4, I6, I9, I10, L8, L10, T7, T8, el resto de bajos, las cifras sin contrastar y las claves fiscales sin año.
+
+## Contraste con fuentes oficiales (misma fecha, 47 páginas en dos rondas)
+
+Aplicado en el código:
+
+- **CA3 — servicios a proveedores no establecidos**: van en A3 y no en B2/17 (notice 3310-CA3 2026). Se deduce de
+  la cuenta del gasto (`esServicioSegunCuenta`: 61x, 62x y 604 = servicio). Los gastos intracomunitarios
+  registrados hasta hoy son todos bienes (Alkain, EasyGas): ninguna declaración presentada cambia.
+- **CA3 — importaciones**: la TVA va en la línea I1 (20 %), no en la 08 (notice «TVA à l'importation»).
+- **Cotisations TNS**: baremo URSSAF 2026 línea a línea (`cotisacionesSobreAssiette`) en vez del 45 % fijo, que
+  daba unos 980 € de más al año para 24.000 € netos. Dividendos por encima del umbral: el tipo se aplica sobre el
+  74 % del exceso.
+- **Renta del gérant**: el volet social es la rúbrica DSEC (rémunération bruta) de la 2042 en línea; DSCA/DSEA se
+  suprimieron en la campaña 2026.
+
+Confirmado sin cambios: 1GB = neto + CSG/CRDS no deducible; abattement 10 % (509–14.555 €, revenus 2025); PFU
+31,4 %; IS 15 % hasta 21.250 € en el ejercicio de 6 meses (exige capital íntegramente desembolsado); avoirs en B5
+y línea 21; redondeo al euro más próximo por línea.
+
+Sin hacer: subcontratación de obra (A2 si el subcontratista es francés, B4 si es extranjero y la obra está en
+Francia) — el CRM no la distingue; Acre (desde 2026 hay que pedirla en 60 días y solo para ciertos perfiles);
+calendario real de pagos provisionales de la URSSAF del primer año. Fuentes principales: formulario y notice
+3310-CA3-SD 2026, BOI-TVA-DECLA-10-10-20, notice 2041-DRI campaña 2026, Brochure IR 2026, BOI-RSA-GER-20,
+BOI-IS-LIQ-20-20, urssaf.fr (taux artisans-commerçants 2026).

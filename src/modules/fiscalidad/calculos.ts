@@ -62,23 +62,56 @@ export function calcularIS(beneficio: number, meses: number, config: ConfigFn) {
 // que le llega al banco al gérant. Las cotisations TNS las paga la société aparte, encima de ese
 // importe. Antes unas funciones la trataban como neta y otras como bruta, y las cotisations se
 // restaban dos veces (auditoría fiscal 2026-10-09, hallazgo C1).
+// Cotisations de un artisan/commerçant sobre su assiette (ya con el abattement del 26 %), con el baremo
+// de la URSSAF para 2026 (urssaf.fr «Taux de cotisations des artisans, commerçants», contrastado
+// 2026-10-09). Hasta esa fecha se aplicaba un tipo global único del 45 %, que para una rémunération de
+// 24.000 € daba unos 980 € de más al año: el tipo real ronda el 41 % de la assiette.
+// Los tipos «progresivos» de la maladie y las allocations familiales suben en línea recta entre los dos
+// extremos de cada tramo y se aplican a toda la assiette.
+export function cotisacionesSobreAssiette(assiette: number, config: ConfigFn) {
+  const pass = config('pass_2026', 48060);
+  const lineal = (x: number, x0: number, x1: number, t0: number, t1: number) => t0 + ((t1 - t0) * (x - x0)) / (x1 - x0);
+  let tauxMaladie = 0;
+  if (assiette < 0.2 * pass) tauxMaladie = 0;
+  else if (assiette < 0.4 * pass) tauxMaladie = lineal(assiette, 0.2 * pass, 0.4 * pass, 0, 0.015);
+  else if (assiette < 0.6 * pass) tauxMaladie = lineal(assiette, 0.4 * pass, 0.6 * pass, 0.015, 0.04);
+  else if (assiette < 1.1 * pass) tauxMaladie = lineal(assiette, 0.6 * pass, 1.1 * pass, 0.04, 0.065);
+  else if (assiette < 2 * pass) tauxMaladie = lineal(assiette, 1.1 * pass, 2 * pass, 0.065, 0.077);
+  else if (assiette < 3 * pass) tauxMaladie = lineal(assiette, 2 * pass, 3 * pass, 0.077, 0.085);
+  const maladie = assiette < 3 * pass ? assiette * tauxMaladie : 3 * pass * 0.085 + (assiette - 3 * pass) * 0.065;
+  // Mínimos anuales: IJ sobre el 40 % del PASS, retraite de base sobre 450 Smic horarios (5.409 €) e
+  // invalidité-décès sobre el 11,5 % del PASS.
+  const indemnites = Math.min(Math.max(assiette, 0.4 * pass), 5 * pass) * 0.005;
+  const retraiteBase = Math.max(Math.min(assiette, pass) * 0.1787 + Math.max(0, assiette - pass) * 0.0072, config('tns_retraite_base_min', 967));
+  const retraiteComplementaire = Math.min(assiette, pass) * 0.081 + Math.max(0, Math.min(assiette, 4 * pass) - pass) * 0.091;
+  const invaliditeDeces = Math.min(Math.max(assiette, 0.115 * pass), pass) * 0.013;
+  let tauxAf = 0;
+  if (assiette >= 1.4 * pass) tauxAf = 0.031;
+  else if (assiette > 1.1 * pass) tauxAf = lineal(assiette, 1.1 * pass, 1.4 * pass, 0, 0.031);
+  const allocationsFamiliales = assiette * tauxAf;
+  const csgCrds = assiette * 0.097;
+  // Contribution à la formation professionnelle de un artisan: 0,29 % del PASS, fija.
+  const formation = pass * config('tns_cfp_pct', 0.0029);
+  const total = maladie + indemnites + retraiteBase + retraiteComplementaire + invaliditeDeces + allocationsFamiliales + csgCrds + formation;
+  return { maladie, indemnites, retraiteBase, retraiteComplementaire, invaliditeDeces, allocationsFamiliales, csgCrds, formation, total };
+}
+
 export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   const abattementPct = config('tns_abattement', 0.26);
-  const tauxGlobal = config('tns_taux_global', 0.45);
   const pass = config('pass_2026', 48060);
   // Assiette única (reforma URSSAF, revenus desde 2025): se parte del revenu BRUTO = rémunération
-  // + las propias cotisations obligatorias, y se le resta un abattement del 26 % acotado entre el
-  // 1,76 % y el 130 % del PASS (el tope se aplica al abattement, no a la rémunération). Como las
-  // cotisations dependen de sí mismas, se resuelve por iteración (converge en pocas vueltas).
-  // Antes se usaba rémunération × 0,74 sin sumar las cotisations, lo que las subestimaba en torno
-  // a un tercio (auditoría fiscal 2026-09-29).
+  // + las propias cotisations pagadas por la société, y se le resta un abattement del 26 % acotado
+  // entre el 1,76 % y el 130 % del PASS (el tope se aplica al abattement, no a la rémunération). Como
+  // las cotisations dependen de sí mismas, se resuelve por iteración (converge en pocas vueltas).
   let total = 0;
   let assiette = 0;
-  for (let i = 0; i < 50; i++) {
+  let desglose = cotisacionesSobreAssiette(0, config);
+  for (let i = 0; i < 80; i++) {
     const bruto = remuneracionAnual + total;
     const abattement = Math.min(Math.max(bruto * abattementPct, pass * 0.0176), pass * 1.3);
     assiette = Math.max(0, bruto - abattement);
-    const siguiente = assiette * tauxGlobal;
+    desglose = cotisacionesSobreAssiette(assiette, config);
+    const siguiente = desglose.total;
     if (Math.abs(siguiente - total) < 0.005) {
       total = siguiente;
       break;
@@ -88,16 +121,15 @@ export function calcularTNS(remuneracionAnual: number, config: ConfigFn) {
   if (remuneracionAnual <= 0) {
     total = 0;
     assiette = 0;
+    desglose = { maladie: 0, indemnites: 0, retraiteBase: 0, retraiteComplementaire: 0, invaliditeDeces: 0, allocationsFamiliales: 0, csgCrds: 0, formation: 0, total: 0 };
   }
-  // CSG/CRDS no deducible (2,9% de los 9,7% totales, ver DESGLOSE_REFERENCIA — el resto, 6,8%, sí
-  // es deducible y ya está correctamente restado dentro de `total`) — hay que sumarlo de vuelta a
-  // la rémunération neta para obtener el importe real de la casilla 1GB del formulario 2042 (art.
-  // 62 CGI), la Administración no lo hace sola a diferencia del abattement del 10%. Confirmado
-  // 2026-08-26 que se aplica sobre esta misma `assiette` (rémunération × 0,74) bajo el régimen TNS
-  // "assiette única" 2026 (LFSS 2024) — no sobre el bruto, a diferencia de un salarié. Ver
-  // calcularIRGerante, que la usa para calcular la 1GB con precisión.
+  // CSG/CRDS no deducible (2,9 de los 9,7 puntos; los otros 6,8 sí son deducibles): se suma a la
+  // rémunération neta para obtener la casilla 1GB de la 2042 (art. 62 CGI, BOI-RSA-GER-20 §110).
   const csgNoDeducible = assiette * config('csg_no_deducible_pct', 0.029);
-  return { assiette, total, mensual: total / 12, csgNoDeducible };
+  // Revenu brut social: lo que se declara en el volet social de la 2042 (rúbrica DSEC desde la campaña
+  // 2026) — neto percibido + todas las cotisations pagadas por la société, sin restar nada.
+  const brutoSocial = remuneracionAnual > 0 ? remuneracionAnual + total : 0;
+  return { assiette, total, mensual: total / 12, csgNoDeducible, desglose, brutoSocial, tauxEfectivo: assiette > 0 ? total / assiette : 0 };
 }
 
 // Article 18 des statuts (verificado contra los estatutos reales, auditoría 2026-08-12): del
@@ -141,7 +173,9 @@ export function calcularDividendos(
   const exceso = Math.max(0, dividendos - umbralLibre);
   const pfuLibre = libre * pfuTotal;
   const irExceso = exceso * 0.128;
-  const tnsExceso = exceso * tauxTNS;
+  // Los dividendos por encima del umbral entran en la assiette social con el mismo abattement del 26 %
+  // (notice 2041-DRI): el tipo se aplica sobre el 74 % del exceso, no sobre el exceso entero.
+  const tnsExceso = exceso * (1 - config('tns_abattement', 0.26)) * tauxTNS;
   return { umbralLibre, libre, exceso, pfuLibre, irExceso, tnsExceso, total: pfuLibre + irExceso + tnsExceso, superaSeuil: exceso > 0 };
 }
 

@@ -135,7 +135,10 @@ export function TabDeclaracionRenta() {
     if (ingresosConyuge > 0) {
       filas.push({ linea: '1HB', label: 'Traitements et salaires — cónyuge', importe: ingresosConyuge });
     }
-    filas.push({ linea: 'DSCA/DSEA', label: 'Cotisations sociales obligatoires del gérant (TNS)', importe: tns.total });
+    // Volet social de la 2042: desde la campaña 2026 las rúbricas DSCA/DSEA ya no existen; se declara
+    // una sola cifra, la rémunération bruta (neto + cotisations pagadas por la société), en DSEC
+    // (notice 2041-DRI, contrastado 2026-10-09).
+    filas.push({ linea: 'DSEC', label: 'Volet social — rémunération brute (neta + cotisations pagadas por la société)', importe: tns.brutoSocial });
     return filas;
   }, [resultado, ingresosConyuge, tns]);
 
@@ -386,20 +389,20 @@ export function TabDeclaracionRenta() {
             a: 'No como a un asalariado normal. Como gérant majoritaire (TNS), Mario no tiene una retención automática en nómina — paga un "acompte contemporain" que la DGFiP calcula según su última declaración y cobra directamente de su cuenta personal, normalmente el día 15 de cada mes (o trimestral si lo elige). Este asistente no calcula ese acompte mensual, solo la declaración anual final.',
           },
           {
-            q: '¿Qué son las casillas DSCA/DSEA?',
-            a: 'Son las casillas donde se declaran las cotisations sociales obligatoires (DSCA) y facultatives (DSEA) que Mario ya pagó a la URSSAF durante el año — estos importes reducen la base declarada en algunos casos y sirven de justificante. El CRM solo rellena DSCA con el total de cotisations TNS calculado (calcularTNS), que ya ves también en "Cotisations URSSAF". Confirmado que son las casillas correctas para un gérant majoritaire (no hay ninguna más apropiada para este caso).',
+            q: '¿Qué es la casilla DSEC?',
+            a: 'Es la del «volet social» de la propia 2042 en línea: sirve para que la URSSAF calcule las cotisations definitivas. Se pone la rémunération BRUTA, es decir lo cobrado más todas las cotisations y la CSG-CRDS que la société pagó por Mario ese año, sin restar nada ni aplicar el 26 % (lo aplica la URSSAF). Hasta la campaña de 2025 había que declarar las cotisations por separado en DSCA/DSEA; esas casillas se suprimieron en la campaña de 2026. La cifra de aquí es una estimación con el baremo: al declarar, pon lo realmente pagado a la URSSAF ese año (su attestation lo detalla). Los nombres de las casillas para la campaña de 2027 aún no están publicados y podrían cambiar.',
           },
           {
             q: '¿Y si algún año Mario reparte dividendos?',
             a: 'Las casillas 2DC (dividendos brutos) y 2CK (acompte no liberatorio del 12,8% ya retenido por la société al repartir) ya están preparadas en la tabla de abajo, en 0 € mientras no se repartan. Si se opta por tributar los dividendos al barème progresivo en vez del PFU del 31,4% (rara vez conviene con estos importes, ver el FAQ del "Simulador completo"), haría falta además marcar la casilla 2OP — no incluida aquí porque no aplica con 0 € de dividendos.',
           },
           {
-            q: '¿Por qué la 1GB es mayor que "rémunération − cotisations TNS"?',
-            a: 'Porque el abattement forfaitario del 10% (frais professionnels) NO se resta a mano — lo aplica solo la Administración al procesar la declaración. Lo que sí hay que sumar a mano es el CSG/CRDS no deducible (2,9% de la assiette): al calcular las cotisations TNS con un taux global único del 45%, ese 45% ya incluye tanto la parte deducible como la no deducible de la CSG-CRDS, pero solo la parte deducible (6,8% de 9,7%) debería reducir la base fiscal. Por eso la 1GB = rémunération neta + ese 2,9%, no rémunération neta a secas — este asistente ya hace esa suma automáticamente.',
+            q: '¿Por qué la 1GB es algo mayor que lo que Mario cobra?',
+            a: 'Porque de la CSG-CRDS (9,7 % de la assiette) solo 6,8 puntos son deducibles; los otros 2,9 (2,4 de CSG y 0,5 de CRDS) los paga la société por Mario pero no reducen su base fiscal, así que se suman a lo cobrado. El abattement del 10 % de gastos profesionales no se resta a mano: lo aplica la Administración. Ojo el primer año: la 1GB se calcula con la CSG-CRDS realmente pagada a la URSSAF en el año, y en 2026 la URSSAF cobra sobre una base provisional pequeña, así que la cifra real será más baja que la de esta estimación (entre 6.000 y 6.135 € para tres meses de 2.000 €).',
           },
           {
             q: '¿Puedo confiar en los importes de este asistente al 100%?',
-            a: 'Sí, con dos rondas de verificación (18 y 20 búsquedas reales, incluyendo BOFiP BOI-RSA-GER-20 directo): el formulario correcto (2042, no 2042-C-PRO), el barème del IR, la décote, el quotient familial, el abattement 10% (509 €–14.555 €, revenus 2025), la fórmula completa de la 1GB con el ajuste de CSG no deducible, el calendario, y que no hace falta ningún documento de urssaf.fr (esa "attestation fiscale" solo existe para autoentrepreneurs) — todo verificado contra fuentes oficiales (impots.gouv.fr, service-public.gouv.fr, BOFiP) citadas en fiscal_config.',
+            a: 'Como estimación, sí; las cifras definitivas son las de las attestations de la URSSAF. Contrastado en tres rondas (la última el 2026-10-09, con la notice 2041-DRI y la Brochure IR 2026): el formulario correcto (2042, no 2042-C-PRO), el barème del IR, la décote, el quotient familial, el abattement 10% (509 €–14.555 €, revenus 2025), la fórmula completa de la 1GB con el ajuste de CSG no deducible, el calendario, y que no hace falta ningún documento de urssaf.fr (esa "attestation fiscale" solo existe para autoentrepreneurs) — todo verificado contra fuentes oficiales (impots.gouv.fr, service-public.gouv.fr, BOFiP) citadas en fiscal_config.',
           },
         ]}
       />

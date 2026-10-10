@@ -3,6 +3,7 @@ import {
   limitesEjercicio,
   calcularIS,
   calcularTNS,
+  cotisacionesSobreAssiette,
   calcularDividendos,
   calcularReservaLegal,
   calcularBilanPasivo,
@@ -105,9 +106,8 @@ describe('calcularIS', () => {
 describe('calcularTNS', () => {
   it('assiette única: revenu brut (rémunération + cotisations) menos el 26 %', () => {
     const r = calcularTNS(40000, cfgPorDefecto);
-    // C = 0,45 × 0,74 × (R + C)  →  C = 0,333 R / 0,667
-    const esperado = (0.45 * 0.74 * 40000) / (1 - 0.45 * 0.74);
-    expect(r.total).toBeCloseTo(esperado, 0);
+    expect(r.total).toBeCloseTo(r.desglose.total, 1);
+    expect(r.brutoSocial).toBeCloseTo(40000 + r.total, 1);
     expect(r.assiette).toBeCloseTo((40000 + r.total) * 0.74, 0);
     expect(r.mensual).toBeCloseTo(r.total / 12);
   });
@@ -116,6 +116,31 @@ describe('calcularTNS', () => {
     const r = calcularTNS(200000, cfgPorDefecto);
     const bruto = 200000 + r.total;
     expect(r.assiette).toBeCloseTo(bruto - 48060 * 1.3, 0);
+  });
+
+  it('baremo URSSAF 2026: 24.000 € netos al año dan unos 10.509 € de cotisations (41 % de la assiette)', () => {
+    const r = calcularTNS(24000, cfgPorDefecto);
+    expect(r.assiette).toBeGreaterThan(25480);
+    expect(r.assiette).toBeLessThan(25600);
+    expect(r.total).toBeGreaterThan(10450);
+    expect(r.total).toBeLessThan(10570);
+    expect(r.desglose.retraiteBase).toBeCloseTo(r.assiette * 0.1787, 1);
+    expect(r.desglose.allocationsFamiliales).toBe(0);
+    expect(r.desglose.formation).toBeCloseTo(139.37, 1);
+    expect(r.tauxEfectivo).toBeGreaterThan(0.4);
+    expect(r.tauxEfectivo).toBeLessThan(0.42);
+  });
+
+  it('la maladie es progresiva: 0 % por debajo del 20 % del PASS y 4 % en el 60 %', () => {
+    expect(cotisacionesSobreAssiette(9000, cfgPorDefecto).maladie).toBe(0);
+    expect(cotisacionesSobreAssiette(28836, cfgPorDefecto).maladie).toBeCloseTo(28836 * 0.04, 1);
+  });
+
+  it('con una assiette muy baja se aplican los mínimos de retraite de base, IJ e invalidité-décès', () => {
+    const d = cotisacionesSobreAssiette(2000, cfgPorDefecto);
+    expect(d.retraiteBase).toBe(967);
+    expect(d.indemnites).toBeCloseTo(96.12, 1);
+    expect(d.invaliditeDeces).toBeCloseTo(71.85, 1);
   });
 
   it('sin rémunération no hay cotisations', () => {
@@ -175,8 +200,8 @@ describe('calcularDividendos', () => {
     expect(r.exceso).toBe(400);
     expect(r.pfuLibre).toBeCloseTo(31.4);
     expect(r.irExceso).toBeCloseTo(400 * 0.128);
-    expect(r.tnsExceso).toBeCloseTo(400 * 0.45);
-    expect(r.total).toBeCloseTo(31.4 + 400 * 0.128 + 400 * 0.45);
+    expect(r.tnsExceso).toBeCloseTo(400 * 0.74 * 0.45);
+    expect(r.total).toBeCloseTo(31.4 + 400 * 0.128 + 400 * 0.74 * 0.45);
     expect(r.superaSeuil).toBe(true);
   });
 
@@ -195,16 +220,15 @@ describe('simularEjercicio', () => {
     // TabSalarioDividendos.tsx (regresión: si esto cambia de valor sin querer, el texto del FAQ deja
     // de ser correcto).
     const r = simularEjercicio(30000, 50, 50000, 1000, 0, 6, cfgPorDefecto);
-    expect(r.tns.total).toBeCloseTo(14977.51, 1);
-    expect(r.beneficioTrasSalario).toBeCloseTo(5022.49, 1);
-    expect(r.is.total).toBeCloseTo(753.37, 1);
+    // Las cifras salen del baremo de la URSSAF (ya no de un tipo fijo): se comprueba la cadena, no un número.
+    expect(r.tns.total).toBeCloseTo(calcularTNS(30000, cfgPorDefecto).total, 2);
+    expect(r.beneficioTrasSalario).toBeCloseTo(20000 - r.tns.total, 2);
+    expect(r.is.total).toBeCloseTo(r.beneficioTrasSalario * 0.15, 2);
     expect(r.reservaLegal.dotacion).toBeCloseTo(100, 0);
-    expect(r.dividendos).toBeCloseTo(2084.56, 1);
-    expect(r.divCalc.total).toBeCloseTo(1178.47, 1);
-    expect(r.totalPrelevements).toBeCloseTo(16909.36, 1);
-    // Rémunération neta (30.000) + dividendos (2.084,56) − su carga (1.178,47): las cotisations no se
-    // restan otra vez, las ha pagado la société.
-    expect(r.netoDisponible).toBeCloseTo(30906.09, 1);
+    expect(r.dividendos).toBeCloseTo((r.beneficioTrasSalario - r.is.total - 100) / 2, 2);
+    expect(r.totalPrelevements).toBeCloseTo(r.tns.total + r.is.total + r.divCalc.total, 2);
+    // Rémunération neta + dividendos − su carga: las cotisations no se restan otra vez, las ha pagado la société.
+    expect(r.netoDisponible).toBeCloseTo(30000 + r.dividendos - r.divCalc.total, 2);
   });
 
   it('sin beneficio (0), no hay IS ni dividendos, solo las cotisations TNS mínimas sobre la rémunération', () => {
@@ -464,9 +488,8 @@ describe('remuneracionNetaParaCoste', () => {
   it('devuelve la rémunération neta que, sumadas sus cotisations, agota el coste', () => {
     const neta = remuneracionNetaParaCoste(60000, cfgPorDefecto);
     expect(neta + calcularTNS(neta, cfgPorDefecto).total).toBeCloseTo(60000, 0);
-    // 60.000 € de margen = 40.020 € netos + 19.980 € de cotisations (mismo neto que el caso
-    // contrastado con el simulador de la DGFiP).
-    expect(neta).toBeCloseTo(40020, -1);
+    expect(neta).toBeGreaterThan(40020);
+    expect(neta).toBeLessThan(41500);
   });
 
   it('sin margen no hay rémunération', () => {

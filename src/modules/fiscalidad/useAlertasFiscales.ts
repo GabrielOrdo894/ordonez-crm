@@ -135,7 +135,7 @@ export function useAlertasFiscales() {
     }
 
     return lista;
-  }, [config, gerantConfig, beneficioBruto, remuneracionRegistrada, cotisacionesRegistradas, echeances, ejercicio]);
+  }, [config, gerantConfig, beneficioBruto, remuneracionRegistrada, cotisacionesRegistradas, echeances, ejercicio, deficitAnterior]);
 
   return { alertas, cargando: cargandoResultado || cargandoEcheances };
 }

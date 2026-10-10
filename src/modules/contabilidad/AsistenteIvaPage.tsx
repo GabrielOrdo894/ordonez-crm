@@ -10,7 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { BotonExportar } from '../../components/ui/BotonExportar';
 import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { GRUPOS_CATEGORIA } from '../finanzas/gastos/categorias';
-import { porcentajeIva, euroEntero } from '../finanzas/iva';
+import { porcentajeIva, euroEntero, esServicioSegunCuenta } from '../finanzas/iva';
 import { limitesEjercicio } from '../fiscalidad/calculos';
 import { formatearPrecio, formatearPrecioEntero } from '../finanzas/lineas';
 import { hoyLocalIso, isoLocal, sumarDiasIso } from '../../lib/fechas';
@@ -425,7 +425,12 @@ export default function AsistenteIvaPage() {
     const rect20 = rs.filter((f) => f.tipo_iva === 'TVA_20');
     const rect10 = rs.filter((f) => f.tipo_iva === 'TVA_10');
     const rectExentas = rs.filter((f) => f.tipo_iva === 'EXENTO');
-    const gastosIntracom = gs.filter((g) => g.tipo_iva === 'INTRACOM');
+    // Compras a proveedores de otro Estado miembro: los BIENES van en B2 (y su TVA en la línea 17); los
+    // SERVICIOS van en A3 y no entran en la 17 (notice 3310-CA3 2026, contrastado 2026-10-09). Antes
+    // todo caía en B2. La TVA autoliquidada y su deducción son las mismas en los dos casos.
+    const gastosAutoliquidadosUE = gs.filter((g) => g.tipo_iva === 'INTRACOM');
+    const gastosIntracom = gastosAutoliquidadosUE.filter((g) => !esServicioSegunCuenta(g.cuenta_contable));
+    const gastosServiciosUE = gastosAutoliquidadosUE.filter((g) => esServicioSegunCuenta(g.cuenta_contable));
     // Importación fuera de la UE — desde 2022 se autoliquida en la CA3 igual que una adquisición
     // intracomunitaria, pero en casillas propias y distintas (A4/24, no B2/17 — confirmado por
     // investigación real, auditoría 2026-08-21): la base va en A4 (no en B2) y la TVA autoliquidada
@@ -435,6 +440,7 @@ export default function AsistenteIvaPage() {
 
     const baseB2 = gastosIntracom.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const baseA4 = gastosImportacion.reduce((s, g) => s + (g.importe_base ?? 0), 0);
+    const baseA3 = gastosServiciosUE.reduce((s, g) => s + (g.importe_base ?? 0), 0);
     const baseE2 = Math.max(
       0,
       pagosExentos.reduce((s, p) => s + baseSinIvaDePago(p), 0) + rectExentas.reduce((s, f) => s + baseFactura(f), 0),
@@ -472,7 +478,7 @@ export default function AsistenteIvaPage() {
     const detalle08 = [
       ...pagos20.map((p) => detallePago(p, TASA_ESTANDAR)),
       ...gastosIntracom.map((g) => detalleGasto(g, TASA_ESTANDAR)),
-      ...gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+      ...gastosServiciosUE.map((g) => detalleGasto(g, TASA_ESTANDAR)),
     ];
     const detalle9B = pagos10.map((p) => detallePago(p, TASA_REDUCIDA_10));
     const positivo = (d: Detalle): Detalle => ({
@@ -495,18 +501,22 @@ export default function AsistenteIvaPage() {
     const eVentas10 = euroEntero(baseVentas10);
     const eB2 = euroEntero(baseB2);
     const eA4 = euroEntero(baseA4);
+    const eA3 = euroEntero(baseA3);
     const eTaxe17 = euroEntero(eB2 * TASA_ESTANDAR);
     const eTaxe24 = euroEntero(eA4 * TASA_ESTANDAR);
     // La TVA autoliquidada de B2 (intracom) y A4 (importaciones) va DENTRO de la línea 08 (tipo del
     // 20 %) — la 17 y la 24 son solo "dont". Antes la 08 salía sin ella y, copiada al formulario
     // oficial, se declaraban 1.443 € de menos en septiembre (auditoría TVA 2026-09-29, notice
     // 3310-CA3).
-    const eBase08 = eVentas20 + eB2 + eA4;
+    // Las importaciones tienen sus propias líneas de TVA brute (I1 a I6, I1 = 20 %): no van en la 08
+    // (formulario y notice «TVA à l'importation», contrastado 2026-10-09). La aduana las prerrellena.
+    const eBase08 = eVentas20 + eB2 + eA3;
     const eTaxe08 = euroEntero(eBase08 * TASA_ESTANDAR);
+    const eTaxeA3 = euroEntero(eA3 * TASA_ESTANDAR);
     const eTaxe9B = euroEntero(eVentas10 * TASA_REDUCIDA_10);
-    const eTaxe16 = eTaxe08 + eTaxe9B;
+    const eTaxe16 = eTaxe08 + eTaxe9B + eTaxe24;
     const eIva19 = euroEntero(iva19);
-    const eIva20 = euroEntero(iva20Gastos) + eTaxe17 + eTaxe24;
+    const eIva20 = euroEntero(iva20Gastos) + eTaxe17 + eTaxeA3 + eTaxe24;
     const eIva21 = euroEntero(iva21);
     const eIva22 = euroEntero(creditoAnterior);
     const eIva23 = eIva19 + eIva20 + eIva21 + eIva22;
@@ -521,13 +531,13 @@ export default function AsistenteIvaPage() {
           base: eVentas20 + eVentas10,
           detalle: [...pagos20.map((p) => detallePago(p)), ...pagos10.map((p) => detallePago(p))],
         },
-        // Revisado 2026-08-11: A3 (servicios intracomunitarios) siempre 0 a propósito por ahora
-        // — GastoForm.tsx solo tiene un checkbox "intracomunitario" sin distinguir bienes de
-        // servicios, así que todo gasto intracom cae en B2 (bienes). Si algún día se compra un
-        // servicio a un proveedor de otro país UE (ej. software, consultoría), habría que añadir
-        // esa distinción al formulario de gastos para que A3 refleje datos reales.
-        { linea: 'A3', label: 'Achats de prestations de services intracommunautaires', base: 0 },
-        { linea: 'B2', label: 'Acquisitions intra-communautaires', base: eB2, detalle: gastosIntracom.map((g) => detalleGasto(g)) },
+        {
+          linea: 'A3',
+          label: "Achats de prestations de services auprès d'un assujetti non établi en France",
+          base: eA3,
+          detalle: gastosServiciosUE.map((g) => detalleGasto(g)),
+        },
+        { linea: 'B2', label: 'Acquisitions intracommunautaires (biens)', base: eB2, detalle: gastosIntracom.map((g) => detalleGasto(g)) },
         { linea: 'A4', label: 'Importations (autoliquidation, hors UE)', base: eA4, detalle: gastosImportacion.map((g) => detalleGasto(g)) },
         { linea: 'B5', label: 'Régularisations (factures rectificatives)', base: euroEntero(baseB5), detalle: detalleRect.map((d) => ({ ...d, taxe: undefined })) },
       ] as Fila[],
@@ -545,6 +555,13 @@ export default function AsistenteIvaPage() {
         { linea: '08', label: 'Taux normal 20 %', base: eBase08, taxe: eTaxe08, detalle: detalle08 },
         { linea: '09', label: 'Taux réduit 5,5 %', base: 0, taxe: 0 },
         { linea: '9B', label: 'Taux réduit 10 %', base: eVentas10, taxe: eTaxe9B, detalle: detalle9B },
+        {
+          linea: 'I1',
+          label: 'Importations — taux normal 20 %',
+          base: eA4,
+          taxe: eTaxe24,
+          detalle: gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+        },
       ] as Fila[],
       tvaBruteDom: [
         { linea: '10', label: 'Taux normal 8,5 % (DOM)', base: 0, taxe: 0 },
@@ -574,6 +591,7 @@ export default function AsistenteIvaPage() {
           detalle: [
             ...gastosOtros.filter(conIva).map((g) => detalleGasto(g, 'iva')),
             ...gastosIntracom.map((g) => detalleGasto(g, TASA_ESTANDAR)),
+            ...gastosServiciosUE.map((g) => detalleGasto(g, TASA_ESTANDAR)),
             ...gastosImportacion.map((g) => detalleGasto(g, TASA_ESTANDAR)),
           ],
         },
@@ -628,7 +646,8 @@ export default function AsistenteIvaPage() {
     return filasExportar
       .filter((f) => {
         const antes = declaradas.find((d) => d.linea === f.linea);
-        return !antes || distinto(antes.base, f.base) || distinto(antes.taxe, f.taxe);
+        // Una línea que no existía al declarar (I1, añadida el 2026-10-09) cuenta como 0, no como cambio.
+        return distinto(antes?.base, f.base) || distinto(antes?.taxe, f.taxe);
       })
       .map((f) => f.linea);
   }, [declaracionMesActivo, filasExportar]);

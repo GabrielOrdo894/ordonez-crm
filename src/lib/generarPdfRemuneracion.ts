@@ -196,7 +196,6 @@ export async function generarPdfResumenTNS(anio: number, mes: number, remuneraci
 
   const tns = calcularTNS(remuneracionAnual, config);
   const abattement = config('tns_abattement', 0.26);
-  const tauxGlobal = config('tns_taux_global', 0.45);
   const remuneracionMensual = remuneracionAnual / 12;
   const cotisacionesMensuales = tns.mensual;
 
@@ -207,7 +206,7 @@ export async function generarPdfResumenTNS(anio: number, mes: number, remuneraci
     body: [
       ['Rémunération nette mensuelle (versée)', `${fmtEur(remuneracionAnual)} / 12`, fmtEur(remuneracionMensual)],
       ['Assiette TNS (abattement)', `(Rémunération + cotisations) × ${((1 - abattement) * 100).toFixed(0)}%`, fmtEur(tns.assiette)],
-      ['Cotisations TNS (mensuel)', `Assiette × ${(tauxGlobal * 100).toFixed(0)}% ÷ 12`, fmtEur(cotisacionesMensuales)],
+      ['Cotisations TNS (mensuel)', `Barème URSSAF (${(tns.tauxEfectivo * 100).toFixed(1).replace('.', ',')} % de l’assiette) ÷ 12`, fmtEur(cotisacionesMensuales)],
       ['Coût mensuel pour la société', 'Rémunération + cotisations', fmtEur(remuneracionMensual + cotisacionesMensuales)],
     ],
     styles: { font: FUENTE_PDF, fontSize: 8.5, lineColor: GRIS_BORDE, lineWidth: 0.1, valign: 'middle' },

@@ -10,7 +10,7 @@ import { FechaPicker } from '../../../components/ui/FechaPicker';
 import { Select } from '../../../components/ui/Select';
 import { Button } from '../../../components/ui/Button';
 import { SelectorIva } from '../SelectorIva';
-import { porcentajeIva, tipoIvaPorDefecto } from '../iva';
+import { porcentajeIva, tipoIvaPorDefecto, esServicioSegunCuenta } from '../iva';
 import type { Gasto, NuevoGasto } from './types';
 import { ProveedorForm } from '../proveedores/ProveedorForm';
 import type { Proveedor } from '../proveedores/types';
@@ -787,7 +787,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                   {(esIntracomunitario || esImportacion) && (
                     <p className="text-xs text-gray-400 mb-3">
                       El importe total se registra como base, sin IVA soportado directo. Se declarará por autoliquidación en
-                      el Asistente de IVA{esImportacion ? ' (importación fuera de la UE)' : ' (adquisición intracomunitaria)'}.
+                      el Asistente de IVA
+                      {esImportacion
+                        ? ' (importación fuera de la UE, líneas A4 e I1)'
+                        : esServicioSegunCuenta(form.cuenta_contable)
+                          ? ' como servicio (línea A3), por la cuenta elegida'
+                          : ' como compra de bienes (líneas B2 y 17), por la cuenta elegida'}
+                      .
                     </p>
                   )}
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { porcentajeIva, paisDesdeTipoIva, tiposIvaPorPais, tipoIvaPorDefecto, etiquetaCortaIva, euroEntero } from './iva';
+import { porcentajeIva, paisDesdeTipoIva, tiposIvaPorPais, tipoIvaPorDefecto, etiquetaCortaIva, euroEntero, esServicioSegunCuenta } from './iva';
 
 describe('porcentajeIva', () => {
   it('devuelve el porcentaje correcto para cada tipo conocido', () => {
@@ -81,5 +81,20 @@ describe('euroEntero', () => {
     expect(euroEntero(0.1 + 0.2 + 12.2)).toBe(13);
     expect(euroEntero(2412.5)).toBe(2413);
     expect(euroEntero(165 * 0.1 * 5 + 0.0000001)).toBe(83);
+  });
+});
+
+describe('esServicioSegunCuenta', () => {
+  it('trata como servicio las cuentas 61, 62 y 604', () => {
+    expect(esServicioSegunCuenta('6156')).toBe(true);
+    expect(esServicioSegunCuenta('6226')).toBe(true);
+    expect(esServicioSegunCuenta('604')).toBe(true);
+  });
+  it('trata como bien las compras de material, el inmovilizado y un gasto sin cuenta', () => {
+    expect(esServicioSegunCuenta('601')).toBe(false);
+    expect(esServicioSegunCuenta('605')).toBe(false);
+    expect(esServicioSegunCuenta('6061')).toBe(false);
+    expect(esServicioSegunCuenta('2183')).toBe(false);
+    expect(esServicioSegunCuenta(null)).toBe(false);
   });
 });

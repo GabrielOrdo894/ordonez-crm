@@ -507,7 +507,7 @@ export function TabSimulador() {
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
           <span>
             {fmt(resultado.divCalc.exceso)} de los dividendos superan el umbral libre de {fmt(resultado.divCalc.umbralLibre)} y
-            llevan cotisations TNS (~{(config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del{' '}
+            llevan cotisations TNS (~{((1 - config('tns_abattement', 0.26)) * config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del{' '}
             {(config('pfu_total', 0.314) * 100).toFixed(1)}%.
           </span>
         </div>
@@ -906,7 +906,7 @@ export function TabSimulador() {
           },
           {
             q: '¿Qué pasos sigue el cálculo, en orden?',
-            a: '1) Se calculan las cotisations TNS sobre la rémunération neta elegida (assiette = (rémunération + cotisations) × 74%, cotisations = assiette × ~45%; las paga la société aparte). 2) Se resta la rémunération y sus cotisations al beneficio bruto (ingresos − gastos) para obtener el beneficio imponible. 3) Se calcula el Impôt sur les Sociétés sobre ese beneficio (15% hasta el plafond prorrateado, 25% el exceso). 4) Si activas "Usar dividendos", se detrae la reserva legal obligatoria y se reparte el % elegido como dividendos. Todo esto es lo que ves en la tabla "De la facturación al bolsillo" — es lo que gestiona la sociedad. 5) Aparte, ya a título personal, sobre la rémunération neta de Mario se aplica el abattement del 10% y el impôt sur le revenu con el quotient familial de su foyer fiscal — eso vive en la sección "Declaración de la renta personal", más abajo, porque es un trámite tuyo, no de la sociedad.',
+            a: '1) Se calculan las cotisations TNS sobre la rémunération neta elegida (assiette = (rémunération + cotisations) × 74%, cotisations = baremo de la URSSAF sobre esa assiette, en torno al 41%; las paga la société aparte). 2) Se resta la rémunération y sus cotisations al beneficio bruto (ingresos − gastos) para obtener el beneficio imponible. 3) Se calcula el Impôt sur les Sociétés sobre ese beneficio (15% hasta el plafond prorrateado, 25% el exceso). 4) Si activas "Usar dividendos", se detrae la reserva legal obligatoria y se reparte el % elegido como dividendos. Todo esto es lo que ves en la tabla "De la facturación al bolsillo" — es lo que gestiona la sociedad. 5) Aparte, ya a título personal, sobre la rémunération neta de Mario se aplica el abattement del 10% y el impôt sur le revenu con el quotient familial de su foyer fiscal — eso vive en la sección "Declaración de la renta personal", más abajo, porque es un trámite tuyo, no de la sociedad.',
           },
           {
             q: '¿Por qué la rémunération se calcula sola, sin dividendos?',

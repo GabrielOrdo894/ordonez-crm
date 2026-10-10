@@ -184,7 +184,7 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
           <span>
             Con un capital social de {fmt(capitalSocial)}, el umbral libre de cotisations TNS es solo{' '}
             {fmt(resultado.divCalc.umbralLibre)}. {fmt(resultado.divCalc.exceso)} de dividendos superan ese umbral y llevan
-            cotisations TNS (~{(config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del{' '}
+            cotisations TNS (~{((1 - config('tns_abattement', 0.26)) * config('tns_taux_global', 0.45) * 100).toFixed(0)}%) en vez del PFU del{' '}
             {(config('pfu_total', 0.314) * 100).toFixed(1)}%. Puede convenir ampliar
             el capital social para elevar el umbral del 10%.
           </span>
@@ -257,7 +257,7 @@ export function TabSalarioDividendos({ anio, onAnioChange }: { anio: number; onA
           },
           {
             q: 'Ejemplo completo con números',
-            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération de 30.000 € y un 50% del resto como dividendos. Cotisations TNS sobre el salario (assiette única: revenu brut = rémunération + cotisations, menos el 26 %): 45% × 0,74 × (30.000 + cotisations) = 14.977,51 €. Beneficio tras salario: 50.000 − 30.000 − 14.977,51 = 5.022,49 €. IS (ejercicio de 6 meses, plafond 21.250 €): 5.022,49 × 15% = 753,37 €. Beneficio tras IS: 5.022,49 − 753,37 = 4.269,12 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): 4.269,12 × 5% = 213,46 €, pero se detrae solo hasta el tope de 100 €. Beneficio distribuible: 4.269,12 − 100 = 4.169,12 €. Dividendos (50%): 2.084,56 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 31,4% = 31,40 €); los 1.984,56 € restantes llevan IR del 12,8% (254,02 €) + cotisations TNS del 45% (893,05 €) = 1.178,47 € de carga. Total prélèvements: 14.977,51 + 753,37 + 1.178,47 = 16.909,35 €. Neto disponible para Mario: 30.000 − 14.977,51 + 2.084,56 − 1.178,47 = 15.928,58 €.',
+            a: 'Supongamos un beneficio del ejercicio de 50.000 €, una rémunération neta de 30.000 € y un 50% del resto como dividendos. Cotisations TNS de esa rémunération (baremo URSSAF 2026): 13.651,56 €. Beneficio tras rémunération: 50.000 − 30.000 − 13.651,56 = 6.348,44 €. IS (ejercicio de 6 meses, plafond 21.250 €): 6.348,44 × 15% = 952,27 €. Beneficio tras IS: 5.396,17 €. Reserva legal (Artículo 18 de los estatutos, 5% hasta el 10% del capital social = 100 €, sin reserva acumulada previa): se detrae solo hasta el tope de 100 €. Beneficio distribuible: 5.296,17 €. Dividendos (50%): 2.648,09 €. De esos, solo 100 € quedan bajo el umbral libre (PFU 31,4% = 31,40 €); los 2.548,09 € restantes llevan IR del 12,8% (326,16 €) + cotisations TNS (45% sobre el 74% del exceso = 848,51 €) = 1.206,07 € de carga. Total prélèvements: 13.651,56 + 952,27 + 1.206,07 = 15.809,89 €. Neto disponible para Mario: 30.000 + 2.648,09 − 1.206,07 = 31.442,02 € (las cotisations de la rémunération no se restan: las paga la société aparte).',
 
           },
           {
