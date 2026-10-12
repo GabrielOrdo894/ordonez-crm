@@ -22,7 +22,10 @@ export function usePotencialesCliente(
       const { data, error } = await supabase
         .from('solicitudes')
         .select('id, nombre, telefono, email, idioma, tipo_reforma, estado')
-        .not('estado', 'in', '(No concretada,Rechazada,Eliminada)');
+        .not('estado', 'in', '(No concretada,Rechazada,Eliminada)')
+        // Las más recientes primero: sin búsqueda el selector solo enseña las 5 primeras, y sin
+        // este orden salían siempre las solicitudes más antiguas (hallazgo de Gabriel 2026-10-12).
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as SolicitudPotencialRow[];
     },
@@ -37,7 +40,8 @@ export function usePotencialesCliente(
         .select('id, cliente_nombre, cliente_tel, cliente_email, idioma, numero')
         .eq('tipo', 'orientativo')
         .is('visita_id', null)
-        .is('eliminado_en', null);
+        .is('eliminado_en', null)
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as OrientativoPotencialRow[];
     },

@@ -151,6 +151,22 @@ export function useNotificaciones() {
     },
   });
 
+  // Estado de la última pasada de revisar-gmail (la anota la propia Edge Function). queryKey
+  // distinta de la ['google_config'] de Configuración a propósito: el select es otro.
+  const { data: estadoGmail } = useQuery({
+    queryKey: ['google_config', 'estado-gmail'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('google_config')
+        .select('gmail_ultima_revision_en, gmail_ultimo_error, gmail_ultimo_error_en')
+        .eq('id', 1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { gmail_ultima_revision_en: string | null; gmail_ultimo_error: string | null; gmail_ultimo_error_en: string | null } | null;
+    },
+    refetchInterval: 10 * 60 * 1000,
+  });
+
   const esGabriel = user?.email === EMAIL_GABRIEL;
 
   const { data: config } = useQuery({
@@ -565,8 +581,43 @@ export function useNotificaciones() {
       });
     }
 
+    // Revisión de Gmail rota: sin ella no entra ninguna solicitud web ni se detectan respuestas.
+    // Del 9 al 12 de octubre de 2026 el token de Google estuvo revocado y nadie lo vio porque el
+    // cron solo registra que lanzó la petición. Id ligado a la fecha del error: en cuanto una
+    // pasada vuelve a funcionar, la Edge Function limpia el error y la notificación se completa sola.
+    if (estadoGmail?.gmail_ultimo_error) {
+      const desde = (estadoGmail.gmail_ultimo_error_en ?? '').slice(0, 10);
+      lista.push({
+        id: `gmail-error-${desde}`,
+        categoria: 'solicitud',
+        titulo: 'Gmail desconectado: el CRM no recibe solicitudes',
+        resumen: `La revisión del correo falla desde el ${desde || 'hoy'}: ${estadoGmail.gmail_ultimo_error}`,
+        buenasPracticas: [
+          'Entra en Configuración y vuelve a conectar Gmail con la cuenta reformasordonezeus.',
+          'Después pulsa «Comprobar Gmail»: la búsqueda cubre los últimos 7 días, así que lo que haya llegado mientras tanto entra entonces.',
+        ],
+        to: '/configuracion',
+        urgente: true,
+      });
+    } else if (estadoGmail?.gmail_ultima_revision_en) {
+      // Sin error anotado pero sin ninguna pasada en 36 h: el cron no está llegando a la función
+      // (p. ej. 401 por el secreto del service role) — también hay que mirarlo.
+      const horasSinRevisar = (Date.now() - new Date(estadoGmail.gmail_ultima_revision_en).getTime()) / 3_600_000;
+      if (horasSinRevisar > 36) {
+        lista.push({
+          id: `gmail-sin-revision-${estadoGmail.gmail_ultima_revision_en.slice(0, 10)}`,
+          categoria: 'solicitud',
+          titulo: 'Gmail sin revisar desde hace más de un día',
+          resumen: `Última revisión correcta: ${estadoGmail.gmail_ultima_revision_en.slice(0, 16).replace('T', ' ')}. Pulsa «Comprobar Gmail» en Solicitudes y, si falla, revisa la conexión en Configuración.`,
+          to: '/solicitudes',
+          urgente: true,
+        });
+      }
+    }
+
     return lista;
   }, [
+    estadoGmail,
     alertas,
     facturas,
     visitas,

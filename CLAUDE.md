@@ -1192,6 +1192,18 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
     `calcularTNS` devuelve el desglose; 24.000 € netos ≈ 10.500 € de cotisations. En la renta del gérant, DSCA/DSEA ya no
     existen (campaña 2026): se declara una sola cifra en **DSEC** = neto + cotisations pagadas por la société. No
     implementado a propósito: Acre (desde 2026 no es automática), A2/B4 de subcontratación, calendario real de pagos URSSAF.
+- **Aviso de Gmail desconectado y potenciales por fecha** (2026-10-12): del 9 al 12 de octubre Google revocó el
+  token de Gmail del CRM y `revisar-gmail` falló en cada pasada («Token has been expired or revoked») sin que nadie
+  lo viera — el cron `revisar-gmail-diario` marca «succeeded» porque solo registra que lanzó la petición HTTP, no
+  si la función acabó en 500. Tres días sin solicitudes web (la de Cecilia Irigoyen del día 9 entró el 12, al
+  reconectar Gabriel Gmail desde Configuración). Ahora la función anota en `google_config`
+  (`gmail_ultima_revision_en`, `gmail_ultimo_error`, `gmail_ultimo_error_en`, migración
+  `20261012100000`) cómo acabó cada pasada y la campana (`useNotificaciones.ts`) avisa, urgente, si hay error
+  anotado o si no hay ninguna pasada correcta en 36 h; el aviso se completa solo cuando una pasada vuelve a ir
+  bien. Además `usePotencialesCliente.ts` ordena solicitudes y orientativos por `created_at` desc: el selector de
+  «nueva visita» enseña solo 5 sin búsqueda y antes salían siempre las más antiguas (hallazgo de Gabriel).
+  Limitación conocida que sigue: dos pasadas de `revisar-gmail` en menos de un minuto agotan la cuota por minuto
+  de Gmail (403 rateLimitExceeded al leer hilos directos); el lock de 2 minutos no cubre el botón «forzar».
 - **Galería v2** (2026-10-10, auditoría en `docs/auditorias/2026-10-10-auditoria-galeria.md`, 81 páginas de investigación):
   - **Dos pantallas en vez de tres**: `/galeria` (lista con buscador, chips de tipo de obra con contador, zona, destacadas,
     «en la web») y `/galeria/:id` (toda la obra: subida, rejilla por categoría, visor, comparador, datos y acciones).

@@ -1152,6 +1152,19 @@ async function liberarLock(supabase: SupabaseClient) {
   if (error) console.error('revisar-gmail: no se pudo liberar el lock:', error.message);
 }
 
+// Deja en google_config cómo acabó la última pasada, para que la campana del CRM avise si el
+// token de Google se revoca (2026-10-12: tres días sin recibir solicitudes y nadie lo vio, el
+// cron solo registra que lanzó la petición, no si la función falló). Best-effort: un fallo al
+// anotarlo no cambia el resultado de la revisión.
+async function anotarEstadoRevision(supabase: SupabaseClient, error: string | null) {
+  const ahora = new Date().toISOString();
+  const { error: errorUpdate } = await supabase
+    .from('google_config')
+    .update(error ? { gmail_ultimo_error: error, gmail_ultimo_error_en: ahora } : { gmail_ultima_revision_en: ahora, gmail_ultimo_error: null, gmail_ultimo_error_en: null })
+    .eq('id', 1);
+  if (errorUpdate) console.error('revisar-gmail: no se pudo anotar el estado de la revisión:', errorUpdate.message);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -1187,6 +1200,7 @@ Deno.serve(async (req: Request) => {
     const solicitudesNuevas = solicitudesFormulario + conversacionesDirectas;
     const respuestasDetectadas = respuestasPresupuestos + respuestasSolicitudes;
 
+    await anotarEstadoRevision(supabase, null);
     return jsonResponse({ ok: true, solicitudesNuevas, respuestasDetectadas, enviosSolicitudes, programadosDetectados, presupuestosEnviados, log });
   } catch (err) {
     // console.error (no solo el body de la respuesta) para poder ver el error real en
@@ -1194,6 +1208,7 @@ Deno.serve(async (req: Request) => {
     // así que sin esto un fallo aquí es invisible salvo que se reproduzca con curl a mano.
     console.error('revisar-gmail error:', err);
     log.push(String(err instanceof Error ? err.message : err));
+    await anotarEstadoRevision(supabase, String(err instanceof Error ? err.message : err));
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err), log }, 500);
   } finally {
     await liberarLock(supabase);
