@@ -1234,3 +1234,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   - Compartir: Web Share API con archivos (fotos convertidas a JPEG, porque un WebP a WhatsApp puede llegar como sticker)
     y «Copiar enlaces». Selección múltiple con `useSeleccionMultiple` + `BulkActionsBar` (mover de categoría, ZIP, enlaces,
     compartir, eliminar).
+- **Asistente web propio en lugar de Landbot** (2026-10-14, petición de Gabriel): Landbot (solo en español también en
+  las páginas francesas, 82 chats/año, 5 solicitudes y ninguna aceptada desde julio) se quitó del pie global de WPCode
+  (copia en `negocio/equipo-marketing/asistente-web/landbot-antiguo-pie-wpcode.html`; el bot sigue en Landbot sin
+  borrar). Lo sustituye el fragmento WPCode **9257** «Asistente web (sustituye a Landbot)», fuente en
+  `negocio/equipo-marketing/asistente-web/asistente-web.html`: 4 pasos con botones (tipo de obra —el de la página va
+  primero—, zona, plazo, contacto), francés en `/fr/` y español en el resto, nombre y teléfono con prefijo
+  obligatorios, email y comentario opcionales, salida a WhatsApp en cada paso (+33 en FR, +34 en ES) y, si el envío
+  falla, WhatsApp con las respuestas ya escritas. Envía a `solicitud-web`, que ahora acepta también el origen
+  ordonezrenov.com y guarda la fuente `asistente_web_es`/`asistente_web_fr` (etiquetas en `FUENTE_LABEL`). Eventos
+  GA4: `asistente_abierto`, `asistente_paso`, `asistente_enviado`, `asistente_error`, `whatsapp_click`. Nunca se abre
+  solo: aviso pequeño a los 40 s o al 50 % de scroll, y solo en páginas sin formulario Forminator.

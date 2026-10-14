@@ -1,11 +1,12 @@
 // Edge Function: solicitud-web
 //
-// Recibe el formulario por pasos de ordonezfachadas.com (2026-10-02) y lo convierte en una
-// solicitud del CRM (`solicitudes`, fuente `ordonezfachadas`) + evento `solicitud_entrada` del
-// embudo + aviso por email a reformasordonezeus@gmail.com (petición de Gabriel).
+// Recibe el formulario por pasos de ordonezfachadas.com (2026-10-02) y el asistente web de
+// ordonezrenov.com (2026-10-14, sustituye a Landbot) y los convierte en una solicitud del CRM
+// (`solicitudes`, fuente `ordonezfachadas` o `asistente_web_es`/`asistente_web_fr`) + evento
+// `solicitud_entrada` del embudo + aviso por email a reformasordonezeus@gmail.com.
 //
 // Pública a propósito (verify_jwt: false, desplegar con --no-verify-jwt): la llama un formulario
-// web sin sesión. Defensas: CORS solo para el dominio de Fachadas, campo trampa `web` que un humano
+// web sin sesión. Defensas: CORS solo para los dos dominios, campo trampa `web` que un humano
 // nunca rellena, validación de longitudes y un envío por teléfono cada 10 minutos.
 //
 // Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, web }
@@ -14,7 +15,9 @@ import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
 import { esc } from '../_shared/html.ts';
 
-const ORIGENES = ['https://ordonezfachadas.com', 'https://www.ordonezfachadas.com'];
+const ORIGENES_FACHADAS = ['https://ordonezfachadas.com', 'https://www.ordonezfachadas.com'];
+const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.com'];
+const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV];
 const DESTINATARIO = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? DESTINATARIO;
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -33,7 +36,7 @@ function texto(v: unknown, max: number): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
-async function enviarAviso(asunto: string, cuerpoHtml: string): Promise<void> {
+async function enviarAviso(remitente: string, asunto: string, cuerpoHtml: string): Promise<void> {
   const client = new SMTPClient({
     connection: {
       hostname: Deno.env.get('SMTP_HOST')!,
@@ -47,13 +50,13 @@ async function enviarAviso(asunto: string, cuerpoHtml: string): Promise<void> {
         (mail) => ({
           ...mail,
           subject: codificarCabeceraMime(asunto),
-          from: { ...mail.from, name: codificarCabeceraMime('Ordoñez Fachadas') },
+          from: { ...mail.from, name: codificarCabeceraMime(remitente) },
         }),
       ],
     },
   });
   try {
-    await client.send({ from: `Ordoñez Fachadas <${REMITENTE_ENVIO}>`, to: [DESTINATARIO], subject: asunto, content: 'auto', html: limpiarHtmlCorreo(cuerpoHtml) });
+    await client.send({ from: `${remitente} <${REMITENTE_ENVIO}>`, to: [DESTINATARIO], subject: asunto, content: 'auto', html: limpiarHtmlCorreo(cuerpoHtml) });
   } finally {
     await client.close();
   }
@@ -66,7 +69,9 @@ Deno.serve(async (req: Request) => {
 
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return responder({ error: 'Método no permitido' }, 405);
-  if (!ORIGENES.includes(req.headers.get('origin') ?? '')) return responder({ error: 'Origen no permitido' }, 403);
+  const origen = req.headers.get('origin') ?? '';
+  if (!ORIGENES.includes(origen)) return responder({ error: 'Origen no permitido' }, 403);
+  const esRenov = ORIGENES_RENOV.includes(origen);
 
   let body: Record<string, unknown>;
   try {
@@ -87,6 +92,8 @@ Deno.serve(async (req: Request) => {
   const descripcion = texto(body.descripcion, 2000);
   const pagina = texto(body.pagina, 300);
   const idioma = body.idioma === 'fr' ? 'fr' : 'es';
+  const fuente = esRenov ? `asistente_web_${idioma}` : 'ordonezfachadas';
+  const marca = esRenov ? 'Reformas Ordoñez' : 'Ordoñez Fachadas';
   const digitos = telefono.replace(/\D/g, '');
 
   if (!nombre || digitos.length < 9) return responder({ error: 'Nombre y teléfono obligatorios' }, 400);
@@ -99,7 +106,7 @@ Deno.serve(async (req: Request) => {
   const { data: recientes, error: errorRecientes } = await supabase
     .from('solicitudes')
     .select('id, telefono')
-    .eq('fuente', 'ordonezfachadas')
+    .eq('fuente', fuente)
     .gte('created_at', haceDiezMin);
   if (errorRecientes) return responder({ error: errorRecientes.message }, 500);
   if ((recientes ?? []).some((s) => (s.telefono ?? '').replace(/\D/g, '').slice(-9) === digitos.slice(-9))) {
@@ -116,7 +123,7 @@ Deno.serve(async (req: Request) => {
   const { data: fila, error } = await supabase
     .from('solicitudes')
     .insert({
-      fuente: 'ordonezfachadas',
+      fuente,
       nombre,
       telefono,
       email: email || null,
@@ -133,7 +140,7 @@ Deno.serve(async (req: Request) => {
 
   const { error: errorFunnel } = await supabase
     .from('funnel_eventos')
-    .insert({ etapa: 'solicitud_entrada', solicitud_id: fila.id, fuente: 'ordonezfachadas' });
+    .insert({ etapa: 'solicitud_entrada', solicitud_id: fila.id, fuente });
   if (errorFunnel) console.error('funnel_eventos:', errorFunnel.message);
 
   // El aviso por email nunca hace fallar la solicitud: ya está guardada en el CRM.
@@ -144,8 +151,9 @@ Deno.serve(async (req: Request) => {
       ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina],
     ].filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#666">${k}</td><td style="padding:4px 0"><b>${esc(v)}</b></td></tr>`).join('');
     await enviarAviso(
-      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud Ordoñez Fachadas · ${tipo || 'Sin tipo'} · ${municipio || 'sin municipio'}`,
-      `<p>Ha entrado una solicitud desde ordonezfachadas.com. Ya está en Solicitudes del CRM.</p>
+      marca,
+      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? 'web' : 'Ordoñez Fachadas'} · ${tipo || 'Sin tipo'} · ${municipio || 'sin municipio'}`,
+      `<p>Ha entrado una solicitud desde ${esRenov ? 'el asistente de ordonezrenov.com' : 'ordonezfachadas.com'}. Ya está en Solicitudes del CRM.</p>
 <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">${filas}</table>
 ${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}`,
     );

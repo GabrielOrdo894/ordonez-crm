@@ -187,6 +187,8 @@ export const FUENTE_LABEL: Record<string, string> = {
   web_wordpress: 'Formulario web',
   web_emailjs: 'Formulario de contacto',
   ordonezfachadas: 'Ordoñez Fachadas (web)',
+  asistente_web_es: 'Asistente web (ES)',
+  asistente_web_fr: 'Asistente web (FR)',
   autoenvio_gabriel: 'Autoenvío Gabriel',
   email_directo: 'Email directo',
   whatsapp: 'WhatsApp (manual)',
