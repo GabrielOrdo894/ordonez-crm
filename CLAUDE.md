@@ -1245,3 +1245,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   ordonezrenov.com y guarda la fuente `asistente_web_es`/`asistente_web_fr` (etiquetas en `FUENTE_LABEL`). Eventos
   GA4: `asistente_abierto`, `asistente_paso`, `asistente_enviado`, `asistente_error`, `whatsapp_click`. Nunca se abre
   solo: aviso pequeño a los 40 s o al 50 % de scroll, y solo en páginas sin formulario Forminator.
+  **Seguimiento de rutas en el CRM (2026-10-15)**: el asistente manda además cada paso a la Edge Function
+  pública `asistente-eventos` (`--no-verify-jwt`, solo origen ordonezrenov.com, cuerpo text/plain por
+  fetch keepalive o sendBeacon, como mucho 40 eventos por petición y 400 por sesión, y descarta robots por
+  user-agent porque Googlebot renderiza las páginas con un aleatorio fijo y mezclaba sesiones), que los guarda en
+  `asistente_eventos` (RLS: el equipo solo lee; escribe la función con service role). Sin cookies ni
+  datos personales: la sesión es un código aleatorio por carga de página. `solicitud-web` devuelve ahora
+  el `id` de la solicitud y el asistente lo reenvía en el evento `enviado`. Se ve en Solicitudes →
+  **Asistente web** (`AsistenteWebPanel.tsx`; agregación pura y con tests en `asistenteWeb.ts`):
+  embudo, abandonos por paso, rutas en diagrama Sankey, opciones elegidas (FR normalizado a ES),
+  WhatsApp por botón y momento, métricas por página/idioma/dispositivo, resultado real de las
+  solicitudes cruzado con `funnel_eventos` y la ruta de cada visita. Solo hay datos desde el 15/10/2026.

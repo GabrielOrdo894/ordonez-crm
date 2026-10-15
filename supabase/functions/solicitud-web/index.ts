@@ -161,5 +161,6 @@ ${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descri
     console.error('Aviso por email:', e instanceof Error ? e.message : String(e));
   }
 
-  return responder({ ok: true });
+  // El asistente reenvía el id a asistente-eventos para enlazar su ruta con la solicitud.
+  return responder({ ok: true, id: fila.id });
 });
