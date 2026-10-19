@@ -372,6 +372,35 @@ async function verificarAvisosVisita(supabase: SupabaseClient): Promise<{ verifi
   return { verificados, noLlegados };
 }
 
+// Servidor de firmas autoalojado (Documenso en firma.ordonezrenov.com, 2026-10-20): el 20/10 devolvía
+// 502 y solo se supo al intentar generar un enlace de firma. Se anota el estado en empresa_config y la
+// campana avisa mientras siga caído. Cualquier respuesta < 500 cuenta como «responde».
+const URL_SERVIDOR_FIRMA = 'https://firma.ordonezrenov.com/';
+
+async function comprobarServidorFirma(supabase: SupabaseClient): Promise<{ responde: boolean; error?: string }> {
+  let error: string | null = null;
+  try {
+    const res = await fetch(URL_SERVIDOR_FIRMA, { redirect: 'manual', signal: AbortSignal.timeout(15000) });
+    await res.body?.cancel();
+    if (res.status >= 500) error = `HTTP ${res.status}`;
+  } catch (err) {
+    error = String(err instanceof Error ? err.message : err);
+  }
+  const { data: actual, error: errorLectura } = await supabase.from('empresa_config').select('firma_caida_desde').eq('id', 1).maybeSingle();
+  if (errorLectura) throw new Error(`empresa_config (firma): ${errorLectura.message}`);
+  const ahora = new Date().toISOString();
+  const { error: errorUpdate } = await supabase
+    .from('empresa_config')
+    .update({
+      firma_ultima_comprobacion_en: ahora,
+      firma_caida_desde: error ? (actual?.firma_caida_desde ?? ahora) : null,
+      firma_ultimo_error: error,
+    })
+    .eq('id', 1);
+  if (errorUpdate) throw new Error(`empresa_config (firma): ${errorUpdate.message}`);
+  return error ? { responde: false, error } : { responde: true };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -387,13 +416,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita] = await Promise.all([
+    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma] = await Promise.all([
       autocompletarVisitas(supabase),
       rechazarPresupuestosCaducados(supabase),
       marcarSolicitudesNoConcretadas(supabase),
       verificarAvisosVisita(supabase),
+      comprobarServidorFirma(supabase),
     ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita });
+    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

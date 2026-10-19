@@ -1267,3 +1267,10 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `notificar-visita`, aviso al equipo y al cliente) y muestra el estado de la entrega. Solo se comprueba el
   aviso interno: la confirmación al cliente sale por el mismo SMTP en la misma llamada, pero su buzón no se
   puede consultar. Un fallo de Gmail no marca nada (no se sabe), la campana ya avisa aparte de Gmail desconectado.
+- **Aviso de servidor de firmas caído** (2026-10-20): Documenso está autoalojado en `firma.ordonezrenov.com`
+  (IP 187.7.26.34, fuera del hosting web de Hostinger del CRM: no se puede reiniciar desde la API de
+  `hostinger-hosting`). El 20/10 devolvía 502 y solo se supo al pulsar «Obtener enlace de firma».
+  `automatizaciones-crm` (`comprobarServidorFirma`, cada 30 min) lo comprueba y anota en `empresa_config`
+  (`firma_ultima_comprobacion_en`, `firma_caida_desde`, `firma_ultimo_error`; cualquier respuesta < 500 cuenta
+  como «responde»); la campana avisa (urgente) mientras `firma_caida_desde` tenga valor y se completa sola
+  cuando vuelve a responder.

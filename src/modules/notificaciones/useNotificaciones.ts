@@ -167,6 +167,22 @@ export function useNotificaciones() {
     refetchInterval: 10 * 60 * 1000,
   });
 
+  // Estado del servidor de firmas (Documenso autoalojado), anotado por automatizaciones-crm cada
+  // 30 min. queryKey propia: el resto de lecturas de empresa_config usan otro select.
+  const { data: estadoFirma } = useQuery({
+    queryKey: ['empresa_config', 'estado-firma'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('empresa_config')
+        .select('firma_caida_desde, firma_ultimo_error')
+        .eq('id', 1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { firma_caida_desde: string | null; firma_ultimo_error: string | null } | null;
+    },
+    refetchInterval: 10 * 60 * 1000,
+  });
+
   const esGabriel = user?.email === EMAIL_GABRIEL;
 
   const { data: config } = useQuery({
@@ -634,8 +650,23 @@ export function useNotificaciones() {
       }
     }
 
+    // Servidor de firmas caído: no se pueden generar enlaces de firma de presupuestos. Id ligado a la
+    // fecha de la caída: cuando vuelve a responder, automatizaciones-crm limpia firma_caida_desde.
+    if (estadoFirma?.firma_caida_desde) {
+      const desde = estadoFirma.firma_caida_desde.slice(0, 16).replace('T', ' ');
+      lista.push({
+        id: `firma-caida-${estadoFirma.firma_caida_desde.slice(0, 10)}`,
+        categoria: 'presupuesto',
+        titulo: 'Servidor de firmas caído: no se pueden generar enlaces de firma',
+        resumen: `firma.ordonezrenov.com no responde desde el ${desde} (${estadoFirma.firma_ultimo_error ?? 'sin respuesta'}). Reinicia el servidor de Documenso.`,
+        to: '/finanzas/presupuestos',
+        urgente: true,
+      });
+    }
+
     return lista;
   }, [
+    estadoFirma,
     estadoGmail,
     alertas,
     facturas,
