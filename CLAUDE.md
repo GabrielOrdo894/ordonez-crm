@@ -1268,8 +1268,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   aviso interno: la confirmación al cliente sale por el mismo SMTP en la misma llamada, pero su buzón no se
   puede consultar. Un fallo de Gmail no marca nada (no se sabe), la campana ya avisa aparte de Gmail desconectado.
 - **Aviso de servidor de firmas caído** (2026-10-20): Documenso está autoalojado en `firma.ordonezrenov.com`
-  (IP 187.7.26.34, fuera del hosting web de Hostinger del CRM: no se puede reiniciar desde la API de
-  `hostinger-hosting`). El 20/10 devolvía 502 y solo se supo al pulsar «Obtener enlace de firma».
+  (VPS de Hostinger `srv1080789.hstgr.cloud`, KVM 1, IP 187.7.26.34; hPanel → VPS → Administrador de Docker,
+  proyecto `documenso-production` con 3 contenedores: `caddy` (proxy HTTPS), `documenso` y `database`; compose en
+  `/opt/documenso`). No hay API de VPS en las herramientas MCP: se gestiona desde hPanel o su «Consola web».
+  El 16/10 a las 16:29 UTC el proyecto se detuvo por una orden de parada (en hPanel quedó «El proyecto no se ha
+  podido implementar») y `documenso` + `database` quedaron parados, con Caddy devolviendo 502; se arrancó el 20/10
+  con `cd /opt/documenso && docker compose -p documenso-production start` (sin descargar imágenes nuevas — no
+  usar «Actualizar» del panel para esto). Solo se supo al pulsar «Obtener enlace de firma».
+  Ojo: generar el enlace hace `/envelope/distribute`, que manda el email de firma de Documenso al cliente.
   `automatizaciones-crm` (`comprobarServidorFirma`, cada 30 min) lo comprueba y anota en `empresa_config`
   (`firma_ultima_comprobacion_en`, `firma_caida_desde`, `firma_ultimo_error`; cualquier respuesta < 500 cuenta
   como «responde»); la campana avisa (urgente) mientras `firma_caida_desde` tenga valor y se completa sola
