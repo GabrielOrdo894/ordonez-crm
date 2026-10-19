@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { Calendar, MapPin, Image as ImageIcon } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Calendar, MapPin, Image as ImageIcon, Mail } from 'lucide-react';
 import { Badge, estadoToVariant } from '../../components/ui/Badge';
 import { RutaPreview } from '../google/RutaPreview';
 import { encontrarObraPorContacto, abrirOCrearFichaGaleria } from '../galeria/obras';
@@ -10,6 +10,7 @@ import { fechaVisitaLarga } from '../../lib/fechas';
 import { VisitaChecklist } from './VisitaChecklist';
 import { ReferidoIncentivoBox } from './ReferidoIncentivoBox';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
+import { supabase } from '../../lib/supabase';
 import { formatearTelefonoVisual } from '../clientes/types';
 import type { Visita } from './types';
 
@@ -23,6 +24,7 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
   const urlMaps = urlGoogleMaps(visita);
   const navigate = useNavigate();
   const toast = useToast();
+  const queryClient = useQueryClient();
 
   // Ya no crea con texto libre — busca si esta visita corresponde a una obra verificada
   // (presupuesto Aceptado / factura / acompte) y abre o crea su ficha en Galería (2026-09-09).
@@ -41,6 +43,31 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
     },
     onError: (error) => toast.error(mensajeError(error, 'No se pudo abrir la galería')),
   });
+
+  // Reenvío manual del aviso de visita (2026-10-19), para cuando automatizaciones-crm detecta que no
+  // llegó al Gmail del equipo (el SMTP lo aceptó sin entregarlo). Vuelve a mandar el aviso interno
+  // y la confirmación al cliente, y reinicia la comprobación de entrega.
+  const reenviarAvisoMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('notificar-visita', { body: { visitaId: visita.id } });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? 'El envío no se completó');
+      return data as { ok: true; clienteNotificado: boolean };
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      toast.success(r.clienteNotificado ? 'Confirmación reenviada al cliente y al equipo' : 'Aviso reenviado al equipo (el cliente no tiene email válido)');
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo reenviar la confirmación')),
+  });
+  const puedeReenviarAviso = visita.estado === 'Pendiente' && !!visita.fecha_visita && !!visita.hora_visita;
+  const estadoAviso = !visita.aviso_enviado_en
+    ? null
+    : visita.aviso_verificado_en
+      ? { texto: 'Aviso de visita entregado', clase: 'text-gray-400' }
+      : visita.aviso_no_llegado_en
+        ? { texto: 'El aviso de visita no ha llegado — reenvía la confirmación', clase: 'text-red-600' }
+        : { texto: 'Aviso de visita enviado, comprobando la entrega', clase: 'text-gray-400' };
 
   return (
     <div className="flex flex-col gap-4 text-sm">
@@ -150,6 +177,19 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
           <ImageIcon size={13} />
           {irAGaleriaMutation.isPending ? 'Abriendo...' : 'Foto/vídeo a galería'}
         </button>
+        {puedeReenviarAviso && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+            <button
+              onClick={() => reenviarAvisoMutation.mutate()}
+              disabled={reenviarAvisoMutation.isPending}
+              className="flex items-center gap-1.5 text-xs text-brand hover:underline disabled:opacity-60"
+            >
+              <Mail size={13} />
+              {reenviarAvisoMutation.isPending ? 'Reenviando...' : 'Reenviar confirmación'}
+            </button>
+            {estadoAviso && <span className={`text-xs ${estadoAviso.clase}`}>{estadoAviso.texto}</span>}
+          </div>
+        )}
       </div>
     </div>
   );

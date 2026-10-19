@@ -312,6 +312,25 @@ export function useNotificaciones() {
       });
     }
 
+    // Aviso de visita que no llegó (2026-10-19): automatizaciones-crm marca aviso_no_llegado_en si el
+    // aviso interno no aparece en Gmail 15 min después de enviarse — el cliente probablemente
+    // tampoco recibió su confirmación. Se completa solo al reenviar desde la ficha y verificarse.
+    const avisosNoLlegados = (visitas ?? []).filter(
+      (v) => v.estado === 'Pendiente' && v.aviso_no_llegado_en && !v.aviso_verificado_en && (!v.fecha_visita || v.fecha_visita >= hoyVisitas),
+    );
+    for (const v of avisosNoLlegados) {
+      lista.push({
+        id: `visita-aviso-no-llegado-${v.id}`,
+        categoria: 'visita',
+        titulo: `El aviso de la visita de ${v.nombre} ${v.apellidos ?? ''} todavía no ha llegado`.replace(/\s+/g, ' '),
+        resumen: v.aviso_cliente_email
+          ? `Probablemente ${v.aviso_cliente_email} tampoco recibió su confirmación. Reenvíala desde la ficha.`
+          : 'El email no llegó al equipo. Reenvía la confirmación desde la ficha.',
+        to: `/visitas/${v.id}`,
+        urgente: true,
+      });
+    }
+
     // Aviso previo de visitas de mañana — a diferencia del aviso de arriba (que solo salta el
     // mismo día o después, para marcar el resultado real), este es un simple recordatorio para
     // prepararse antes de que llegue el día (petición de Gabriel 2026-09-02: hasta ahora el único

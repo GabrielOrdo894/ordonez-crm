@@ -59,6 +59,13 @@ export type Visita = {
   // evento de Calendar en vez de "Imagen N"/"Documento N" genérico (jsonb desde 2026-09-01, antes
   // era text[] de solo paths).
   fotos_previas?: ArchivoPrevio[] | null;
+  // Seguimiento de la entrega del aviso de visita (2026-10-19): notificar-visita anota el envío y
+  // automatizaciones-crm comprueba en el Gmail del equipo que el aviso interno llegó.
+  aviso_enviado_en?: string | null;
+  aviso_asunto?: string | null;
+  aviso_cliente_email?: string | null;
+  aviso_verificado_en?: string | null;
+  aviso_no_llegado_en?: string | null;
 };
 
 /** Una visita agendada es cualquier registro con fecha de visita, esté pendiente o ya realizada. */

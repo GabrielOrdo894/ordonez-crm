@@ -18,6 +18,7 @@
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { CV_VEHICULO_DEFECTO, CUENTA_KILOMETRICO, calcularIndemnizacionKm } from '../_shared/baremoKilometrico.ts';
 import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { gmailFetch, obtenerTokenGmail } from '../_shared/gmail.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -293,6 +294,84 @@ async function marcarSolicitudesNoConcretadas(supabase: SupabaseClient): Promise
   return ids.length;
 }
 
+// Comprobación de entrega del aviso de visita (2026-10-19): el 19/10 el SMTP de Hostinger aceptó dos
+// avisos de notificar-visita sin error y los entregó más de una hora tarde (al equipo y a la clienta). El aviso
+// interno llega al Gmail del equipo por el mismo SMTP que la confirmación al cliente, así que si no
+// está en Gmail 15 min después, lo más probable es que tampoco le llegara al cliente. Se busca por
+// asunto exacto; en spam cuenta como no llegado. Un fallo de Gmail no marca nada (no se sabe) ni
+// tumba el resto de automatizaciones: la campana ya avisa aparte si Gmail está desconectado.
+const QUINCE_MIN_MS = 15 * 60 * 1000;
+const UN_DIA_MS = 24 * 60 * 60 * 1000;
+
+function normalizarAsunto(asunto: string): string {
+  return asunto.replace(/\s+/g, ' ').trim();
+}
+
+async function verificarAvisosVisita(supabase: SupabaseClient): Promise<{ verificados: number; noLlegados: number; error?: string }> {
+  const ahora = Date.now();
+  const { data: pendientes, error } = await supabase
+    .from('visitas')
+    .select('id, aviso_asunto, aviso_no_llegado_en')
+    .is('eliminado_en', null)
+    .is('aviso_verificado_en', null)
+    .not('aviso_asunto', 'is', null)
+    .gte('aviso_enviado_en', new Date(ahora - UN_DIA_MS).toISOString())
+    .lte('aviso_enviado_en', new Date(ahora - QUINCE_MIN_MS).toISOString());
+  if (error) throw new Error(`visitas (avisos): ${error.message}`);
+  type Pendiente = { id: string; aviso_asunto: string; aviso_no_llegado_en: string | null };
+  const lista = (pendientes ?? []) as Pendiente[];
+  if (lista.length === 0) return { verificados: 0, noLlegados: 0 };
+
+  const recibidos = new Set<string>();
+  try {
+    const token = await obtenerTokenGmail(supabase);
+    const remitente = Deno.env.get('SMTP_USER') ?? 'info@ordonezrenov.com';
+    const q = encodeURIComponent(`from:${remitente} subject:visita newer_than:2d`);
+    const listado = await gmailFetch<{ messages?: { id: string }[] }>(`messages?q=${q}&maxResults=100&includeSpamTrash=true`, token);
+    for (const { id } of listado.messages ?? []) {
+      const msg = await gmailFetch<{ labelIds?: string[]; payload?: { headers?: { name: string; value: string }[] } }>(
+        `messages/${id}?format=metadata&metadataHeaders=Subject`,
+        token,
+      );
+      if (msg.labelIds?.includes('SPAM')) continue;
+      const subject = msg.payload?.headers?.find((h) => h.name.toLowerCase() === 'subject')?.value;
+      if (subject) recibidos.add(normalizarAsunto(subject));
+    }
+  } catch (err) {
+    const mensaje = String(err instanceof Error ? err.message : err);
+    console.error('verificarAvisosVisita: no se pudo consultar Gmail', mensaje);
+    return { verificados: 0, noLlegados: 0, error: mensaje };
+  }
+
+  let verificados = 0;
+  let noLlegados = 0;
+  for (const v of lista) {
+    if (recibidos.has(normalizarAsunto(v.aviso_asunto))) {
+      const { error: e } = await supabase
+        .from('visitas')
+        .update({ aviso_verificado_en: new Date().toISOString(), aviso_no_llegado_en: null })
+        .eq('id', v.id);
+      if (e) console.error(`verificarAvisosVisita: no se pudo marcar ${v.id} como verificado:`, e.message);
+      else verificados++;
+    } else if (!v.aviso_no_llegado_en) {
+      const { error: e } = await supabase.from('visitas').update({ aviso_no_llegado_en: new Date().toISOString() }).eq('id', v.id);
+      if (e) {
+        console.error(`verificarAvisosVisita: no se pudo marcar ${v.id} como no llegado:`, e.message);
+        continue;
+      }
+      noLlegados++;
+      const { error: errorNota } = await supabase.from('notas_cliente').insert({
+        visita_id: v.id,
+        tipo: 'sistema',
+        texto: 'El aviso de visita todavía no ha llegado al Gmail del equipo 15 minutos después de enviarse: es probable que el cliente tampoco tenga aún su confirmación (el 19/10 Hostinger entregó dos avisos con más de una hora de retraso). Si es urgente, reenvíala desde la ficha de la visita.',
+        autor: 'Sistema',
+      });
+      if (errorNota) console.error(`verificarAvisosVisita: no se pudo guardar la nota de ${v.id}:`, errorNota.message);
+    }
+  }
+  return { verificados, noLlegados };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -308,12 +387,13 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas] = await Promise.all([
+    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita] = await Promise.all([
       autocompletarVisitas(supabase),
       rechazarPresupuestosCaducados(supabase),
       marcarSolicitudesNoConcretadas(supabase),
+      verificarAvisosVisita(supabase),
     ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas });
+    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

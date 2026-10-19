@@ -1256,3 +1256,14 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   embudo, abandonos por paso, rutas en diagrama Sankey, opciones elegidas (FR normalizado a ES),
   WhatsApp por botón y momento, métricas por página/idioma/dispositivo, resultado real de las
   solicitudes cruzado con `funnel_eventos` y la ruta de cada visita. Solo hay datos desde el 15/10/2026.
+- **Comprobación de entrega del aviso de visita** (2026-10-19): el SMTP de Hostinger aceptó sin error los
+  avisos de Clara Zunzarren y de Caquineau y los entregó más de una hora tarde (al equipo y a la clienta),
+  así que la clienta llamó para confirmar. `notificar-visita` anota ahora en `visitas` el envío
+  (`aviso_enviado_en`, `aviso_asunto` exacto, `aviso_cliente_email`) y deja una nota de sistema;
+  `automatizaciones-crm` (cada 30 min, `verificarAvisosVisita`) busca ese asunto en el Gmail del equipo
+  (`_shared/gmail.ts`, solo si hay avisos de entre 15 min y 24 h sin verificar; en spam cuenta como no
+  llegado). Si lo encuentra marca `aviso_verificado_en`; si no, `aviso_no_llegado_en` + nota, y la campana
+  avisa (urgente) hasta que llegue. La ficha de la visita tiene «Reenviar confirmación» (vuelve a llamar a
+  `notificar-visita`, aviso al equipo y al cliente) y muestra el estado de la entrega. Solo se comprueba el
+  aviso interno: la confirmación al cliente sale por el mismo SMTP en la misma llamada, pero su buzón no se
+  puede consultar. Un fallo de Gmail no marca nada (no se sabe), la campana ya avisa aparte de Gmail desconectado.

@@ -568,6 +568,31 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // Seguimiento de la entrega (2026-10-19): el SMTP de Hostinger aceptó dos avisos sin error y
+    // los entregó más de una hora tarde. Se anota el asunto exacto para que automatizaciones-crm lo busque en el
+    // Gmail del equipo y avise en la campana si a los 15 min no ha llegado. Un fallo aquí no
+    // invalida el envío, que ya se hizo.
+    const { error: errorSeguimiento } = await supabase
+      .from('visitas')
+      .update({
+        aviso_enviado_en: new Date().toISOString(),
+        aviso_asunto: asunto,
+        aviso_cliente_email: clienteNotificado ? v.email : null,
+        aviso_verificado_en: null,
+        aviso_no_llegado_en: null,
+      })
+      .eq('id', visitaId);
+    if (errorSeguimiento) console.error('notificar-visita: no se pudo anotar el envío del aviso', errorSeguimiento.message);
+    const { error: errorNota } = await supabase.from('notas_cliente').insert({
+      visita_id: visitaId,
+      tipo: 'sistema',
+      texto: clienteNotificado
+        ? `Aviso de visita enviado al equipo y confirmación al cliente (${v.email})`
+        : 'Aviso de visita enviado al equipo (sin confirmación al cliente: no tiene email válido o falló su envío)',
+      autor: 'Sistema',
+    });
+    if (errorNota) console.error('notificar-visita: no se pudo guardar la nota del aviso', errorNota.message);
+
     return jsonResponse({ ok: true, destinatarios, clienteNotificado });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
