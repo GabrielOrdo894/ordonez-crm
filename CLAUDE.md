@@ -1288,3 +1288,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `resena_enviado_en` y cancela la automática en el resto de facturas del cliente; igual con la cortesía de 6
   meses. `resena-automatica` programa y envía una sola por cliente. Campana y banner de Inicio muestran un aviso
   por cliente y ninguno si ya se le pidió por otra factura (el «caso de éxito», uno por visita).
+- **Visita sin solicitud → solicitud automática** (2026-10-20, decisión de Gabriel): al crear una visita
+  directamente (no desde «Crear visita desde esta solicitud») se intenta primero enlazar una solicitud abierta
+  por contacto (`vincularSolicitudPorVisita`); si no hay ninguna, `crearSolicitudParaVisita`
+  (`src/lib/funnelTracking.ts`) crea una ya `Aceptada`, tipo `visita`, enlazada, con la fuente según
+  `visitas.contacto` (`fuenteDesdeContacto`) y los eventos `solicitud_entrada` + `visita_agendada`. Vale también
+  para las visitas de Ricardo apuntadas como Realizada. No la crea si el cliente ya tiene una solicitud en
+  cualquier estado (las cerradas a propósito siguen cerradas) ni si ya tenía otra visita (una segunda visita no
+  es una entrada nueva). La entrada manual de Solicitudes usa `TelefonoInput` y exige prefijo, como Visitas.

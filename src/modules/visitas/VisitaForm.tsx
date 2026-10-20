@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, FileText, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
-import { registrarEventoFunnel, vincularSolicitudPorVisita } from '../../lib/funnelTracking';
+import { crearSolicitudParaVisita, registrarEventoFunnel, vincularSolicitudPorVisita } from '../../lib/funnelTracking';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../hooks/useToast';
@@ -614,7 +614,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
         // Visita creada buscando el cliente directamente (la vía más habitual) — intenta el mismo
         // enlace por teléfono/email/nombre completo que arriba, para que "Visita agendada" del embudo no se quede
         // corto solo por no haber pasado por el botón de la solicitud (hallazgo real, 2026-09-16).
-        await vincularSolicitudPorVisita(
+        const enlace = await vincularSolicitudPorVisita(
           data.id,
           {
             telefono: data.telefono,
@@ -623,6 +623,15 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
           },
           data.fecha_visita,
         );
+        // Cliente sin ninguna solicitud (WhatsApp, llamada, visitas de Ricardo…): se le crea una ya
+        // Aceptada para que cuente en el embudo (decisión de Gabriel 2026-10-20).
+        if (enlace === 'sin_coincidencia') {
+          try {
+            await crearSolicitudParaVisita(data);
+          } catch (error) {
+            toast.warning(`Visita registrada, pero no se pudo crear su solicitud: ${(error as Error).message}`);
+          }
+        }
         queryClient.invalidateQueries({ queryKey: ['solicitudes'] });
       }
       // Una visita que se registra ya como Realizada (p. ej. las de Ricardo apuntadas a posteriori)

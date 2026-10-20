@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { registrarEventoFunnel } from '../../lib/funnelTracking';
+import { fuenteDesdeContacto, registrarEventoFunnel } from '../../lib/funnelTracking';
 import { useToast } from '../../hooks/useToast';
 import { useConfirmar } from '../../hooks/useConfirm';
 import { Table } from '../../components/ui/Table';
@@ -63,16 +63,6 @@ type SolicitudDescartada = {
   visita_id: string | null;
   estado: string;
 };
-
-// Solicitud creada al cerrar desde Avisos una visita que no tenía ninguna — mismo vocabulario de
-// fuente que EntradaManualPanel.tsx, deducido de cómo llegó el cliente según la visita.
-function fuenteDesdeContacto(contacto: string | null) {
-  if (contacto === 'WhatsApp') return 'whatsapp';
-  if (contacto === 'Llamada') return 'llamada';
-  if (contacto === 'SMS') return 'sms';
-  if (contacto === 'Email') return 'email_directo';
-  return 'manual';
-}
 
 export function AvisosPanel({ onAbrirSolicitud }: { onAbrirSolicitud: (id: string) => void }) {
   const navigate = useNavigate();

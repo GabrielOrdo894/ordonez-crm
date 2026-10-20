@@ -265,13 +265,13 @@ export async function vincularSolicitudPorVisita(
   visitaId: string,
   contacto: { telefono?: string | null; email?: string | null; nombre?: string | null },
   fechaVisita?: string | null,
-) {
+): Promise<'enlazada' | 'sin_coincidencia' | 'error'> {
   const tel = contacto.telefono ? normalizarTelefono(contacto.telefono) : null;
   const email = contacto.email ? contacto.email.trim().toLowerCase() : null;
   // Nombre completo exacto (normalizado) como tercer criterio — mismo motivo que en
   // vincularSolicitudPorContacto (petición de Gabriel, 2026-09-16).
   const nombre = contacto.nombre ? normalizarNombre(contacto.nombre) : null;
-  if (!tel && !email && !nombre) return;
+  if (!tel && !email && !nombre) return 'sin_coincidencia';
 
   const { data: solicitudes, error } = await supabase
     .from('solicitudes')
@@ -281,7 +281,7 @@ export async function vincularSolicitudPorVisita(
     .order('created_at', { ascending: false });
   if (error) {
     console.warn('vincularSolicitudPorVisita: no se pudieron leer solicitudes:', error.message);
-    return;
+    return 'error';
   }
 
   const match = seleccionarSolicitudPorContacto(
@@ -289,16 +289,85 @@ export async function vincularSolicitudPorVisita(
     { tel, email, nombre },
     'vincularSolicitudPorVisita',
   );
-  if (!match) return;
+  if (!match) return 'sin_coincidencia';
 
   const { error: errorUpdate } = await supabase.from('solicitudes').update({ visita_id: visitaId, estado: 'Aceptada' }).eq('id', match.id);
   if (errorUpdate) {
     console.warn('vincularSolicitudPorVisita: no se pudo enlazar la solicitud:', errorUpdate.message);
-    return;
+    return 'error';
   }
   // "Visita agendada" solo cuenta visitas con fecha_visita rellena — misma regla que el KPI "Total
   // visitas" de VisitasPage.tsx, para que los dos conteos no diverjan (hallazgo real, 2026-09-20).
   if (fechaVisita) await registrarEventoFunnel('visita_agendada', { solicitudId: match.id, fuente: match.fuente });
+  return 'enlazada';
+}
+
+// Origen de una solicitud deducido de cómo llegó el cliente según la visita — mismo vocabulario de
+// fuente que EntradaManualPanel.tsx.
+export function fuenteDesdeContacto(contacto: string | null) {
+  if (contacto === 'WhatsApp') return 'whatsapp';
+  if (contacto === 'Llamada') return 'llamada';
+  if (contacto === 'SMS') return 'sms';
+  if (contacto === 'Email') return 'email_directo';
+  return 'manual';
+}
+
+// Visita creada directamente para un cliente que nunca pasó por Solicitudes (WhatsApp, llamada,
+// visitas de Ricardo apuntadas solo con la dirección…): se crea su solicitud ya Aceptada y enlazada,
+// para que el cliente cuente en el embudo como entrada y como visita agendada (decisión de Gabriel
+// 2026-10-20). Solo si es un cliente nuevo de verdad: no se crea si ya hay una solicitud suya en
+// cualquier estado (incluidas las cerradas a propósito) ni si ya tenía otra visita (una segunda
+// visita del mismo cliente no es una entrada nueva). Lanza el error para que VisitaForm lo avise.
+export async function crearSolicitudParaVisita(visita: {
+  id: string;
+  nombre: string;
+  apellidos: string | null;
+  telefono: string | null;
+  email: string | null;
+  idioma: string | null;
+  contacto: string | null;
+  descripcion: string | null;
+  fecha_visita: string | null;
+}) {
+  const tel = visita.telefono ? normalizarTelefono(visita.telefono) : null;
+  const email = visita.email ? visita.email.trim().toLowerCase() : null;
+  const nombreCompleto = `${visita.nombre} ${visita.apellidos ?? ''}`.trim();
+  const nombre = nombreCompleto ? normalizarNombre(nombreCompleto) : null;
+
+  const { data: solicitudes, error } = await supabase.from('solicitudes').select('id, nombre, telefono, email, fuente');
+  if (error) throw error;
+  if (seleccionarSolicitudPorContacto(solicitudes ?? [], { tel, email, nombre }, 'crearSolicitudParaVisita')) return;
+
+  for (const [columna, valor] of [['telefono_digitos', tel], ['email', email]] as const) {
+    if (!valor) continue;
+    const consulta = supabase.from('visitas').select('id').neq('id', visita.id).is('eliminado_en', null).limit(1);
+    const { data: otras, error: errorOtras } =
+      columna === 'email' ? await consulta.ilike('email', valor) : await consulta.eq(columna, valor);
+    if (errorOtras) throw errorOtras;
+    if (otras && otras.length > 0) return;
+  }
+
+  const fuente = fuenteDesdeContacto(visita.contacto);
+  const { data: nueva, error: errorInsert } = await supabase
+    .from('solicitudes')
+    .insert({
+      fuente,
+      idioma: visita.idioma === 'Français' ? 'fr' : 'es',
+      nombre: nombreCompleto || null,
+      email: visita.email,
+      telefono: visita.telefono,
+      comentario_cliente: visita.descripcion,
+      tipo_solicitud: 'visita',
+      estado: 'Aceptada',
+      visita_id: visita.id,
+      ultima_respuesta_revisada: true,
+      notas: 'Creada automáticamente al registrar la visita (cliente sin solicitud previa).',
+    })
+    .select('id')
+    .single();
+  if (errorInsert) throw errorInsert;
+  await registrarEventoFunnel('solicitud_entrada', { solicitudId: nueva.id, fuente });
+  if (visita.fecha_visita) await registrarEventoFunnel('visita_agendada', { solicitudId: nueva.id, fuente });
 }
 
 // Al mover una visita a la papelera, su etapa "visita_agendada" ya no debe seguir contando en el
