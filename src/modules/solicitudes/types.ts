@@ -61,6 +61,9 @@ export type Solicitud = {
   tipo_reforma: string | null;
   comentario_cliente: string | null;
   pagina_origen: string | null;
+  // Versión de plantilla de la web filial que generó la solicitud (ordonezfachadas.com, costabath.com):
+  // esas webs son experimentos y se comparan plantillas por conversión (Gabriel, 2026-10-20).
+  version_plantilla: string | null;
   idioma: string;
   estado: EstadoSolicitud;
   mensaje_generado: string | null;
@@ -187,6 +190,7 @@ export const FUENTE_LABEL: Record<string, string> = {
   web_wordpress: 'Formulario web',
   web_emailjs: 'Formulario de contacto',
   ordonezfachadas: 'Ordoñez Fachadas (web)',
+  costabath: 'Costabath (web)',
   asistente_web_es: 'Asistente web (ES)',
   asistente_web_fr: 'Asistente web (FR)',
   autoenvio_gabriel: 'Autoenvío Gabriel',

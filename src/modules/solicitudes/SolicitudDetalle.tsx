@@ -368,7 +368,7 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
           </h1>
           <p className="text-sm text-gray-500">
             {tipo === 'solicitud' && solicitud
-              ? `Solicitud recibida el ${fecha(solicitud.created_at)} · ${FUENTE_LABEL[solicitud.fuente] ?? solicitud.fuente}`
+              ? `Solicitud recibida el ${fecha(solicitud.created_at)} · ${FUENTE_LABEL[solicitud.fuente] ?? solicitud.fuente}${solicitud.version_plantilla ? ` · plantilla ${solicitud.version_plantilla}` : ''}`
               : presupuesto?.cliente_nombre}
           </p>
         </div>

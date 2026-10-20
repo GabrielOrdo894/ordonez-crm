@@ -9,7 +9,10 @@
 // web sin sesión. Defensas: CORS solo para los dos dominios, campo trampa `web` que un humano
 // nunca rellena, validación de longitudes y un envío por teléfono cada 10 minutos.
 //
-// Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, web }
+// costabath.com (2026-10-20) usa el mismo formulario que Fachadas, con fuente `costabath`. Las dos webs
+// filiales mandan `version` (versión de plantilla, son webs de experimento) → solicitudes.version_plantilla.
+//
+// Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, version?, web }
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
@@ -17,7 +20,8 @@ import { esc } from '../_shared/html.ts';
 
 const ORIGENES_FACHADAS = ['https://ordonezfachadas.com', 'https://www.ordonezfachadas.com'];
 const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.com'];
-const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV];
+const ORIGENES_COSTABATH = ['https://costabath.com', 'https://www.costabath.com'];
+const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV, ...ORIGENES_COSTABATH];
 const DESTINATARIO = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? DESTINATARIO;
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -72,6 +76,7 @@ Deno.serve(async (req: Request) => {
   const origen = req.headers.get('origin') ?? '';
   if (!ORIGENES.includes(origen)) return responder({ error: 'Origen no permitido' }, 403);
   const esRenov = ORIGENES_RENOV.includes(origen);
+  const esCostabath = ORIGENES_COSTABATH.includes(origen);
 
   let body: Record<string, unknown>;
   try {
@@ -92,8 +97,10 @@ Deno.serve(async (req: Request) => {
   const descripcion = texto(body.descripcion, 2000);
   const pagina = texto(body.pagina, 300);
   const idioma = body.idioma === 'fr' ? 'fr' : 'es';
-  const fuente = esRenov ? `asistente_web_${idioma}` : 'ordonezfachadas';
-  const marca = esRenov ? 'Reformas Ordoñez' : 'Ordoñez Fachadas';
+  const version = texto(body.version, 40);
+  const fuente = esRenov ? `asistente_web_${idioma}` : esCostabath ? 'costabath' : 'ordonezfachadas';
+  const marca = esRenov ? 'Reformas Ordoñez' : esCostabath ? 'Costabath' : 'Ordoñez Fachadas';
+  const dominio = esCostabath ? 'costabath.com' : 'ordonezfachadas.com';
   const digitos = telefono.replace(/\D/g, '');
 
   if (!nombre || digitos.length < 9) return responder({ error: 'Nombre y teléfono obligatorios' }, 400);
@@ -133,6 +140,7 @@ Deno.serve(async (req: Request) => {
       idioma,
       estado: 'Nueva',
       tipo_solicitud: 'visita',
+      version_plantilla: version || null,
     })
     .select('id')
     .single();
@@ -148,12 +156,12 @@ Deno.serve(async (req: Request) => {
     const urgente = plazo === 'urgente' || plazo === 'urgent';
     const filas = [
       ['Trabajo', tipo], ['Municipio', municipio], ['Plazo', etiquetaPlazo[plazo] ?? ''], ['Nombre', nombre],
-      ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina],
+      ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina], ['Plantilla', version],
     ].filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#666">${k}</td><td style="padding:4px 0"><b>${esc(v)}</b></td></tr>`).join('');
     await enviarAviso(
       marca,
-      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? 'web' : 'Ordoñez Fachadas'} · ${tipo || 'Sin tipo'} · ${municipio || 'sin municipio'}`,
-      `<p>Ha entrado una solicitud desde ${esRenov ? 'el asistente de ordonezrenov.com' : 'ordonezfachadas.com'}. Ya está en Solicitudes del CRM.</p>
+      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? 'web' : marca} · ${tipo || 'Sin tipo'} · ${municipio || 'sin municipio'}`,
+      `<p>Ha entrado una solicitud desde ${esRenov ? 'el asistente de ordonezrenov.com' : dominio}. Ya está en Solicitudes del CRM.</p>
 <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">${filas}</table>
 ${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}`,
     );
