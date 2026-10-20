@@ -7,6 +7,8 @@ import { useToast } from '../../hooks/useToast';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { TelefonoInput } from '../../components/ui/TelefonoInput';
+import { tieneCodigoPais } from '../clientes/types';
 
 const FUENTES_MANUALES = [
   { value: 'whatsapp', label: 'WhatsApp' },
@@ -34,6 +36,8 @@ export function EntradaManualPanel({ onCreada }: EntradaManualPanelProps) {
 
   const crearMutation = useMutation({
     mutationFn: async () => {
+      // Mismo criterio que VisitaForm.tsx: un número sin prefijo es ambiguo (ES/FR) y no se adivina.
+      if (form.telefono.trim() && !tieneCodigoPais(form.telefono)) throw new Error('Añade el prefijo del país: +34 o +33');
       const { data, error } = await supabase
         .from('solicitudes')
         .insert({
@@ -107,7 +111,7 @@ export function EntradaManualPanel({ onCreada }: EntradaManualPanelProps) {
                 value={form.nombre}
                 onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
               />
-              <Input label="Teléfono" value={form.telefono} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} />
+              <TelefonoInput value={form.telefono} onChange={(telefono) => setForm((f) => ({ ...f, telefono }))} />
               <Input label="Email" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
             </div>
             <div className="flex justify-end pt-1">
