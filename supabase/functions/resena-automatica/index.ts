@@ -22,6 +22,7 @@
 // Function no puede importar de otra en el despliegue vía MCP).
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
+import { claveEmail } from '../_shared/resenasCliente.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -48,6 +49,7 @@ type FacturaProgramada = {
   estado_cobro: string;
   resena_enviado_en: string | null;
   eliminado_en: string | null;
+  cliente_email: string | null;
 };
 
 async function enviarProgramadas(
@@ -58,7 +60,7 @@ async function enviarProgramadas(
   const limite = new Date(Date.now() - HORAS_MARGEN * 3600 * 1000).toISOString();
   const { data, error } = await supabase
     .from('facturas')
-    .select('id, numero, estado_cobro, resena_enviado_en, eliminado_en')
+    .select('id, numero, estado_cobro, resena_enviado_en, eliminado_en, cliente_email')
     .eq('resena_auto_estado', 'programada')
     .lte('resena_auto_programada_en', limite);
   if (error) throw error;
@@ -66,7 +68,16 @@ async function enviarProgramadas(
   let enviadas = 0;
   let omitidas = 0;
   const errores: string[] = [];
+  const emailsEnviados = new Set<string>(); // una por cliente aunque tenga varias programadas
   for (const f of (data ?? []) as FacturaProgramada[]) {
+    const clave = claveEmail(f.cliente_email);
+    if (clave && emailsEnviados.has(clave)) {
+      // enviar-resena-email ya la dio por pedida al enviar la otra factura del cliente.
+      const { error: e } = await supabase.from('facturas').update({ resena_auto_estado: 'cancelada' }).eq('id', f.id);
+      if (e) throw e;
+      omitidas++;
+      continue;
+    }
     // Ya se mandó a mano (banner de Inicio / WhatsApp) entre la programación y hoy: no repetir.
     if (f.resena_enviado_en) {
       const { error: e } = await supabase.from('facturas').update({ resena_auto_estado: 'enviada' }).eq('id', f.id);
@@ -92,16 +103,17 @@ async function enviarProgramadas(
     const { error: e } = await supabase.from('facturas').update({ resena_auto_estado: 'enviada' }).eq('id', f.id);
     if (e) throw e;
     enviadas++;
+    if (clave) emailsEnviados.add(clave);
   }
   return { enviadas, omitidas, errores };
 }
 
-type FacturaCandidata = { id: string; numero: string | null; visita_id: string | null; resena_token: string | null };
+type FacturaCandidata = { id: string; numero: string | null; visita_id: string | null; resena_token: string | null; cliente_email: string | null };
 
 async function programarNuevas(supabase: SupabaseClient, diasEspera: number): Promise<{ programadas: number; aRevisar: number }> {
   const { data, error } = await supabase
     .from('facturas')
-    .select('id, numero, visita_id, resena_token')
+    .select('id, numero, visita_id, resena_token, cliente_email')
     .is('eliminado_en', null)
     .eq('tipo', 'normal')
     .eq('estado_cobro', 'Cobrada')
@@ -115,7 +127,37 @@ async function programarNuevas(supabase: SupabaseClient, diasEspera: number): Pr
   const hace7Dias = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   let programadas = 0;
   let aRevisar = 0;
-  for (const f of (data ?? []) as FacturaCandidata[]) {
+
+  // Una reseña por CLIENTE (2026-10-20, ver _shared/resenasCliente.ts): si a ese email ya se le pidió
+  // o tiene otra factura programada, esta no se programa — se cancela (y se da por pedida si ya salió).
+  const candidatas = (data ?? []) as FacturaCandidata[];
+  const emails = [...new Set(candidatas.map((f) => claveEmail(f.cliente_email)).filter((e): e is string => !!e))];
+  const yaPedida = new Map<string, string | null>(); // email → fecha de la petición (null si solo programada)
+  if (emails.length > 0) {
+    const { data: previas, error: errorPrevias } = await supabase
+      .from('facturas')
+      .select('cliente_email, resena_enviado_en, resena_auto_estado')
+      .is('eliminado_en', null)
+      .not('cliente_email', 'is', null)
+      .or('resena_enviado_en.not.is.null,resena_auto_estado.eq.programada');
+    if (errorPrevias) throw errorPrevias;
+    for (const p of (previas ?? []) as { cliente_email: string | null; resena_enviado_en: string | null }[]) {
+      const clave = claveEmail(p.cliente_email);
+      if (clave && emails.includes(clave)) yaPedida.set(clave, p.resena_enviado_en ?? yaPedida.get(clave) ?? null);
+    }
+  }
+
+  for (const f of candidatas) {
+    const clave = claveEmail(f.cliente_email);
+    if (clave && yaPedida.has(clave)) {
+      const fecha = yaPedida.get(clave);
+      const { error: e } = await supabase
+        .from('facturas')
+        .update(fecha ? { resena_auto_estado: 'cancelada', resena_enviado_en: fecha } : { resena_auto_estado: 'cancelada' })
+        .eq('id', f.id);
+      if (e) throw e;
+      continue;
+    }
     let motivoRevisar: string | null = null;
 
     const { data: rectificativas, error: errorRect } = await supabase
@@ -147,6 +189,7 @@ async function programarNuevas(supabase: SupabaseClient, diasEspera: number): Pr
         .eq('id', f.id);
       if (e) throw e;
       aRevisar++;
+      if (clave) yaPedida.set(clave, null);
     } else {
       // El token se fija ya aquí para que el enlace que verá el cliente sea el mismo que registra
       // resena-redirect (mismo criterio que CierreObraBanner al mostrar el mensaje).
@@ -156,6 +199,7 @@ async function programarNuevas(supabase: SupabaseClient, diasEspera: number): Pr
         .eq('id', f.id);
       if (e) throw e;
       programadas++;
+      if (clave) yaPedida.set(clave, null);
     }
   }
   return { programadas, aRevisar };

@@ -1280,3 +1280,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   (`firma_ultima_comprobacion_en`, `firma_caida_desde`, `firma_ultimo_error`; cualquier respuesta < 500 cuenta
   como «responde»); la campana avisa (urgente) mientras `firma_caida_desde` tenga valor y se completa sola
   cuando vuelve a responder.
+- **Reseñas por cliente, no por factura** (2026-10-20, hallazgo de Gabriel con Pascale Uzcudun: una obra con varios
+  presupuestos → F-2026-0007 a 0011; la campana repetía el aviso por factura y la reseña automática tenía 4 envíos
+  más programados a la misma clienta). Cliente = email en minúsculas, o teléfono normalizado si no hay email
+  (`claveClienteFactura` en `finanzas/facturas/resenasCliente.ts`; `_shared/resenasCliente.ts` en las Edge
+  Functions, solo por email). Pedir la reseña (email de `enviar-resena-email` o WhatsApp desde el banner) marca
+  `resena_enviado_en` y cancela la automática en el resto de facturas del cliente; igual con la cortesía de 6
+  meses. `resena-automatica` programa y envía una sola por cliente. Campana y banner de Inicio muestran un aviso
+  por cliente y ninguno si ya se le pidió por otra factura (el «caso de éxito», uno por visita).

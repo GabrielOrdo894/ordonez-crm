@@ -10,6 +10,7 @@ import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from './types';
 import { isoLocal } from '../../lib/fechas';
+import { claveClienteFactura, marcarCortesiaCliente, marcarResenaPedidaCliente, unaPorCliente } from '../finanzas/facturas/resenasCliente';
 
 type ConfigResenas = { activo: boolean; diasEspera: number; enlace: string };
 type ConfigReferidos = { activo: boolean; descuentoReferente: number; descuentoReferido: number };
@@ -95,9 +96,28 @@ export function CierreObraBanner() {
     return isoLocal(d);
   }, []);
 
+  // Clientes a los que ya se pidió la reseña / se mandó la cortesía por alguna de sus facturas: no se
+  // vuelve a pedir por otra factura de la misma obra (2026-10-20, ver resenasCliente.ts).
+  const { data: clientesYaAvisados } = useQuery({
+    queryKey: ['facturas', 'clientes-resena-pedida'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('facturas')
+        .select('id, cliente_email, cliente_tel, resena_enviado_en, resena_cortesia_enviada_en')
+        .is('eliminado_en', null)
+        .or('resena_enviado_en.not.is.null,resena_cortesia_enviada_en.not.is.null');
+      if (error) throw error;
+      const filas = (data ?? []) as Pick<Factura, 'id' | 'cliente_email' | 'cliente_tel' | 'resena_enviado_en' | 'resena_cortesia_enviada_en'>[];
+      return {
+        resena: new Set(filas.filter((f) => f.resena_enviado_en).map(claveClienteFactura)),
+        cortesia: new Set(filas.filter((f) => f.resena_cortesia_enviada_en).map(claveClienteFactura)),
+      };
+    },
+  });
+
   // Elegibles para el mensaje de cierre de obra (reseña + referidos): factura normal cobrada, con
   // email o teléfono, todavía sin ningún canal de envío marcado.
-  const { data: pendientesCierre } = useQuery({
+  const { data: facturasCierre } = useQuery({
     queryKey: ['facturas', 'cierre-obra-pendiente', fechaLimiteCierre],
     enabled: configResenas.activo,
     queryFn: async () => {
@@ -119,7 +139,7 @@ export function CierreObraBanner() {
   // Elegibles para el mensaje de cortesía a los 6 meses — ya se les pidió reseña (o no, da igual),
   // pero nunca se les mandó el mensaje de cortesía. Con flag propio (resena_cortesia_enviada_en) no
   // depende del historial local de cada navegador, a diferencia del sistema anterior.
-  const { data: pendientesCortesia } = useQuery({
+  const { data: facturasCortesia } = useQuery({
     queryKey: ['facturas', 'cortesia-pendiente', fechaLimiteCortesia],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -136,6 +156,16 @@ export function CierreObraBanner() {
       return data as Factura[];
     },
   });
+
+  // Una tarjeta por cliente, y ninguna si ya se le pidió por otra factura.
+  const pendientesCierre = useMemo(
+    () => (facturasCierre ? unaPorCliente(facturasCierre.filter((f) => !clientesYaAvisados?.resena.has(claveClienteFactura(f)))) : undefined),
+    [facturasCierre, clientesYaAvisados],
+  );
+  const pendientesCortesia = useMemo(
+    () => (facturasCortesia ? unaPorCliente(facturasCortesia.filter((f) => !clientesYaAvisados?.cortesia.has(claveClienteFactura(f)))) : undefined),
+    [facturasCortesia, clientesYaAvisados],
+  );
 
   const visitaIds = useMemo(
     () => [...new Set([...(pendientesCierre ?? []), ...(pendientesCortesia ?? [])].map((f) => f.visita_id).filter((id): id is string => !!id))],
@@ -196,11 +226,13 @@ export function CierreObraBanner() {
     mutationFn: async (facturas: Factura[]) => {
       for (const f of facturas) {
         const nuevoCanal = !f.resena_canal ? 'whatsapp' : f.resena_canal === 'email' ? 'ambos' : f.resena_canal;
+        const fecha = f.resena_enviado_en ?? new Date().toISOString();
         const { error } = await supabase
           .from('facturas')
-          .update({ resena_canal: nuevoCanal, resena_enviado_en: f.resena_enviado_en ?? new Date().toISOString() })
+          .update({ resena_canal: nuevoCanal, resena_enviado_en: fecha })
           .eq('id', f.id);
         if (error) throw error;
+        await marcarResenaPedidaCliente(f, fecha);
       }
     },
     onSuccess: () => {
@@ -238,9 +270,11 @@ export function CierreObraBanner() {
   });
 
   const marcarCortesiaMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('facturas').update({ resena_cortesia_enviada_en: new Date().toISOString() }).eq('id', id);
+    mutationFn: async (f: Factura) => {
+      const fecha = new Date().toISOString();
+      const { error } = await supabase.from('facturas').update({ resena_cortesia_enviada_en: fecha }).eq('id', f.id);
       if (error) throw error;
+      await marcarCortesiaCliente(f, fecha);
     },
     onSuccess: () => {
       invalidarTodo();
@@ -316,7 +350,7 @@ export function CierreObraBanner() {
                   <Button size="sm" variant="secondary" onClick={() => copiarMensaje(mensajeCortesia(f))}>
                     <span className="flex items-center gap-1"><Copy size={12} />Copiar</span>
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => marcarCortesiaMutation.mutate(f.id)} disabled={marcarCortesiaMutation.isPending}>
+                  <Button size="sm" variant="secondary" onClick={() => marcarCortesiaMutation.mutate(f)} disabled={marcarCortesiaMutation.isPending}>
                     Marcar enviado
                   </Button>
                 </div>

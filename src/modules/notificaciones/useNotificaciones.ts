@@ -10,6 +10,7 @@ import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
 import type { Visita } from '../visitas/types';
 import { isoLocal } from '../../lib/fechas';
+import { claveClienteFactura } from '../finanzas/facturas/resenasCliente';
 
 const LIMITE_HISTORIAL = 50;
 
@@ -459,12 +460,23 @@ export function useNotificaciones() {
         (f) => f.tipo === 'normal' && f.estado_cobro === 'Cobrada' && (f.cliente_email || f.cliente_tel) && f.fecha_pago,
       );
 
-      for (const f of cobradasConContacto) {
+      // Un aviso por CLIENTE, no por factura (2026-10-20): una obra con varias facturas finales
+      // repetía el aviso una vez por factura (ver resenasCliente.ts). Si a un cliente ya se le pidió
+      // la reseña o se le mandó la cortesía por cualquiera de sus facturas, no se vuelve a avisar.
+      const clavesResenaPedida = new Set((facturas ?? []).filter((f) => f.resena_enviado_en).map(claveClienteFactura));
+      const clavesCortesiaHecha = new Set((facturas ?? []).filter((f) => f.resena_cortesia_enviada_en).map(claveClienteFactura));
+      const clavesConAvisoResena = new Set<string>();
+      const clavesConAvisoCortesia = new Set<string>();
+
+      for (const f of [...cobradasConContacto].sort((a, b) => (b.fecha_pago ?? '').localeCompare(a.fecha_pago ?? ''))) {
+        const clave = claveClienteFactura(f);
+        const resenaYaResuelta = clavesResenaPedida.has(clave) || clavesConAvisoResena.has(clave);
         // Reseña automática (resena-automatica, 2026-09-24): mientras está 'programada' o en
         // 'revisar' sustituye al aviso genérico de "Prepara el mensaje" — en el primer caso el
         // envío ya está en marcha y lo único que cabe es cancelarlo desde la factura; en el
         // segundo hay que decidirlo a mano porque el cron encontró una rectificativa o notas recientes.
-        if (f.resena_auto_estado === 'programada' && !f.resena_enviado_en) {
+        if (!resenaYaResuelta && f.resena_auto_estado === 'programada' && !f.resena_enviado_en) {
+          clavesConAvisoResena.add(clave);
           const envio = f.resena_auto_programada_en ? new Date(f.resena_auto_programada_en) : new Date();
           envio.setDate(envio.getDate() + 1);
           lista.push({
@@ -477,7 +489,8 @@ export function useNotificaciones() {
           });
           continue;
         }
-        if (f.resena_auto_estado === 'revisar' && !f.resena_enviado_en) {
+        if (!resenaYaResuelta && f.resena_auto_estado === 'revisar' && !f.resena_enviado_en) {
+          clavesConAvisoResena.add(clave);
           lista.push({
             id: `resena-auto-revisar-${f.id}`,
             categoria: 'resena',
@@ -489,7 +502,8 @@ export function useNotificaciones() {
           });
           continue;
         }
-        if (!f.resena_enviado_en && f.fecha_pago! <= limiteCierre) {
+        if (!resenaYaResuelta && !f.resena_enviado_en && f.fecha_pago! <= limiteCierre) {
+          clavesConAvisoResena.add(clave);
           lista.push({
             id: `cierre-obra-${f.id}`,
             categoria: 'resena',
@@ -501,7 +515,13 @@ export function useNotificaciones() {
         // resena_cortesia_enviada_en (2026-09-13) cierra este aviso de verdad al marcarlo desde el
         // banner de Inicio — antes dependía solo del historial local del navegador de cada usuario,
         // así que podía "resucitar" si Gabriel entraba desde otro dispositivo o borraba datos.
-        if (!f.resena_cortesia_enviada_en && f.fecha_pago! <= limite6m) {
+        if (
+          !f.resena_cortesia_enviada_en &&
+          f.fecha_pago! <= limite6m &&
+          !clavesCortesiaHecha.has(clave) &&
+          !clavesConAvisoCortesia.has(clave)
+        ) {
+          clavesConAvisoCortesia.add(clave);
           lista.push({
             id: `resena-cortesia-${f.id}`,
             categoria: 'resena',
@@ -513,8 +533,10 @@ export function useNotificaciones() {
       }
 
       const visitaIdsConGaleria = new Set((galeria ?? []).map((g) => g.visita_id).filter((id): id is string => !!id));
+      const visitasConAvisoCaso = new Set<string>();
       for (const f of cobradasConContacto) {
-        if (f.visita_id && f.fecha_pago! <= limite3d && !visitaIdsConGaleria.has(f.visita_id)) {
+        if (f.visita_id && f.fecha_pago! <= limite3d && !visitaIdsConGaleria.has(f.visita_id) && !visitasConAvisoCaso.has(f.visita_id)) {
+          visitasConAvisoCaso.add(f.visita_id);
           lista.push({
             id: `caso-exito-${f.id}`,
             categoria: 'galeria',

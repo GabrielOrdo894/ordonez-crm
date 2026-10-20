@@ -12,6 +12,7 @@ import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 import { esc } from '../_shared/html.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
+import { marcarResenaPedidaCliente } from '../_shared/resenasCliente.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -153,12 +154,13 @@ Deno.serve(async (req: Request) => {
     // Se marca ANTES de enviar y se deshace si el envío falla: así un fallo de la marca nunca deja un
     // email enviado sin registrar (y repetido al día siguiente).
     const nuevoCanal = !f.resena_canal ? 'email' : f.resena_canal === 'whatsapp' ? 'ambos' : f.resena_canal;
+    const fechaEnvio = f.resena_enviado_en ?? new Date().toISOString();
     const { error: errorUpdate } = await supabase
       .from('facturas')
       .update({
         resena_token: token,
         resena_canal: nuevoCanal,
-        resena_enviado_en: f.resena_enviado_en ?? new Date().toISOString(),
+        resena_enviado_en: fechaEnvio,
       })
       .eq('id', facturaId);
     if (errorUpdate) throw new Error(`No se pudo marcar la factura antes de enviar: ${errorUpdate.message}`);
@@ -172,6 +174,14 @@ Deno.serve(async (req: Request) => {
         .eq('id', facturaId);
       if (errorVuelta) console.error('enviar-resena-email: no se pudo deshacer la marca:', errorVuelta.message);
       throw errorEnvio;
+    }
+
+    // Una petición por cliente (2026-10-20): el resto de sus facturas queda como «reseña pedida» y sin
+    // reseña automática. Un fallo aquí no invalida el envío, que ya salió.
+    try {
+      await marcarResenaPedidaCliente(supabase, facturaId, f.cliente_email, fechaEnvio);
+    } catch (errorCliente) {
+      console.error('enviar-resena-email: no se pudo marcar el resto de facturas del cliente:', String(errorCliente instanceof Error ? errorCliente.message : errorCliente));
     }
 
     return jsonResponse({ ok: true });
