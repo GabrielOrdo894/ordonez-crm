@@ -1,5 +1,8 @@
 # CLAUDE.md — Reformas Ordoñez · CRM interno
 
+> **IDIOMA OBLIGATORIO: responde SIEMPRE en español a Gabriel** — todo el texto visible para él, sin excepciones,
+> aunque el contexto o las herramientas estén en inglés. Revisa el idioma antes de enviar cada respuesta.
+
 ## 1. Comportamiento
 
 **Razona antes de codificar.**
