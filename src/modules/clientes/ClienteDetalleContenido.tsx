@@ -131,6 +131,8 @@ type FormEdicion = {
   nombre: string;
   apellidos: string;
   telefono: string;
+  telefonoExtra: string;
+  telefonoExtraTitular: string;
   email: string;
   idioma: string;
   direccion: string;
@@ -148,6 +150,8 @@ function formDesdeVisita(v: Cliente['visitas'][number]): FormEdicion {
     nombre: v.nombre,
     apellidos: v.apellidos,
     telefono: v.telefono,
+    telefonoExtra: v.telefono_extra ?? '',
+    telefonoExtraTitular: v.telefono_extra_titular ?? '',
     email: v.email ?? '',
     idioma: v.idioma ?? 'Español',
     direccion: v.direccion ?? '',
@@ -235,6 +239,7 @@ export function ClienteDetalleContenido({
       if (!datos.nombre.trim()) throw new Error('Falta el nombre.');
       if (!datos.telefono.trim() && !datos.email.trim()) throw new Error('Hace falta al menos el teléfono o el email.');
       if (datos.telefono.trim() && !tieneCodigoPais(datos.telefono)) throw new Error('Añade el prefijo del país al teléfono: +34 (España) o +33 (Francia).');
+      if (datos.telefonoExtra.trim() && !tieneCodigoPais(datos.telefonoExtra)) throw new Error('Añade el prefijo del país al teléfono extra: +34 (España) o +33 (Francia).');
       if (datos.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.email.trim())) throw new Error('El email no tiene un formato válido.');
       // Los datos de contacto son del cliente, no de una visita: se cambian en TODAS sus visitas. Antes
       // solo en la última, y al cambiar el teléfono el cliente se partía en dos fichas.
@@ -244,6 +249,8 @@ export function ClienteDetalleContenido({
           nombre: datos.nombre,
           apellidos: datos.apellidos,
           telefono: datos.telefono.trim() ? formatearTelefonoVisual(datos.telefono) : '',
+          telefono_extra: datos.telefonoExtra.trim() ? formatearTelefonoVisual(datos.telefonoExtra) : null,
+          telefono_extra_titular: datos.telefonoExtra.trim() ? datos.telefonoExtraTitular.trim() || null : null,
           email: datos.email.trim() || null,
           idioma: datos.idioma,
           es_empresa: datos.esEmpresa,
@@ -788,6 +795,12 @@ export function ClienteDetalleContenido({
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Teléfono</p>
               <p className="text-gray-900">{formatearTelefonoVisual(cliente.telefono)}</p>
+              {ultimaVisita.telefono_extra && (
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {formatearTelefonoVisual(ultimaVisita.telefono_extra)}
+                  {ultimaVisita.telefono_extra_titular && ` · ${ultimaVisita.telefono_extra_titular}`}
+                </p>
+              )}
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Email</p>
@@ -876,6 +889,21 @@ export function ClienteDetalleContenido({
               type="email"
               value={formEdicion.email}
               onChange={(e) => setFormEdicion((f) => f && { ...f, email: e.target.value })}
+            />
+            <Input
+              label="Teléfono extra (opcional)"
+              type="tel"
+              hint="Con prefijo: +33 o +34"
+              value={formEdicion.telefonoExtra}
+              onChange={(e) => setFormEdicion((f) => f && { ...f, telefonoExtra: e.target.value })}
+            />
+            <Input
+              label="De quién es (opcional)"
+              hint="Ej.: marido, hija, administrador"
+              value={formEdicion.telefonoExtraTitular}
+              onChange={(e) =>
+                setFormEdicion((f) => f && { ...f, telefonoExtraTitular: e.target.value })
+              }
             />
             <div className="sm:col-span-2">
               <Input

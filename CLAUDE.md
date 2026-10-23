@@ -1296,3 +1296,7 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   para las visitas de Ricardo apuntadas como Realizada. No la crea si el cliente ya tiene una solicitud en
   cualquier estado (las cerradas a propósito siguen cerradas) ni si ya tenía otra visita (una segunda visita no
   es una entrada nueva). La entrada manual de Solicitudes usa `TelefonoInput` y exige prefijo, como Visitas.
+- **Teléfono extra del cliente** (2026-10-23, petición de Gabriel): `visitas.telefono_extra` y
+  `telefono_extra_titular` (p. ej. «Marido»), se ven y se editan en la pestaña Datos de la ficha de
+  cliente y se guardan en todas sus visitas, igual que el teléfono principal (prefijo obligatorio).
+  No identifica al cliente: `agruparClientes()` y los cruces por teléfono siguen usando solo `telefono`.

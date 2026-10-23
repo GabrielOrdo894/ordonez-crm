@@ -40,6 +40,10 @@ export type Visita = {
   empresa_nombre?: string | null;
   empresa_cif?: string | null;
   referido_por?: string | null;
+  // Segundo teléfono de contacto (p. ej. del cónyuge) con su titular (2026-10-23). No identifica al
+  // cliente: agruparClientes() sigue usando solo `telefono`.
+  telefono_extra?: string | null;
+  telefono_extra_titular?: string | null;
   // Marca que el incentivo del programa de referidos ya se le aplicó al cliente que refirió a
   // este (2026-09-13) — se pone desde ReferidoIncentivoBox una vez el presupuesto del referido
   // llega a Aceptado y Gabriel le da su descuento en la siguiente obra.
