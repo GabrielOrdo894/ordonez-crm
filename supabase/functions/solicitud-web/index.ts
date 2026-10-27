@@ -119,7 +119,9 @@ Deno.serve(async (req: Request) => {
   const dominio = esCostabath ? 'costabath.com' : esStudio ? 'ordonezstudio.com' : 'ordonezfachadas.com';
   const digitos = telefono.replace(/\D/g, '');
 
-  if (!nombre || digitos.length < 9) return responder({ error: 'Nombre y teléfono obligatorios' }, 400);
+  // El PDF del blog solo pide el email: entra como solicitud sin teléfono para no perder el contacto.
+  const soloEmail = fuente === 'pdf_bano_4m2';
+  if (soloEmail ? !EMAIL_VALIDO.test(email) : !nombre || digitos.length < 9) return responder({ error: soloEmail ? 'Email obligatorio' : 'Nombre y teléfono obligatorios' }, 400);
   if (email && !EMAIL_VALIDO.test(email)) return responder({ error: 'Email no válido' }, 400);
 
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -128,11 +130,13 @@ Deno.serve(async (req: Request) => {
   const haceDiezMin = new Date(Date.now() - 10 * 60 * 1000).toISOString();
   const { data: recientes, error: errorRecientes } = await supabase
     .from('solicitudes')
-    .select('id, telefono')
+    .select('id, telefono, email')
     .eq('fuente', fuente)
     .gte('created_at', haceDiezMin);
   if (errorRecientes) return responder({ error: errorRecientes.message }, 500);
-  if ((recientes ?? []).some((s) => (s.telefono ?? '').replace(/\D/g, '').slice(-9) === digitos.slice(-9))) {
+  const mismoContacto = (s: { telefono: string | null; email?: string | null }) =>
+    digitos ? (s.telefono ?? '').replace(/\D/g, '').slice(-9) === digitos.slice(-9) : (s.email ?? '').toLowerCase() === email.toLowerCase();
+  if ((recientes ?? []).some(mismoContacto)) {
     return responder({ ok: true, duplicada: true });
   }
 
