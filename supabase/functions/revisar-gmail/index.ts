@@ -234,7 +234,9 @@ function parseFormularioEmailJS(texto: string) {
       presupuestoEstimado && descripcion
         ? `Presupuesto estimado indicado por el cliente: ${presupuestoEstimado}\n\n${descripcion}`
         : descripcion,
-    pagina_origen: null as string | null,
+    // Desde el 27/10/2026 el fragmento WPCode «Origen de solicitudes» antepone «Origen: <slug>» al aviso
+    // cuando el visitante llegó a /contacto/ con #desde=<slug> (franjas del blog, calculadoras, barra lateral).
+    pagina_origen: buscarLinea('Origen'),
   };
 }
 
