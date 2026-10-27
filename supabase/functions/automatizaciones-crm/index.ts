@@ -12,6 +12,8 @@
 //      visita ni vincularse a un presupuesto (petición de Gabriel 2026-09-15) — el resto de caminos
 //      de aceptación son inmediatos (VisitaForm.tsx, funnelTracking.ts), este es el único que
 //      necesita paso del tiempo, de ahí que viva aquí y no en el frontend.
+//   4. Comprueba que los avisos de visita llegaron a Gmail, que el servidor de firmas responde y que
+//      los tokens de Google Calendar/Gmail y la clave de Google Maps siguen valiendo (ver cada función).
 //
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts y el cálculo de distancia
 // (Distance Matrix con fallback Haversine) de notificar-visita/index.ts.
@@ -401,6 +403,106 @@ async function comprobarServidorFirma(supabase: SupabaseClient): Promise<{ respo
   return error ? { responde: false, error } : { responde: true };
 }
 
+// Integraciones de Google (2026-10-27, petición de Gabriel): cuando Google revoca el token de
+// Calendar o de Gmail, o la clave de Maps deja de valer (facturación, restricción, cuota), nadie se
+// enteraba hasta necesitarlo de verdad (Gmail estuvo 3 días caído del 9 al 12 de octubre). Aquí se
+// renuevan los dos tokens y se hace una consulta mínima a Maps; el estado se anota en google_config
+// y la campana y el email diario avisan mientras siga caído. Un fallo de red hacia Google no cuenta
+// (se deja el estado como estaba): solo cuentan las respuestas definitivas de Google.
+type ResultadoComprobacion = { error: string | null; indeterminado?: boolean };
+
+async function comprobarRefreshToken(refreshToken: string | null, nombre: string): Promise<ResultadoComprobacion> {
+  if (!refreshToken) return { error: `${nombre} no está conectado` };
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) return { error: 'Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET en los secretos' };
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.access_token) return { error: null };
+    // 5xx de Google es un problema suyo, no del token.
+    if (res.status >= 500) return { error: null, indeterminado: true };
+    // Google devuelve p. ej. invalid_grant + «Token has been expired or revoked.»
+    return { error: [data.error, data.error_description].filter(Boolean).join(': ') || `HTTP ${res.status}` };
+  } catch {
+    return { error: null, indeterminado: true };
+  }
+}
+
+// Una ruta fija (oficina → centro de Irún) con la misma API que usa el kilometraje. Entra en la cuota
+// gratuita mensual de Distance Matrix (48 llamadas al día).
+async function comprobarGoogleMaps(): Promise<ResultadoComprobacion> {
+  const apiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+  if (!apiKey) return { error: 'Falta GOOGLE_MAPS_API_KEY en los secretos de la función' };
+  try {
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${OFICINA_FR.lat},${OFICINA_FR.lng}&destinations=43.3389,-1.7894&mode=driving&key=${apiKey}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const data = await res.json().catch(() => ({}));
+    if (data.status === 'OK') return { error: null };
+    if (['REQUEST_DENIED', 'OVER_DAILY_LIMIT', 'OVER_QUERY_LIMIT', 'INVALID_REQUEST'].includes(data.status)) {
+      return { error: `${data.status}${data.error_message ? `: ${data.error_message}` : ''}` };
+    }
+    return { error: null, indeterminado: true };
+  } catch {
+    return { error: null, indeterminado: true };
+  }
+}
+
+type EstadoIntegraciones = {
+  refresh_token: string | null;
+  refresh_token_gmail: string | null;
+  calendar_caido_desde: string | null;
+  gmail_token_caido_desde: string | null;
+  maps_caido_desde: string | null;
+};
+
+async function comprobarIntegracionesGoogle(supabase: SupabaseClient): Promise<Record<string, string | null>> {
+  const { data: actual, error: errorLectura } = await supabase
+    .from('google_config')
+    .select('refresh_token, refresh_token_gmail, calendar_caido_desde, gmail_token_caido_desde, maps_caido_desde')
+    .eq('id', 1)
+    .maybeSingle();
+  if (errorLectura) throw new Error(`google_config (integraciones): ${errorLectura.message}`);
+  const estado = (actual ?? {
+    refresh_token: null,
+    refresh_token_gmail: null,
+    calendar_caido_desde: null,
+    gmail_token_caido_desde: null,
+    maps_caido_desde: null,
+  }) as EstadoIntegraciones;
+
+  const [calendar, gmail, maps] = await Promise.all([
+    comprobarRefreshToken(estado.refresh_token, 'Google Calendar'),
+    // Mismo criterio que _shared/gmail.ts: sin token propio, Gmail usa el de Calendar.
+    comprobarRefreshToken(estado.refresh_token_gmail || estado.refresh_token, 'Gmail'),
+    comprobarGoogleMaps(),
+  ]);
+
+  const ahora = new Date().toISOString();
+  const cambios: Record<string, string | null> = { integraciones_comprobadas_en: ahora };
+  const anotar = (prefijo: string, r: ResultadoComprobacion, caidoDesde: string | null) => {
+    if (r.indeterminado) return;
+    cambios[`${prefijo}_caido_desde`] = r.error ? (caidoDesde ?? ahora) : null;
+    cambios[`${prefijo}_ultimo_error`] = r.error;
+  };
+  anotar('calendar', calendar, estado.calendar_caido_desde);
+  anotar('gmail_token', gmail, estado.gmail_token_caido_desde);
+  anotar('maps', maps, estado.maps_caido_desde);
+
+  const { error: errorUpdate } = await supabase.from('google_config').upsert({ id: 1, ...cambios });
+  if (errorUpdate) throw new Error(`google_config (integraciones): ${errorUpdate.message}`);
+  return {
+    calendar: calendar.indeterminado ? 'indeterminado' : calendar.error ?? 'ok',
+    gmail: gmail.indeterminado ? 'indeterminado' : gmail.error ?? 'ok',
+    maps: maps.indeterminado ? 'indeterminado' : maps.error ?? 'ok',
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!(await esLlamadaAutorizada(req))) return jsonResponse({ ok: false, error: 'No autorizado' }, 401);
@@ -416,14 +518,15 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma] = await Promise.all([
+    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma, integracionesGoogle] = await Promise.all([
       autocompletarVisitas(supabase),
       rechazarPresupuestosCaducados(supabase),
       marcarSolicitudesNoConcretadas(supabase),
       verificarAvisosVisita(supabase),
       comprobarServidorFirma(supabase),
+      comprobarIntegracionesGoogle(supabase),
     ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma });
+    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma, integracionesGoogle });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

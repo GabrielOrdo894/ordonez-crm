@@ -1299,6 +1299,20 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   para las visitas de Ricardo apuntadas como Realizada. No la crea si el cliente ya tiene una solicitud en
   cualquier estado (las cerradas a propósito siguen cerradas) ni si ya tenía otra visita (una segunda visita no
   es una entrada nueva). La entrada manual de Solicitudes usa `TelefonoInput` y exige prefijo, como Visitas.
+- **Aviso de integraciones caídas: Google Calendar, Gmail y Google Maps** (2026-10-27, petición de Gabriel:
+  cuando Google revoca un token nadie se entera hasta necesitarlo). `automatizaciones-crm` (cada 30 min,
+  `comprobarIntegracionesGoogle`) renueva el token de Calendar y el de Gmail contra Google y hace una ruta fija con
+  Distance Matrix (entra en la cuota gratuita); anota en `google_config` `integraciones_comprobadas_en`,
+  `calendar_caido_desde`/`calendar_ultimo_error`, `gmail_token_caido_desde`/`gmail_token_ultimo_error` y
+  `maps_caido_desde`/`maps_ultimo_error` (migración `20261027180000`), y los limpia sola cuando vuelve a funcionar.
+  Un fallo de red o un 5xx de Google no cambia el estado: solo cuentan respuestas definitivas (`invalid_grant`,
+  `REQUEST_DENIED`, cuota…). Los campos `gmail_ultimo_*` siguen siendo el resultado de la pasada diaria de
+  `revisar-gmail`; la campana funde ambos en un solo aviso de Gmail. La campana (`useNotificaciones.ts`) avisa,
+  urgente, de Calendar y Maps con los pasos a seguir, y `alerta-diaria` añade la sección «Integraciones que
+  necesitan atención» (Gmail, Calendar, Maps y servidor de firmas), que cuenta como urgente y sale por el SMTP de
+  Hostinger, así que llega aunque Gmail esté caído. Configuración muestra bajo Calendar, Gmail y un bloque nuevo
+  de Maps el resultado de la última comprobación. Probado en producción invalidando el token de Gmail de forma
+  reversible: se anotó la caída y se limpió al restaurarlo.
 - **Teléfono extra del cliente** (2026-10-23, petición de Gabriel): `visitas.telefono_extra` y
   `telefono_extra_titular` (p. ej. «Marido»), se ven y se editan en la pestaña Datos de la ficha de
   cliente y se guardan en todas sus visitas, igual que el teléfono principal (prefijo obligatorio).

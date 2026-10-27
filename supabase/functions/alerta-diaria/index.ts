@@ -16,6 +16,9 @@
 //      salía mezclado con la categoría 3 como "solicitud nueva", corregido 2026-08-19).
 //   6. Visitas Realizadas sin ningún presupuesto enviado (ni borrador) — ya existía en la campana
 //      in-app desde 2026-08-20 pero nunca se añadió aquí (2026-08-30).
+//   7. Integraciones caídas (2026-10-27, petición de Gabriel): Gmail, Google Calendar, Google Maps y
+//      el servidor de firmas, según lo que anotan revisar-gmail y automatizaciones-crm. Este email
+//      sale por el SMTP de Hostinger, así que llega aunque Gmail esté desconectado.
 //
 // "Presupuestos a punto de caducar (7 días)" y "Presupuestos en Borrador sin enviar" salieron de
 // este email a petición de Gabriel (2026-09-11, no le aportaban valor en el resumen diario) — se
@@ -57,6 +60,50 @@ type VisitaRealizada = {
   telefono: string | null;
 };
 type SolicitudDescartada = { email: string | null; telefono: string | null; visita_id: string | null };
+type EstadoGoogle = {
+  gmail_ultimo_error: string | null;
+  gmail_ultimo_error_en: string | null;
+  calendar_caido_desde: string | null;
+  calendar_ultimo_error: string | null;
+  gmail_token_caido_desde: string | null;
+  gmail_token_ultimo_error: string | null;
+  maps_caido_desde: string | null;
+  maps_ultimo_error: string | null;
+};
+type EstadoFirma = { firma_caida_desde: string | null; firma_ultimo_error: string | null };
+
+// Mismo criterio que useNotificaciones.ts: un aviso por integración mientras siga caída.
+function integracionesCaidas(google: EstadoGoogle | null, firma: EstadoFirma | null): Fila[] {
+  const filas: Fila[] = [];
+  const fecha = (iso: string | null) => (iso ? iso.slice(0, 10) : 'hoy');
+  const errorGmail = google?.gmail_ultimo_error || google?.gmail_token_ultimo_error;
+  if (errorGmail) {
+    const desde = [google?.gmail_ultimo_error_en, google?.gmail_token_caido_desde].filter((f): f is string => !!f).sort()[0] ?? null;
+    filas.push({
+      titulo: 'Gmail desconectado: el CRM no recibe solicitudes',
+      detalle: `Falla desde el ${fecha(desde)}: ${errorGmail}. Reconectar en Configuración.`,
+    });
+  }
+  if (google?.calendar_caido_desde) {
+    filas.push({
+      titulo: 'Google Calendar desconectado: las visitas no se agendan',
+      detalle: `Falla desde el ${fecha(google.calendar_caido_desde)}: ${google.calendar_ultimo_error ?? 'sin detalle'}. Reconectar en Configuración.`,
+    });
+  }
+  if (google?.maps_caido_desde) {
+    filas.push({
+      titulo: 'Google Maps no responde: rutas y kilometraje estimados',
+      detalle: `Google rechaza la clave desde el ${fecha(google.maps_caido_desde)}: ${google.maps_ultimo_error ?? 'sin detalle'}. Revisar facturación y restricciones de la clave.`,
+    });
+  }
+  if (firma?.firma_caida_desde) {
+    filas.push({
+      titulo: 'Servidor de firmas caído: no se pueden generar enlaces de firma',
+      detalle: `firma.ordonezrenov.com no responde desde el ${fecha(firma.firma_caida_desde)} (${firma.firma_ultimo_error ?? 'sin respuesta'}). Reiniciar Documenso.`,
+    });
+  }
+  return filas;
+}
 
 // Duplicado de normalizarTelefono (src/modules/clientes/types.ts) — un Edge Function no puede
 // importar código del frontend (mismo patrón que esLlamadaAutorizada de arriba).
@@ -231,7 +278,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, enviado: false, motivo: 'ya se envió hoy' });
     }
 
-    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, visitasRealizadasRes, presupuestosVinculadosRes, solicitudesDescartadasRes] = await Promise.all([
+    const [facturasRes, presupuestosRes, solicitudesRes, gastosRes, visitasRealizadasRes, presupuestosVinculadosRes, solicitudesDescartadasRes, googleRes, firmaRes] = await Promise.all([
       supabase.from('facturas').select('numero, cliente_nombre, fecha_vence').eq('estado_cobro', 'Vencida').is('eliminado_en', null),
       supabase
         .from('presupuestos')
@@ -247,6 +294,12 @@ Deno.serve(async (req: Request) => {
       // borrado definitivo, no una decisión de no presupuestar — incluirla ocultaba visitas
       // reales del email diario solo por coincidir de contacto con una solicitud ya eliminada.
       supabase.from('solicitudes').select('email, telefono, visita_id').in('estado', ['No concretada', 'Rechazada']),
+      supabase
+        .from('google_config')
+        .select('gmail_ultimo_error, gmail_ultimo_error_en, calendar_caido_desde, calendar_ultimo_error, gmail_token_caido_desde, gmail_token_ultimo_error, maps_caido_desde, maps_ultimo_error')
+        .eq('id', 1)
+        .maybeSingle(),
+      supabase.from('empresa_config').select('firma_caida_desde, firma_ultimo_error').eq('id', 1).maybeSingle(),
     ]);
 
     for (const [nombre, res] of Object.entries({
@@ -257,6 +310,8 @@ Deno.serve(async (req: Request) => {
       visitasRealizadas: visitasRealizadasRes,
       presupuestosVinculados: presupuestosVinculadosRes,
       solicitudesDescartadas: solicitudesDescartadasRes,
+      google: googleRes,
+      firma: firmaRes,
     })) {
       if ((res as { error: { message: string } | null }).error) {
         return jsonResponse({ ok: false, error: `${nombre}: ${(res as { error: { message: string } }).error.message}` }, 500);
@@ -306,19 +361,24 @@ Deno.serve(async (req: Request) => {
       return true;
     });
 
+    const integraciones = integracionesCaidas((googleRes.data ?? null) as EstadoGoogle | null, (firmaRes.data ?? null) as EstadoFirma | null);
+
     const totalUrgentes =
       facturasVencidas.length +
       presupuestosCaducados.length +
       solicitudesNuevas.length +
       solicitudesConRespuesta.length +
       gastosPendientes.length +
-      visitasSinPresupuesto.length;
+      visitasSinPresupuesto.length +
+      integraciones.length;
 
     if (totalUrgentes === 0) {
       return jsonResponse({ ok: true, enviado: false, motivo: 'nada urgente pendiente hoy' });
     }
 
     const secciones = [
+      // Primero: sin Gmail o Calendar el resto de la lista se queda corta sin que se note.
+      seccionHtml('Integraciones que necesitan atención', integraciones),
       seccionHtml(
         'Facturas vencidas',
         facturasVencidas.map((f) => ({
@@ -386,6 +446,7 @@ Deno.serve(async (req: Request) => {
         solicitudesConRespuesta: solicitudesConRespuesta.length,
         gastosPendientes: gastosPendientes.length,
         visitasSinPresupuesto: visitasSinPresupuesto.length,
+        integraciones: integraciones.length,
       },
     });
   } catch (err) {

@@ -329,13 +329,31 @@ export default function ConfiguracionPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('google_config')
-        .select('refresh_token, refresh_token_gmail, updated_at')
+        .select(
+          'refresh_token, refresh_token_gmail, updated_at, integraciones_comprobadas_en, calendar_caido_desde, calendar_ultimo_error, gmail_token_caido_desde, gmail_token_ultimo_error, maps_caido_desde, maps_ultimo_error',
+        )
         .eq('id', 1)
         .maybeSingle();
       if (error) throw error;
       return data;
     },
   });
+
+  // Resultado de la comprobación de cada 30 min de automatizaciones-crm (2026-10-27): «Conectado»
+  // solo dice que hay un token guardado; esto dice si Google lo sigue aceptando.
+  const fechaHora = (iso: string) => new Date(iso).toLocaleString('es', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const comprobacionIntegracion = (caidoDesde: string | null | undefined, ultimoError: string | null | undefined) => {
+    if (!googleConfig?.integraciones_comprobadas_en) return null;
+    const hora = fechaHora(googleConfig.integraciones_comprobadas_en);
+    if (caidoDesde) {
+      return (
+        <p className="text-xs text-red-600 mb-4">
+          Falla desde el {fechaHora(caidoDesde)}: {ultimoError ?? 'sin detalle'} (comprobado el {hora}).
+        </p>
+      );
+    }
+    return <p className="text-xs text-gray-400 mb-4">Funciona (comprobado el {hora}).</p>;
+  };
 
   // Sin esto, un fallo al cargar dejaba la pantalla con valores por defecto/vacíos sin ningún
   // aviso — riesgo real de pulsar "Guardar" sobre un formulario vacío y sobrescribir datos reales
@@ -1242,6 +1260,7 @@ export default function ConfiguracionPage() {
             </Button>
           </div>
         )}
+        {comprobacionIntegracion(googleConfig?.calendar_caido_desde, googleConfig?.calendar_ultimo_error)}
 
         <p className="text-xs font-semibold text-gray-600 mb-1.5">Gmail (Solicitudes y notificaciones)</p>
         {googleConfig?.refresh_token_gmail ? (
@@ -1270,6 +1289,7 @@ export default function ConfiguracionPage() {
             </Button>
           </div>
         )}
+        <div className="mt-2">{comprobacionIntegracion(googleConfig?.gmail_token_caido_desde, googleConfig?.gmail_token_ultimo_error)}</div>
         {googleConfig?.refresh_token && !googleConfig?.refresh_token_gmail && (
           <p className="text-xs text-gray-400 mt-2">
             Nada se rompe si no conectas esto ahora — Solicitudes y las notificaciones de visita seguirán
@@ -1277,6 +1297,13 @@ export default function ConfiguracionPage() {
             después pulsa "Reconectar" en Calendar arriba.
           </p>
         )}
+
+        <p className="text-xs font-semibold text-gray-600 mt-4 mb-1.5">Google Maps (direcciones, rutas y kilometraje)</p>
+        <p className="text-xs text-gray-400 mb-2">
+          No se conecta: es una clave de API. Si Google la rechaza (facturación, restricciones, cuota) se avisa aquí, en la
+          campana y en el email diario; se arregla en console.cloud.google.com, proyecto ordonez-crm.
+        </p>
+        {comprobacionIntegracion(googleConfig?.maps_caido_desde, googleConfig?.maps_ultimo_error)}
       </section>
 
       <section
