@@ -25,6 +25,14 @@ const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.co
 const ORIGENES_COSTABATH = ['https://costabath.com', 'https://www.costabath.com'];
 const ORIGENES_STUDIO = ['https://ordonezstudio.com', 'https://www.ordonezstudio.com'];
 const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV, ...ORIGENES_COSTABATH, ...ORIGENES_STUDIO];
+const FUENTES_RENOV = ['calculadora_bano', 'calculadora_general', 'pdf_bano_4m2', 'foto_web', 'estimador_plazos'];
+const ETIQUETA_FUENTE_RENOV: Record<string, string> = {
+  calculadora_bano: 'la calculadora de baño',
+  calculadora_general: 'la calculadora de reformas',
+  pdf_bano_4m2: 'el PDF del artículo del baño de 4 m²',
+  foto_web: 'el formulario de fotos del blog',
+  estimador_plazos: 'el estimador de plazos del blog',
+};
 const DESTINATARIO = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? DESTINATARIO;
 const EMAIL_VALIDO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -102,7 +110,11 @@ Deno.serve(async (req: Request) => {
   const pagina = texto(body.pagina, 300);
   const idioma = body.idioma === 'fr' ? 'fr' : 'es';
   const version = texto(body.version, 40);
-  const fuente = esRenov ? `asistente_web_${idioma}` : esCostabath ? 'costabath' : esStudio ? 'ordonezstudio' : 'ordonezfachadas';
+  // Desde ordonezrenov.com también envían las calculadoras, el PDF del blog y los formularios del blog
+  // (2026-10-27): mandan su `fuente` en el cuerpo; cualquier otro valor se trata como el asistente web.
+  const fuenteRenov = FUENTES_RENOV.includes(texto(body.fuente, 40)) ? texto(body.fuente, 40) : `asistente_web_${idioma}`;
+  const fuente = esRenov ? fuenteRenov : esCostabath ? 'costabath' : esStudio ? 'ordonezstudio' : 'ordonezfachadas';
+  const origenTexto = esRenov ? (ETIQUETA_FUENTE_RENOV[fuenteRenov] ?? 'el asistente de ordonezrenov.com') : null;
   const marca = esRenov ? 'Reformas Ordoñez' : esCostabath ? 'Costabath' : esStudio ? 'Ordoñez Studio' : 'Ordoñez Fachadas';
   const dominio = esCostabath ? 'costabath.com' : esStudio ? 'ordonezstudio.com' : 'ordonezfachadas.com';
   const digitos = telefono.replace(/\D/g, '');
@@ -144,7 +156,8 @@ Deno.serve(async (req: Request) => {
       pagina_origen: pagina || null,
       idioma,
       estado: 'Nueva',
-      tipo_solicitud: 'visita',
+      // Quien termina una calculadora pide un orientativo; el resto de formularios piden visita.
+      tipo_solicitud: fuente.startsWith('calculadora') ? 'presupuesto_orientativo' : 'visita',
       version_plantilla: version || null,
     })
     .select('id')
@@ -165,8 +178,8 @@ Deno.serve(async (req: Request) => {
     ].filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#666">${k}</td><td style="padding:4px 0"><b>${esc(v)}</b></td></tr>`).join('');
     await enviarAviso(
       marca,
-      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? 'web' : marca} · ${tipo || 'Sin tipo'}${esStudio && !municipio ? '' : ` · ${municipio || 'sin municipio'}`}`,
-      `<p>Ha entrado una solicitud desde ${esRenov ? 'el asistente de ordonezrenov.com' : dominio}. Ya está en Solicitudes del CRM.</p>
+      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? (fuenteRenov.startsWith('asistente') ? 'web' : `· ${origenTexto}`) : marca} · ${tipo || 'Sin tipo'}${esStudio && !municipio ? '' : ` · ${municipio || 'sin municipio'}`}`,
+      `<p>Ha entrado una solicitud desde ${esRenov ? origenTexto : dominio}. Ya está en Solicitudes del CRM.</p>
 <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">${filas}</table>
 ${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}`,
     );
