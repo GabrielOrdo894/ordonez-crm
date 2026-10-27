@@ -90,11 +90,25 @@ Deno.serve(async (req: Request) => {
   const esCostabath = ORIGENES_COSTABATH.includes(origen);
   const esStudio = ORIGENES_STUDIO.includes(origen);
 
+  // JSON normal, o multipart/form-data cuando el formulario de fotos del blog adjunta imágenes (campo `fotos`, máx. 3).
   let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return responder({ error: 'JSON inválido' }, 400);
+  const fotos: File[] = [];
+  if ((req.headers.get('content-type') ?? '').includes('multipart/form-data')) {
+    try {
+      const fd = await req.formData();
+      body = {};
+      for (const [k, v] of fd.entries()) {
+        if (v instanceof File) { if (k === 'fotos' && fotos.length < 3 && v.size > 0) fotos.push(v); } else body[k] = v;
+      }
+    } catch {
+      return responder({ error: 'Formulario inválido' }, 400);
+    }
+  } else {
+    try {
+      body = await req.json();
+    } catch {
+      return responder({ error: 'JSON inválido' }, 400);
+    }
   }
 
   // Campo trampa: los bots rellenan todos los campos. Se responde OK para no darles pistas.
@@ -173,6 +187,26 @@ Deno.serve(async (req: Request) => {
     .insert({ etapa: 'solicitud_entrada', solicitud_id: fila.id, fuente });
   if (errorFunnel) console.error('funnel_eventos:', errorFunnel.message);
 
+  // Fotos del formulario del blog: al bucket privado `solicitudes-fotos` (carpeta = id de la solicitud) y
+  // enlaces firmados de un año en el comentario, para verlas desde el CRM. Un fallo no invalida la solicitud.
+  const enlacesFotos: string[] = [];
+  if (fotos.length) {
+    for (const foto of fotos) {
+      if (!/^image\/(jpeg|png|webp)$/.test(foto.type) || foto.size > 8 * 1024 * 1024) continue;
+      const ext = foto.type === 'image/png' ? 'png' : foto.type === 'image/webp' ? 'webp' : 'jpg';
+      const ruta = `${fila.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: errorSubida } = await supabase.storage.from('solicitudes-fotos').upload(ruta, foto, { contentType: foto.type });
+      if (errorSubida) { console.error('foto:', errorSubida.message); continue; }
+      const { data: firmada } = await supabase.storage.from('solicitudes-fotos').createSignedUrl(ruta, 60 * 60 * 24 * 365);
+      if (firmada?.signedUrl) enlacesFotos.push(firmada.signedUrl);
+    }
+    const notaFotos = enlacesFotos.length
+      ? `Fotos (${enlacesFotos.length}):\n${enlacesFotos.join('\n')}`
+      : `Fotos: el cliente adjuntó ${fotos.length}, pero no se pudieron guardar (formato o tamaño).`;
+    const { error: errorFotos } = await supabase.from('solicitudes').update({ comentario_cliente: `${comentario}\n\n${notaFotos}` }).eq('id', fila.id);
+    if (errorFotos) console.error('comentario con fotos:', errorFotos.message);
+  }
+
   // El aviso por email nunca hace fallar la solicitud: ya está guardada en el CRM.
   try {
     const urgente = plazo === 'urgente' || plazo === 'urgent';
@@ -185,7 +219,8 @@ Deno.serve(async (req: Request) => {
       `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? (fuenteRenov.startsWith('asistente') ? 'web' : `· ${origenTexto}`) : marca} · ${tipo || 'Sin tipo'}${esStudio && !municipio ? '' : ` · ${municipio || 'sin municipio'}`}`,
       `<p>Ha entrado una solicitud desde ${esRenov ? origenTexto : dominio}. Ya está en Solicitudes del CRM.</p>
 <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">${filas}</table>
-${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}`,
+${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}
+${enlacesFotos.length ? `<p style="margin-top:12px"><b>Fotos:</b><br>${enlacesFotos.map((u, i) => `<a href="${esc(u)}">Foto ${i + 1}</a>`).join('<br>')}</p>` : ''}`,
     );
   } catch (e) {
     console.error('Aviso por email:', e instanceof Error ? e.message : String(e));
