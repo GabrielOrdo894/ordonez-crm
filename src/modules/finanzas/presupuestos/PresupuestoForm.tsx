@@ -23,6 +23,7 @@ import { Button } from '../../../components/ui/Button';
 import { agruparClientes, normalizarTelefono } from '../../clientes/types';
 import type { Visita } from '../../visitas/types';
 import { LineasEditor } from '../LineasEditor';
+import { enfocarLinea } from '../../../lib/enfocarError';
 import { DocumentoPreview, configPlantillaDesde } from '../DocumentoPreview';
 import { CondicionesPagoEditor, type CondicionesPagoValor } from '../CondicionesPagoEditor';
 import { SelectorIva } from '../SelectorIva';
@@ -41,7 +42,7 @@ import {
 } from './types';
 import type { Presupuesto, NuevoPresupuesto, Linea, PlazoPago, TipoPresupuesto, FormatoPresupuesto } from './types';
 import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
-import { formatearPrecio, REFERENCIA_DESCUENTO_FIDELIDAD, REFERENCIA_DESCUENTO_REFERIDO } from '../lineas';
+import { formatearPrecio, lineaInvalida, REFERENCIA_DESCUENTO_FIDELIDAD, REFERENCIA_DESCUENTO_REFERIDO } from '../lineas';
 
 const NOTA_ORIENTATIVO: Record<'es' | 'fr', string> = {
   es: 'Presupuesto orientativo — los precios son estimados y pueden variar tras la visita técnica.',
@@ -562,6 +563,8 @@ export function PresupuestoForm({
     if (mensaje) {
       toast.error(mensaje);
       setErroresVisibles(true);
+      // Directo a la primera línea incompleta, con sus campos en rojo (Gabriel, 2026-10-30).
+      enfocarLinea(form.lineas.findIndex(lineaInvalida));
       return;
     }
     // El plan de pago sale en el PDF que firma el cliente: tiene que sumar el 100 % (antes solo se

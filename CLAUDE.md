@@ -1278,7 +1278,8 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   podido implementar») y `documenso` + `database` quedaron parados, con Caddy devolviendo 502; se arrancó el 20/10
   con `cd /opt/documenso && docker compose -p documenso-production start` (sin descargar imágenes nuevas — no
   usar «Actualizar» del panel para esto). Solo se supo al pulsar «Obtener enlace de firma».
-  Ojo: generar el enlace hace `/envelope/distribute`, que manda el email de firma de Documenso al cliente.
+  Generar el enlace hace `/envelope/distribute`, pero los envíos de email de Documenso están desactivados
+  (Gabriel, 2026-10-29): el cliente no recibe nada al generar o regenerar un enlace, solo lo que le mandamos nosotros.
   `automatizaciones-crm` (`comprobarServidorFirma`, cada 30 min) lo comprueba y anota en `empresa_config`
   (`firma_ultima_comprobacion_en`, `firma_caida_desde`, `firma_ultimo_error`; cualquier respuesta < 500 cuenta
   como «responde»); la campana avisa (urgente) mientras `firma_caida_desde` tenga valor y se completa sola
@@ -1313,6 +1314,16 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   Hostinger, así que llega aunque Gmail esté caído. Configuración muestra bajo Calendar, Gmail y un bloque nuevo
   de Maps el resultado de la última comprobación. Probado en producción invalidando el token de Gmail de forma
   reversible: se anotó la caída y se limpió al restaurarlo.
+- **Formularios que llevan al dato que falta, y presentación del equipo al cliente** (2026-10-30, petición de
+  Gabriel): `src/lib/enfocarError.ts` (`enfocarPrimerError`, `enfocarLinea`) desplaza la vista y pone el foco en
+  el primer campo pintado en rojo (`border-red-400`, el que ya usan Input/Select/TelefonoInput/MapsAutocomplete
+  con `error`). `VisitaForm.tsx` lo llama al fallar la validación; **tipo de reforma y empleado asignado arrancan
+  vacíos y son obligatorios** (el «Baño» por defecto se colaba por olvido e inflaba esa categoría; el empleado ya
+  no se deduce del país). `LineasEditor.tsx` no deja añadir una línea mientras otra esté incompleta (designación,
+  referencia, tipo de servicio): marca la línea en rojo y va a ella; `PresupuestoForm`/`FacturaForm` hacen lo
+  mismo al guardar. `notificar-visita` añade al email del cliente la sección «Quién le visitará / Qui viendra chez
+  vous» (`presentacionEquipo`, a partir del campo `empleado` por nombres): Ricardo como especialista con más de 25
+  años de experiencia, Gabriel y Santiago como asistentes de obras, en el idioma de la visita.
 - **Teléfono extra del cliente** (2026-10-23, petición de Gabriel): `visitas.telefono_extra` y
   `telefono_extra_titular` (p. ej. «Marido»), se ven y se editan en la pestaña Datos de la ficha de
   cliente y se guardan en todas sus visitas, igual que el teléfono principal (prefijo obligatorio).

@@ -24,6 +24,7 @@ import { ClienteForm } from '../../clientes/ClienteForm';
 import { agruparClientes } from '../../clientes/types';
 import type { Visita } from '../../visitas/types';
 import { LineasEditor } from '../LineasEditor';
+import { enfocarLinea } from '../../../lib/enfocarError';
 import { DocumentoPreview, configPlantillaDesde } from '../DocumentoPreview';
 import { SelectorIva } from '../SelectorIva';
 import { tipoIvaPorDefecto, mencionIvaReducida } from '../iva';
@@ -46,7 +47,7 @@ import {
 import type { Factura, NuevaFactura, Linea, TipoFactura } from './types';
 import type { Presupuesto } from '../presupuestos/types';
 import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
-import { formatearPrecio, admitePrecioNegativo } from '../lineas';
+import { formatearPrecio, admitePrecioNegativo, lineaInvalida } from '../lineas';
 
 // Fechas en hora local y aritmética de días sin zona horaria (src/lib/fechas.ts): la versión local
 // anterior restaba un día al vencimiento — "7 días" guardaba 6 y el selector salía vacío
@@ -531,6 +532,7 @@ export function FacturaForm({
       if (mensaje) {
         toast.error(mensaje);
         setErroresVisibles(true);
+        enfocarLinea(form.lineas.findIndex(lineaInvalida));
         return;
       }
     }

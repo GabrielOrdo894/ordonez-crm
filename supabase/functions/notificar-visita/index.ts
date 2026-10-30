@@ -280,8 +280,56 @@ function textoEnriquecidoHtml(valor: string | null | undefined): string {
 // Confirmación al CLIENTE — hasta ahora esta función solo avisaba al equipo interno, nunca al
 // propio cliente, así que no había ningún recordatorio automático que redujera los "no-shows"
 // (desplazamiento en balde a un lado u otro de la frontera). Bilingüe según v.idioma, sin datos
-// internos (empleado asignado, zona interna) que no le aportan nada al cliente (mejora real,
-// auditoría de Visitas 2026-08-18).
+// internos (zona interna) que no le aportan nada al cliente (mejora real, auditoría de Visitas
+// 2026-08-18). Desde 2026-10-30 sí presenta a quién va a la visita (ver presentacionEquipo).
+// Presentación de quién va a la visita (Gabriel, 2026-10-30): el cliente tiene que saber quién
+// llamará a su puerta. Se construye a partir del campo `empleado` de la visita buscando los
+// nombres, así vale para "Ricardo Ordoñez", "Ricardo Ordoñez y Gabriel", "Ricardo Ordoñez y
+// Santiago" y cualquier combinación futura. Ricardo es el especialista (25+ años); Gabriel y
+// Santiago, asistentes de obras. Sin empleado asignado no se muestra nada.
+function presentacionEquipo(empleado: string, fr: boolean): string {
+  const texto = (empleado || '').toLowerCase();
+  const vaRicardo = texto.includes('ricardo');
+  const vaGabriel = texto.includes('gabriel');
+  const vaSantiago = texto.includes('santi');
+  const fichas: { nombre: string; rol: string; detalle: string }[] = [];
+  if (vaRicardo) {
+    fichas.push({
+      nombre: 'Ricardo Ordoñez',
+      rol: fr ? "Spécialiste en rénovation, plus de 25 ans d'expérience" : 'Especialista en reformas, más de 25 años de experiencia',
+      detalle: fr
+        ? "C'est lui qui prendra les mesures et étudiera les travaux avec vous."
+        : 'Será quien tome las medidas y estudie la obra con usted.',
+    });
+  }
+  const detalleAsistente = vaRicardo
+    ? fr
+      ? 'Il accompagne Ricardo lors de la visite et assure le suivi de votre projet.'
+      : 'Acompaña a Ricardo en la visita y se encarga del seguimiento de su proyecto.'
+    : fr
+      ? 'Il réalise la visite et assure le suivi de votre projet.'
+      : 'Realiza la visita y se encarga del seguimiento de su proyecto.';
+  const rolAsistente = fr ? 'Assistant de chantier' : 'Asistente de obras';
+  if (vaGabriel) fichas.push({ nombre: 'Gabriel Ordoñez', rol: rolAsistente, detalle: detalleAsistente });
+  if (vaSantiago) fichas.push({ nombre: 'Santiago Ordoñez', rol: rolAsistente, detalle: detalleAsistente });
+  // Nombre que no reconocemos: se muestra tal cual, sin inventarle un cargo.
+  if (fichas.length === 0 && empleado.trim()) {
+    fichas.push({ nombre: empleado.trim(), rol: 'Reformas Ordoñez', detalle: '' });
+  }
+  if (fichas.length === 0) return '';
+  const titulo = fr ? 'Qui viendra chez vous' : fichas.length > 1 ? 'Quiénes le visitarán' : 'Quién le visitará';
+  const tarjetas = fichas
+    .map(
+      (f) => `<div style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 14px;margin-bottom:8px">
+        <div style="font-size:13px;color:#111827;font-weight:600">${esc(f.nombre)}</div>
+        <div style="font-size:12px;color:#1a5c38;font-weight:600;margin-top:2px">${esc(f.rol)}</div>
+        ${f.detalle ? `<div style="font-size:12px;color:#4b5563;margin-top:4px">${esc(f.detalle)}</div>` : ''}
+      </div>`,
+    )
+    .join('');
+  return `${seccion(titulo)}${tarjetas}`;
+}
+
 function construirHtmlCliente(opts: {
   fr: boolean;
   reprogramada: boolean;
@@ -291,6 +339,7 @@ function construirHtmlCliente(opts: {
   direccionHtml: string;
   mapsUrl: string | null;
   tipo: string;
+  empleado: string;
   telefonoEmpresa: string | null;
   emailEmpresa: string;
 }): string {
@@ -347,6 +396,8 @@ function construirHtmlCliente(opts: {
 
       ${seccion(t.trabajo)}
       <div style="font-size:13px;color:#111827;margin-bottom:16px">${esc(opts.tipo)}</div>
+
+      ${presentacionEquipo(opts.empleado, opts.fr)}
 
       <p style="font-size:12px;color:#6b7280;margin:16px 0 0">${t.contacto}</p>
       <p style="font-size:13px;color:#111827;margin:16px 0 0">${t.firma}</p>
@@ -558,6 +609,7 @@ Deno.serve(async (req: Request) => {
           direccionHtml,
           mapsUrl,
           tipo: v.tipo || (fr ? 'À définir' : 'Sin especificar'),
+          empleado: v.empleado ?? '',
           telefonoEmpresa: contactoEmpresa?.telefono || null,
           emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
         });

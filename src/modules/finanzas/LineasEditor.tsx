@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2, Plus, BookmarkPlus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useToast } from '../../hooks/useToast';
+import { enfocarLinea } from '../../lib/enfocarError';
 import { Input } from '../../components/ui/Input';
 import { EditorTexto } from '../../components/ui/EditorTexto';
 import { Select } from '../../components/ui/Select';
@@ -113,6 +114,23 @@ export function LineasEditor({
 }: LineasEditorProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
+  // Errores pintados por el propio editor (al intentar añadir una línea con la anterior
+  // incompleta), además de los que pide el formulario al guardar (`erroresVisibles`).
+  const [erroresPropios, setErroresPropios] = useState(false);
+  const mostrarErrores = erroresVisibles || erroresPropios;
+
+  // No se añade otra línea hasta completar la que hay (Gabriel, 2026-10-30): antes se podían
+  // encadenar líneas a medias y el aviso solo salía al guardar el documento entero.
+  const handleAnadirLinea = () => {
+    const incompleta = lineas.findIndex(lineaInvalida);
+    if (incompleta >= 0) {
+      setErroresPropios(true);
+      toast.error(`Completa la línea ${incompleta + 1} antes de añadir otra.`);
+      enfocarLinea(incompleta);
+      return;
+    }
+    onChange([...lineas, lineaVacia()]);
+  };
 
   const { data: catalogo } = useQuery({
     queryKey: ['lineas_catalogo'],
@@ -183,9 +201,9 @@ export function LineasEditor({
       <div className="flex flex-col gap-3">
         {lineas.map((linea, i) => {
           const max = totalLineaMax(linea, porcentajeIva);
-          const mostrarError = erroresVisibles && lineaInvalida(linea);
+          const mostrarError = mostrarErrores && lineaInvalida(linea);
           return (
-            <div key={i} className="border border-gray-200 rounded-sm p-3.5 bg-gray-50/50">
+            <div key={i} data-linea={i} className="border border-gray-200 rounded-sm p-3.5 bg-gray-50/50">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Línea {i + 1}</p>
                 <div className="flex items-center gap-3">
@@ -212,7 +230,7 @@ export function LineasEditor({
                   <DesignacionCombobox
                     value={linea.designacion}
                     catalogo={catalogoIdioma}
-                    error={erroresVisibles && !linea.designacion.trim() ? 'Obligatorio' : undefined}
+                    error={mostrarErrores && !linea.designacion.trim() ? 'Obligatorio' : undefined}
                     onChange={(designacion) => handleCambiarLinea(i, { designacion })}
                     onSeleccionar={(item) => handleSeleccionarCatalogo(i, item)}
                   />
@@ -220,7 +238,7 @@ export function LineasEditor({
                 <Input
                   label="Referencia"
                   value={linea.referencia}
-                  error={erroresVisibles && !linea.referencia.trim() ? 'Obligatorio' : undefined}
+                  error={mostrarErrores && !linea.referencia.trim() ? 'Obligatorio' : undefined}
                   onChange={(e) => handleCambiarLinea(i, { referencia: e.target.value })}
                 />
               </div>
@@ -246,7 +264,7 @@ export function LineasEditor({
                 <Select
                   label="Tipo de servicio"
                   required
-                  error={erroresVisibles && (!linea.tipo_servicio || linea.tipo_servicio === '—') ? 'Obligatorio' : undefined}
+                  error={mostrarErrores && (!linea.tipo_servicio || linea.tipo_servicio === '—') ? 'Obligatorio' : undefined}
                   options={getTiposServicio(idioma).map((s) => ({ value: s, label: s }))}
                   value={linea.tipo_servicio}
                   onChange={(e) => handleCambiarLinea(i, { tipo_servicio: e.target.value })}
@@ -328,7 +346,7 @@ export function LineasEditor({
         })}
       </div>
 
-      <Button size="md" variant="primary" onClick={() => onChange([...lineas, lineaVacia()])} className="mt-3">
+      <Button size="md" variant="primary" onClick={handleAnadirLinea} className="mt-3">
         <span className="flex items-center gap-1.5">
           <Plus size={15} />
           Añadir línea

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Star, User, MapPin, Hammer, CalendarClock, UserPlus, Camera, FileText, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
+import { enfocarPrimerError } from '../../lib/enfocarError';
 import { crearSolicitudParaVisita, registrarEventoFunnel, vincularSolicitudPorVisita } from '../../lib/funnelTracking';
 import { sincronizarPipelineCliente } from '../../lib/pipelineSync';
 import { useAuth } from '../../hooks/useAuth';
@@ -101,7 +102,9 @@ const EMPTY: FormState = {
   lng: null,
   pais: 'España',
   zona: 'Irún',
-  tipo: 'Baño',
+  // Tipo y empleado arrancan vacíos y son obligatorios (Gabriel, 2026-10-30): el valor por defecto
+  // «Baño» se colaba por olvido e inflaba esa categoría, y el empleado se asignaba sin pensarlo.
+  tipo: '',
   descripcion: '',
   fecha_visita: '',
   hora_visita: '12:00',
@@ -149,10 +152,6 @@ function zonaDesdeCiudad(ciudad: string | null, pais: string, catalogos: Catalog
   );
 }
 
-function empleadoDefault(pais: string) {
-  return pais === 'Francia' ? 'Ricardo Ordoñez y Gabriel' : 'Ricardo Ordoñez';
-}
-
 function formDesdeVisita(visita: Visita): FormState {
   return {
     nombre: visita.nombre,
@@ -168,7 +167,7 @@ function formDesdeVisita(visita: Visita): FormState {
     lng: visita.lng,
     pais: visita.pais ?? 'España',
     zona: visita.zona ?? '',
-    tipo: visita.tipo ?? 'Baño',
+    tipo: visita.tipo ?? '',
     descripcion: visita.descripcion ?? '',
     fecha_visita: visita.fecha_visita ?? '',
     hora_visita: visita.hora_visita?.slice(0, 5) ?? '12:00',
@@ -218,10 +217,11 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       direccion_extra: prefill?.direccionExtra ?? EMPTY.direccion_extra,
       pais,
       zona: pais !== EMPTY.pais ? zonaDefault(pais) : EMPTY.zona,
-      empleado: empleadoDefault(pais),
+      empleado: EMPTY.empleado,
     };
   });
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+  const raizForm = useRef<HTMLDivElement>(null);
   const [clienteRepetidor, setClienteRepetidor] = useState<{
     id: string;
     nombre: string;
@@ -454,7 +454,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     : [...DURACIONES_MIN, duracionActual].sort((a, b) => a - b);
 
   const handlePaisChange = (pais: string) => {
-    setForm((f) => ({ ...f, pais, zona: zonaDefault(pais), empleado: empleadoDefault(pais) }));
+    setForm((f) => ({ ...f, pais, zona: zonaDefault(pais) }));
   };
 
   const verificarClienteRepetidor = async () => {
@@ -549,9 +549,14 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
       nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España) o +33 (Francia)';
     if (form.email && !EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
+    if (!form.tipo) nuevosErrores.tipo = 'Obligatorio';
     if (!form.fecha_visita) nuevosErrores.fecha_visita = 'Obligatorio';
+    if (!form.empleado) nuevosErrores.empleado = 'Obligatorio';
     setErrors(nuevosErrores);
-    return Object.keys(nuevosErrores).length === 0;
+    const valido = Object.keys(nuevosErrores).length === 0;
+    // Al fallar, la vista va directa al primer campo en rojo (puede estar fuera de pantalla).
+    if (!valido) enfocarPrimerError(raizForm.current);
+    return valido;
   };
 
   const crearMutation = useMutation({
@@ -744,7 +749,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
   };
 
   return (
-    <div className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
+    <div ref={raizForm} className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-5">
         <button
           onClick={onClose}
@@ -1043,7 +1048,6 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
                       lng: lugar.lng,
                       pais,
                       zona: zonaCiudad ?? (cambioPais ? zonaDefault(pais) : f.zona),
-                      empleado: cambioPais ? empleadoDefault(pais) : f.empleado,
                     };
                   })
                 }
@@ -1088,8 +1092,9 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             <Select
               label="Tipo de reforma"
               required
-              options={catalogos.tiposReforma.map((v) => ({ value: v, label: v }))}
+              options={[{ value: '', label: '— Seleccionar —' }, ...catalogos.tiposReforma.map((v) => ({ value: v, label: v }))]}
               value={form.tipo}
+              error={errors.tipo}
               onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value }))}
             />
             <div>
@@ -1226,11 +1231,13 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             />
             <Select
               label="Empleado asignado"
+              required
               options={[
                 { value: '', label: '— Seleccionar —' },
                 ...catalogos.empleados.map((v) => ({ value: v, label: v })),
               ]}
               value={form.empleado}
+              error={errors.empleado}
               onChange={(e) => setForm((f) => ({ ...f, empleado: e.target.value }))}
             />
             {(visita || !prefill?.solicitudId) && (
