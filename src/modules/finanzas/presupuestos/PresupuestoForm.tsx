@@ -1073,6 +1073,7 @@ export function PresupuestoForm({
             </div>
             <div className="mt-3">
               <EditorTexto
+                idioma={form.idioma === 'Français' ? 'fr' : 'es'}
                 label="Términos y condiciones (opcional)"
                 value={form.terminos_condiciones}
                 onChange={(v) => setForm((f) => ({ ...f, terminos_condiciones: v }))}
@@ -1110,6 +1111,7 @@ export function PresupuestoForm({
               </label>
               {notaActivada && (
                 <EditorTexto
+                idioma={form.idioma === 'Français' ? 'fr' : 'es'}
                   value={form.nota}
                   onChange={(v) => setForm((f) => ({ ...f, nota: v }))}
                   placeholder="Observaciones, acuerdos verbales, cosas que nos ha dicho el cliente..."

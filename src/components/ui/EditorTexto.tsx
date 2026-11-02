@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bold, Italic, List, ListOrdered, Type } from 'lucide-react';
-import { convertirHtmlAMarcado } from '../../lib/pegarHtmlComoMarcado';
+import { convertirHtmlAMarcado, limpiarTextoPegado } from '../../lib/pegarHtmlComoMarcado';
 
 // Editor de texto enriquecido WYSIWYG: cada línea es un bloque independiente con su propio tipo
 // (normal/viñeta/numerada) y estilo (normal/negrita/cursiva) — nunca formato mixto dentro de una
@@ -17,6 +17,8 @@ import { convertirHtmlAMarcado } from '../../lib/pegarHtmlComoMarcado';
 // ("- **texto**", etc.), 100% compatible con lo ya guardado en Supabase y con generarPdf*.ts.
 
 type TipoLinea = 'normal' | 'lista' | 'numerada';
+// Atajos de teclado del editor (Ctrl/Cmd + tecla), resueltos por el editor, no por cada línea.
+type Atajo = 'negrita' | 'cursiva' | 'lista' | 'numerada' | 'deshacer' | 'rehacer';
 type EstiloLinea = 'normal' | 'negrita' | 'cursiva';
 
 type Bloque = {
@@ -200,6 +202,7 @@ type LineaEditableProps = {
   onBorrarSeleccionCruzada: (insertar: string) => boolean;
   onPegar: (id: string, antes: string, despues: string, markdown: string) => void;
   onFoco: (id: string) => void;
+  onAtajo: (atajo: Atajo) => void;
   registrarRef: (id: string, el: HTMLDivElement | null) => void;
 };
 
@@ -223,6 +226,7 @@ function LineaEditable({
   onBorrarSeleccionCruzada,
   onPegar,
   onFoco,
+  onAtajo,
   registrarRef,
 }: LineaEditableProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -240,6 +244,27 @@ function LineaEditable({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
+
+    // Atajos: Ctrl+B negrita, Ctrl+I cursiva, Ctrl+Mayús+8 viñeta, Ctrl+Mayús+7 numerada, Ctrl+Z /
+    // Ctrl+Mayús+Z / Ctrl+Y deshacer y rehacer. Se usa e.code para los dígitos porque con Mayús el
+    // teclado español devuelve «(» en vez de «8». El deshacer nativo del navegador no sirve aquí:
+    // cada línea es un contentEditable distinto y su historial se pierde al cambiar de línea.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const atajo: Atajo | null =
+        k === 'b' ? 'negrita'
+        : k === 'i' ? 'cursiva'
+        : e.shiftKey && e.code === 'Digit8' ? 'lista'
+        : e.shiftKey && e.code === 'Digit7' ? 'numerada'
+        : k === 'z' ? (e.shiftKey ? 'rehacer' : 'deshacer')
+        : k === 'y' ? 'rehacer'
+        : null;
+      if (atajo) {
+        e.preventDefault();
+        onAtajo(atajo);
+        return;
+      }
+    }
 
     // Con una selección arrastrada (o extendida con Shift+flecha) que cruza varios bloques, borrar
     // o escribir encima se gestiona aparte — cada bloque solo sabe editar su propio texto.
@@ -315,7 +340,7 @@ function LineaEditable({
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const plano = e.clipboardData.getData('text/plain');
-    const markdown = html.trim() ? convertirHtmlAMarcado(html) : plano;
+    const markdown = limpiarTextoPegado(html.trim() ? convertirHtmlAMarcado(html) : plano);
     if (!markdown) return;
     const el = e.currentTarget;
     const offset = obtenerOffsetCaret(el);
@@ -348,11 +373,14 @@ type EditorTextoProps = {
   compact?: boolean;
   placeholder?: string;
   rows?: number;
+  // Idioma del texto: fija `lang` para que el corrector ortográfico del navegador revise en
+  // francés o en español según el documento, no según el idioma del sistema.
+  idioma?: 'es' | 'fr';
 };
 
 type FocoPendiente = { id: string; offset: number | 'inicio' | 'fin' };
 
-export function EditorTexto({ label, value, onChange, className = '', compact, placeholder, rows }: EditorTextoProps) {
+export function EditorTexto({ label, value, onChange, className = '', compact, placeholder, rows, idioma }: EditorTextoProps) {
   const [bloques, setBloques] = useState<Bloque[]>(() => valorABloques(value));
   const bloquesRef = useRef<Bloque[]>(bloques);
   const ultimoValorEmitido = useRef(value);
@@ -370,12 +398,20 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
   // "Cancelar" en el formulario, etc.) — si el cambio es simplemente el eco de nuestro propio
   // onChange, `value` coincidirá con `ultimoValorEmitido.current` y no se toca nada (evita
   // remontar todas las líneas, y con ello perder el cursor, en cada tecleo).
+  // Historial propio de deshacer/rehacer (valores completos del editor). El tecleo seguido se agrupa
+  // en un solo paso, como en cualquier editor, para que Ctrl+Z no vaya letra a letra.
+  const historial = useRef<string[]>([]);
+  const futuro = useRef<string[]>([]);
+  const ultimoCambio = useRef(0);
+
   useEffect(() => {
     if (value !== ultimoValorEmitido.current) {
       const nuevo = valorABloques(value);
       bloquesRef.current = nuevo;
       setBloques(nuevo);
       ultimoValorEmitido.current = value;
+      historial.current = [];
+      futuro.current = [];
     }
   }, [value]);
 
@@ -391,11 +427,48 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
   }, [bloques]);
 
   const actualizarBloques = (nuevo: Bloque[]) => {
+    const anterior = bloquesAValor(bloquesRef.current);
+    const valor = bloquesAValor(nuevo);
+    if (valor !== anterior) {
+      const ahora = Date.now();
+      if (ahora - ultimoCambio.current > 700 || historial.current.length === 0) historial.current.push(anterior);
+      if (historial.current.length > 200) historial.current.shift();
+      futuro.current = [];
+      ultimoCambio.current = ahora;
+    }
     bloquesRef.current = nuevo;
     setBloques(nuevo);
-    const valor = bloquesAValor(nuevo);
     ultimoValorEmitido.current = valor;
     onChange(valor);
+  };
+
+  // Vuelve a un valor del historial y deja el cursor al final de la primera línea que cambia.
+  const restaurarValor = (valor: string) => {
+    const nuevo = valorABloques(valor);
+    const actual = bloquesRef.current;
+    let i = 0;
+    while (i < nuevo.length && i < actual.length && bloqueALinea(nuevo[i]) === bloqueALinea(actual[i])) i++;
+    const objetivo = nuevo[Math.min(i, nuevo.length - 1)];
+    focoPendiente.current = { id: objetivo.id, offset: 'fin' };
+    bloquesRef.current = nuevo;
+    setBloques(nuevo);
+    ultimoValorEmitido.current = valor;
+    ultimoCambio.current = 0;
+    onChange(valor);
+  };
+
+  const deshacer = () => {
+    const previo = historial.current.pop();
+    if (previo === undefined) return;
+    futuro.current.push(bloquesAValor(bloquesRef.current));
+    restaurarValor(previo);
+  };
+
+  const rehacer = () => {
+    const siguiente = futuro.current.pop();
+    if (siguiente === undefined) return;
+    historial.current.push(bloquesAValor(bloquesRef.current));
+    restaurarValor(siguiente);
   };
 
   const registrarRef = (id: string, el: HTMLDivElement | null) => {
@@ -724,11 +797,20 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
     actualizarBloques(bloquesRef.current.map((b) => (b.id === id ? { ...b, tipo: 'normal', estilo: 'normal' } : b)));
   };
 
+  const handleAtajo = (atajo: Atajo) => {
+    if (atajo === 'negrita') aplicarEstilo('negrita');
+    else if (atajo === 'cursiva') aplicarEstilo('cursiva');
+    else if (atajo === 'lista') aplicarTipo('lista');
+    else if (atajo === 'numerada') aplicarTipo('numerada');
+    else if (atajo === 'deshacer') deshacer();
+    else rehacer();
+  };
+
   const botones = [
-    { icon: Bold, title: 'Negrita', onClick: () => aplicarEstilo('negrita') },
-    { icon: Italic, title: 'Cursiva', onClick: () => aplicarEstilo('cursiva') },
-    { icon: List, title: 'Viñeta', onClick: () => aplicarTipo('lista') },
-    { icon: ListOrdered, title: 'Numeración', onClick: () => aplicarTipo('numerada') },
+    { icon: Bold, title: 'Negrita (Ctrl+B)', onClick: () => aplicarEstilo('negrita') },
+    { icon: Italic, title: 'Cursiva (Ctrl+I)', onClick: () => aplicarEstilo('cursiva') },
+    { icon: List, title: 'Viñeta (Ctrl+Mayús+8)', onClick: () => aplicarTipo('lista') },
+    { icon: ListOrdered, title: 'Numeración (Ctrl+Mayús+7)', onClick: () => aplicarTipo('numerada') },
     { icon: Type, title: 'Texto normal', onClick: limpiarFormato },
   ];
 
@@ -739,7 +821,7 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
   let contadorNumerada = 0;
 
   return (
-    <div className={className}>
+    <div className={className} lang={idioma}>
       {label && <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">{label}</label>}
       <div className="border border-gray-200 rounded-sm focus-within:border-brand overflow-hidden">
         <div className="flex items-center gap-0.5 border-b border-gray-200 bg-gray-50 px-1.5 py-1">
@@ -786,6 +868,7 @@ export function EditorTexto({ label, value, onChange, className = '', compact, p
                     onBorrarSeleccionCruzada={aplicarBorradoCruzado}
                     onPegar={handlePegar}
                     onFoco={handleFoco}
+                    onAtajo={handleAtajo}
                     registrarRef={registrarRef}
                   />
                 </div>

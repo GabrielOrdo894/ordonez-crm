@@ -1314,6 +1314,15 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   Hostinger, así que llega aunque Gmail esté caído. Configuración muestra bajo Calendar, Gmail y un bloque nuevo
   de Maps el resultado de la última comprobación. Probado en producción invalidando el token de Gmail de forma
   reversible: se anotó la caída y se limpió al restaurarlo.
+- **Campos de texto largos** (2026-11-02, petición de Gabriel): `components/ui/Textarea.tsx` sustituye a los once
+  `<textarea>` sueltos (Configuración, constructores, recordatorio de pago, galería, planning, entrada manual de
+  solicitudes, cierre de obra): misma etiqueta, crece con el contenido, admite `error` en rojo. `EditorTexto` gana
+  atajos (Ctrl+B, Ctrl+I, Ctrl+Mayús+8 viñeta, Ctrl+Mayús+7 numerada), deshacer/rehacer propio (Ctrl+Z,
+  Ctrl+Mayús+Z, Ctrl+Y; el nativo se perdía al cambiar de línea), `idioma` para el corrector ortográfico (`lang`), y
+  limpia lo pegado con `limpiarTextoPegado` (quita marcas «[2/11, 8:53] +34 …:» de WhatsApp y líneas vacías
+  repetidas; con tests). La nota interna del documento y la descripción del acompte pasan a `EditorTexto`. El botón
+  «Crear visita desde esta solicitud» prerrellena el origen del contacto según el canal de la solicitud (antes
+  siempre «Formulario»). Sin probar todavía en un móvil real.
 - **«Enviar a Ricardo» por WhatsApp desde la vista del presupuesto** (2026-11-02, petición de Gabriel):
   `src/lib/compartirWhatsapp.ts` genera el PDF y lo pasa al menú de compartir del sistema (Web Share API con
   archivos, como la galería) con un resumen en español (número, cliente, obra, totales y `nota_interna`); si el

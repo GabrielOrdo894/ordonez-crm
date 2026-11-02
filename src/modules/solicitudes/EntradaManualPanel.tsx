@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PenLine, Lightbulb, Plus } from 'lucide-react';
@@ -94,14 +95,11 @@ export function EntradaManualPanel({ onCreada }: EntradaManualPanelProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                Mensaje del cliente (pega el email o el WhatsApp)
-              </label>
-              <textarea
+              <Textarea
+                label="Mensaje del cliente (pega el email o el WhatsApp)"
                 value={form.texto}
                 onChange={(e) => setForm((f) => ({ ...f, texto: e.target.value }))}
                 rows={8}
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
                 placeholder="Hola, quería preguntar por una reforma de..."
               />
             </div>

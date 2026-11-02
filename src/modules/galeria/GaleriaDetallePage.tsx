@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -500,11 +501,10 @@ export default function GaleriaDetallePage() {
                 <Input label="Zona" value={form.zona} onChange={(e) => setForm((f) => ({ ...f, zona: e.target.value }))} />
                 <Input label="Fecha de la obra" type="date" value={form.fecha_obra} onChange={(e) => setForm((f) => ({ ...f, fecha_obra: e.target.value }))} />
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Descripción</label>
-                  <textarea
+                  <Textarea
+                    label="Descripción"
                     value={form.descripcion}
                     onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[80px] focus:border-brand focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -643,11 +643,10 @@ export default function GaleriaDetallePage() {
         <div className="flex flex-col gap-3">
           <Input label="Título" value={metaTitulo} onChange={(e) => setMetaTitulo(e.target.value)} placeholder="Ej. Baño antes de la reforma" autoFocus />
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Descripción</label>
-            <textarea
+            <Textarea
+              label="Descripción"
               value={metaDescripcion}
               onChange={(e) => setMetaDescripcion(e.target.value)}
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[70px] focus:border-brand focus:outline-none"
               placeholder="Detalle opcional de esta foto o vídeo"
             />
           </div>

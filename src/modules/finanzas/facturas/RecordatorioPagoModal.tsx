@@ -1,3 +1,4 @@
+import { Textarea } from '../../../components/ui/Textarea';
 import { useEffect, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
@@ -94,13 +95,7 @@ export function RecordatorioPagoModal({ factura, onClose }: RecordatorioPagoModa
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Mensaje</label>
-            <textarea
-              value={mensaje}
-              onChange={(e) => setMensaje(e.target.value)}
-              rows={7}
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
-            />
+            <Textarea label="Mensaje" value={mensaje} onChange={(e) => setMensaje(e.target.value)} rows={7} />
           </div>
 
           <div className="flex gap-2 justify-end">

@@ -1,3 +1,4 @@
+import { EditorTexto } from '../../components/ui/EditorTexto';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle, MessageCircle } from 'lucide-react';
@@ -679,11 +680,12 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                 <StickyNote size={13} />
                 Nota interna (no sale en el PDF)
               </p>
-              <textarea
+              <EditorTexto
                 value={notaInternaLocal}
-                onChange={(e) => setNotaInternaLocal(e.target.value)}
+                onChange={setNotaInternaLocal}
                 placeholder="Recordatorios, referencias a otros presupuestos, pendientes con Gabriel... nunca de cara al cliente."
-                className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[80px] focus:border-brand focus:outline-none"
+                rows={3}
+                idioma="es"
               />
               {notaInternaLocal !== (presupuesto.nota_interna ?? '') && (
                 <Button

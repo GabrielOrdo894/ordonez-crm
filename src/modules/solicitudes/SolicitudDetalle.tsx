@@ -26,6 +26,15 @@ import {
   tieneRespuestaSinRevisar,
 } from './types';
 
+// Inverso de fuenteDesdeContacto() (funnelTracking.ts): canal de la solicitud → «Origen del contacto» de la visita.
+function contactoDesdeFuente(fuente: string | null | undefined): string {
+  if (fuente === 'whatsapp') return 'WhatsApp';
+  if (fuente === 'llamada') return 'Llamada';
+  if (fuente === 'sms') return 'SMS';
+  if (fuente === 'email_directo') return 'Email';
+  return 'Formulario';
+}
+
 const OPCIONES_TIPO_SOLICITUD = [
   { value: '', label: 'Sin determinar' },
   ...(Object.keys(TIPO_SOLICITUD_LABEL) as TipoSolicitud[]).map((v) => ({ value: v, label: TIPO_SOLICITUD_LABEL[v] })),
@@ -620,7 +629,9 @@ export function SolicitudDetalle({ tipo, id, onClose }: SolicitudDetalleProps) {
                       telefono: solicitud.telefono ?? undefined,
                       email: solicitud.email ?? undefined,
                       idioma: solicitud.idioma,
-                      contacto: 'Formulario',
+                      // El origen del contacto de la visita sigue al canal real de la solicitud (antes
+                      // siempre «Formulario», también para las añadidas a mano desde WhatsApp o llamada).
+                      contacto: contactoDesdeFuente(solicitud.fuente),
                       tipo: solicitud.tipo_reforma ?? undefined,
                       descripcion: solicitud.comentario_cliente ?? undefined,
                       solicitudId: solicitud.id,

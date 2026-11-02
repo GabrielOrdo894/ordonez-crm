@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -80,11 +81,10 @@ export default function GaleriaNuevaPage() {
           onChange={(e) => setForm((f) => ({ ...f, fecha_obra: e.target.value }))}
         />
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Descripción</label>
-          <textarea
+          <Textarea
+            label="Descripción"
             value={form.descripcion}
             onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
-            className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[80px] focus:border-brand focus:outline-none"
           />
         </div>
         <div className="flex items-center gap-2 pt-1">

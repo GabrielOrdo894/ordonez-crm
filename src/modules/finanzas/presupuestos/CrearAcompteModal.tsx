@@ -1,3 +1,4 @@
+import { EditorTexto } from '../../../components/ui/EditorTexto';
 import { useEffect, useState } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
@@ -177,14 +178,13 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
               </button>
             )}
           </div>
-          <textarea
+          <EditorTexto
             value={descripcion}
-            onChange={(e) => {
-              setDescripcion(e.target.value);
+            onChange={(valor) => {
+              setDescripcion(valor);
               setDescripcionManual(true);
             }}
             rows={3}
-            className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none resize-y"
           />
         </div>
 

@@ -762,6 +762,7 @@ export function FacturaForm({
               </label>
               {notaActivada && (
                 <EditorTexto
+                idioma={form.idioma === 'Français' ? 'fr' : 'es'}
                   value={form.nota}
                   onChange={(v) => setForm((f) => ({ ...f, nota: v }))}
                   placeholder="Observaciones, acuerdos verbales, cosas que nos ha dicho el cliente..."

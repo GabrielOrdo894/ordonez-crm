@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -1073,21 +1074,19 @@ export default function ConfiguracionPage() {
         <p className="text-xs text-gray-400 mb-3">Aparece al final de presupuestos y facturas, según el idioma del documento.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Español</label>
-            <textarea
+            <Textarea
+              label="Español"
               value={graciasEs}
               onChange={(e) => setGraciasEs(e.target.value)}
               placeholder="Gracias por confiar en Reformas Ordoñez."
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[70px] focus:border-brand focus:outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Français</label>
-            <textarea
+            <Textarea
+              label="Français"
               value={graciasFr}
               onChange={(e) => setGraciasFr(e.target.value)}
               placeholder="Merci de votre confiance envers Reformas Ordoñez."
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[70px] focus:border-brand focus:outline-none"
             />
           </div>
         </div>

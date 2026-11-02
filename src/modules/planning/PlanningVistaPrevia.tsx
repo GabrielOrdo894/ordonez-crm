@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, Pencil, Languages, Eye, ClipboardCheck } from 'lucide-react';
@@ -427,13 +428,12 @@ export function PlanningVistaPrevia({
                   Con reservas
                 </label>
                 {conReservas && (
-                  <textarea
+                  <Textarea
                     value={reservas}
                     onChange={(e) => setReservas(e.target.value)}
                     placeholder={
                       'Una reserva por línea, ej.:\nJoint de silicone à reprendre salle de bain\nPeinture à retoucher couloir'
                     }
-                    className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
                     rows={3}
                   />
                 )}

@@ -65,3 +65,21 @@ export function convertirHtmlAMarcado(html: string): string {
   // Sin bloques reconocibles (ej. solo spans sueltos en la raíz) — usar el texto plano tal cual.
   return normalizarEspacios(documento.body.textContent ?? '');
 }
+
+// Limpieza del texto pegado en el editor (2026-11-02, petición de Gabriel): un chat de WhatsApp
+// copiado trae en cada línea la marca de hora y el remitente — «[2/11, 8:53] +34 657 58 51 71: …»
+// en iPhone, «2/11/26, 8:53 - Gema Arnaiz: …» en Android — y tandas de líneas vacías. Se quitan
+// esas marcas y se dejan como mucho una línea vacía seguida, sin tocar el resto del texto ni la
+// sintaxis de viñetas/negrita.
+const MARCA_WHATSAPP = /^\s*\[?\d{1,2}\/\d{1,2}(?:\/\d{2,4})?,?\s+\d{1,2}:\d{2}(?::\d{2})?\]?\s*(?:-\s*)?[^:\n]{1,60}:\s?/;
+
+export function limpiarTextoPegado(texto: string): string {
+  const lineas = texto.replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(MARCA_WHATSAPP, '').trimEnd());
+  const salida: string[] = [];
+  for (const l of lineas) {
+    if (l.trim() === '' && (salida.length === 0 || salida[salida.length - 1].trim() === '')) continue;
+    salida.push(l);
+  }
+  while (salida.length && salida[salida.length - 1].trim() === '') salida.pop();
+  return salida.join('\n');
+}

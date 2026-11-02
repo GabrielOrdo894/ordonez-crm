@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -220,11 +221,10 @@ export default function ConstructorPlanningPage() {
           </Bloque>
 
           <Bloque titulo="Pie de página">
-            <textarea
+            <Textarea
               value={config.piePagina}
               onChange={(e) => setConfig((c) => ({ ...c, piePagina: e.target.value }))}
               placeholder="Texto que aparece al final del planning (opcional)"
-              className="w-full border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm min-h-[70px] focus:border-brand focus:outline-none"
             />
           </Bloque>
         </div>

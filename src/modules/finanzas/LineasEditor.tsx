@@ -245,6 +245,7 @@ export function LineasEditor({
 
               <EditorTexto
                 label="Descripción"
+                idioma={idioma}
                 className="mb-3"
                 rows={5}
                 value={linea.descripcion}

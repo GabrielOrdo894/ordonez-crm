@@ -1100,6 +1100,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             <div>
               <EditorTexto
                 label="Descripción del trabajo"
+                idioma={form.idioma === 'Français' ? 'fr' : 'es'}
                 rows={4}
                 value={form.descripcion}
                 onChange={(valor) => setForm((f) => ({ ...f, descripcion: valor }))}
@@ -1252,6 +1253,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
             <div className="sm:col-span-2">
               <EditorTexto
                 label="Notas internas"
+                idioma="es"
                 rows={3}
                 value={form.notas}
                 onChange={(valor) => setForm((f) => ({ ...f, notas: valor }))}

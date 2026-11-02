@@ -1,3 +1,4 @@
+import { Textarea } from '../../components/ui/Textarea';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FunctionsHttpError } from '@supabase/supabase-js';
@@ -401,11 +402,11 @@ export function CierreObraBanner() {
               </label>
 
               {editando === f.id && (
-                <textarea
+                <Textarea
                   value={mensajeCierreDe(f)}
                   onChange={(e) => setMensajesEditados((actual) => ({ ...actual, [f.id]: e.target.value }))}
                   rows={7}
-                  className="w-full mt-2 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
+                  className="mt-2"
                 />
               )}
 
