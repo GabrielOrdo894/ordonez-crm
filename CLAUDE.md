@@ -1314,6 +1314,11 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   Hostinger, así que llega aunque Gmail esté caído. Configuración muestra bajo Calendar, Gmail y un bloque nuevo
   de Maps el resultado de la última comprobación. Probado en producción invalidando el token de Gmail de forma
   reversible: se anotó la caída y se limpió al restaurarlo.
+- **Agenda diaria de Santiago** (2026-11-02, petición de Gabriel): `agenda-diaria-ricardo` manda también a
+  santioe188@gmail.com, a la misma hora (07:00 local aprox.), el resumen de hoy y mañana con solo las visitas cuyo
+  `empleado` incluye «Santi» (asunto «Tus visitas — X hoy, Y mañana»); si no tiene ninguna no recibe nada. El aviso
+  al agendar o reprogramar (`notificar-visita`) ya le llegaba antes para todas las visitas, vía
+  `empresa_config.datos.notificaciones_visita_emails_extra`.
 - **Campos de texto largos** (2026-11-02, petición de Gabriel): `components/ui/Textarea.tsx` sustituye a los once
   `<textarea>` sueltos (Configuración, constructores, recordatorio de pago, galería, planning, entrada manual de
   solicitudes, cierre de obra): misma etiqueta, crece con el contenido, admite `error` en rojo. `EditorTexto` gana

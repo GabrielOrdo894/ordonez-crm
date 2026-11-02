@@ -1,7 +1,8 @@
 // Edge Function: agenda-diaria-ricardo
 //
 // Cron diario (07:00 hora local aprox., ver cron.job) que manda a Ricardo (mariordonez_81@yahoo.es)
-// un resumen de sus visitas técnicas de HOY y de MAÑANA: dirección, descripción, hora, idioma,
+// un resumen de TODAS las visitas técnicas de HOY y de MAÑANA, y a Santiago (desde 2026-11-02) el
+// mismo resumen con solo las visitas en las que va él: dirección, descripción, hora, idioma,
 // enlace a Google Maps y tiempo/distancia estimados desde la oficina correspondiente (ES/FR según
 // el país de la visita) — petición de Gabriel 2026-09-12, para que Ricardo tenga de un vistazo por
 // la mañana el plan del día (y el de mañana) sin tener que abrir el CRM.
@@ -22,6 +23,9 @@ const corsHeaders = {
 const REMITENTE_BASE = 'reformasordonezeus@gmail.com';
 const REMITENTE_ENVIO = Deno.env.get('SMTP_USER') ?? REMITENTE_BASE;
 const DESTINATARIO_RICARDO = 'mariordonez_81@yahoo.es';
+// Santiago recibe, además, su propia agenda con solo las visitas en las que va él (campo
+// `empleado`), para tenerlas presentes el mismo día (petición de Gabriel, 2026-11-02).
+const DESTINATARIO_SANTIAGO = 'santioe188@gmail.com';
 
 // Oficinas de referencia ("la casa") para estimar distancia — mismas coordenadas que
 // notificar-visita/index.ts (docs/negocio/empresa.md § Direcciones).
@@ -217,7 +221,7 @@ Deno.serve(async (req: Request) => {
     const hoy = ahora.toISOString().slice(0, 10);
     const manana = new Date(ahora.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const columnas = 'id, nombre, apellidos, direccion, direccion_extra, lat, lng, hora_visita, tipo, descripcion, idioma, pais, fecha_visita';
+    const columnas = 'id, nombre, apellidos, direccion, direccion_extra, lat, lng, hora_visita, tipo, descripcion, idioma, pais, fecha_visita, empleado';
     const { data: visitasConFecha, error } = await supabase
       .from('visitas')
       .select(columnas)
@@ -227,7 +231,7 @@ Deno.serve(async (req: Request) => {
       .order('hora_visita', { ascending: true });
     if (error) return jsonResponse({ ok: false, error: `No se pudieron leer las visitas: ${error.message}` }, 500);
 
-    const visitas = (visitasConFecha ?? []) as (VisitaAgenda & { fecha_visita: string })[];
+    const visitas = (visitasConFecha ?? []) as (VisitaAgenda & { fecha_visita: string; empleado?: string | null })[];
     const visitasHoy = visitas.filter((v) => v.fecha_visita === hoy);
     const visitasManana = visitas.filter((v) => v.fecha_visita === manana);
 
@@ -245,7 +249,26 @@ Deno.serve(async (req: Request) => {
 
     await enviarSmtp([DESTINATARIO_RICARDO], asunto, cuerpo);
 
-    return jsonResponse({ ok: true, enviado: true, visitasHoy: visitasHoy.length, visitasManana: visitasManana.length });
+    // Agenda de Santiago: solo sus visitas. Best-effort, un fallo aquí no invalida la de Ricardo.
+    const esDeSantiago = (v: { empleado?: string | null }) => (v.empleado ?? '').toLowerCase().includes('santi');
+    const santiHoy = visitasHoy.filter(esDeSantiago);
+    const santiManana = visitasManana.filter(esDeSantiago);
+    let santiagoEnviado = false;
+    if (santiHoy.length > 0 || santiManana.length > 0) {
+      try {
+        const [hoyS, mananaS] = await Promise.all([seccionDia('Hoy', hoy, santiHoy), seccionDia('Mañana', manana, santiManana)]);
+        await enviarSmtp(
+          [DESTINATARIO_SANTIAGO],
+          `Tus visitas — ${santiHoy.length} hoy, ${santiManana.length} mañana`,
+          construirHtml(hoyS, mananaS),
+        );
+        santiagoEnviado = true;
+      } catch (err) {
+        console.error('No se pudo enviar la agenda de Santiago:', String(err instanceof Error ? err.message : err));
+      }
+    }
+
+    return jsonResponse({ ok: true, enviado: true, visitasHoy: visitasHoy.length, visitasManana: visitasManana.length, santiagoEnviado });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   }
