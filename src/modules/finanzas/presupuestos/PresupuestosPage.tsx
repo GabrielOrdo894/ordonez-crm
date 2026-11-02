@@ -40,6 +40,7 @@ import type { InicioPresupuesto } from './IniciarPresupuestoPage';
 import { FacturaForm } from '../facturas/FacturaForm';
 import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './estadoCobro';
 import { descargarDocumentoFirmado } from '../../../lib/documenso';
+import { normalizarNombre } from '../../clientes/types';
 
 const ESTADOS_FILTRO = ['Todos', ...ESTADOS_PRESUPUESTO];
 const TIPOS_FILTRO = [{ value: 'Todos', label: 'Todos' }, ...TIPOS_PRESUPUESTO];
@@ -262,7 +263,8 @@ export default function PresupuestosPage() {
       if (filtroTipo !== 'Todos' && (p.tipo ?? 'normal') !== filtroTipo) return false;
       if (desde && (!p.fecha_emision || p.fecha_emision < desde)) return false;
       if (hasta && (!p.fecha_emision || p.fecha_emision > hasta)) return false;
-      if (q && !`${p.numero ?? ''} ${p.cliente_nombre ?? ''}`.toLowerCase().includes(q)) return false;
+      // También por dirección de la obra y sin distinguir acentos («colon» encuentra «Colón»), petición de Gabriel 2026-11-02.
+      if (q && !normalizarNombre(`${p.numero ?? ''} ${p.cliente_nombre ?? ''} ${p.cliente_dir ?? ''}`).includes(normalizarNombre(q))) return false;
       return true;
     });
   }, [presupuestos, busqueda, filtroEstado, filtroTipo, desde, hasta]);
@@ -467,7 +469,7 @@ export default function PresupuestosPage() {
           <input
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar por número o cliente"
+            placeholder="Buscar por número, cliente o dirección"
             className="w-full border border-gray-200 rounded-sm pl-8 pr-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
           />
         </div>
