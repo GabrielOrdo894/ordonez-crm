@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle, MessageCircle } from 'lucide-react';
 import { congelarTerminosCondiciones } from '../../lib/terminos';
 import { supabase } from '../../lib/supabase';
 import { camposContactoFaltantes } from '../../lib/datosContacto';
@@ -21,6 +21,7 @@ import { generarPdfPresupuesto, generarPdfPresupuestoTraducido, verPdfPresupuest
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
 import { enviarPresupuestoAFirmar, descargarDocumentoFirmado } from '../../lib/documenso';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
+import { compartirPresupuestoConRicardo } from '../../lib/compartirWhatsapp';
 import { mensajeError } from '../../lib/mensajeError';
 import { traduccionDesactualizada } from './presupuestos/traduccion';
 import { agruparClientes, normalizarTelefono } from '../clientes/types';
@@ -374,6 +375,22 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     }
   };
 
+  // Enviar el presupuesto a Ricardo por WhatsApp (PDF + resumen en español), ver compartirWhatsapp.ts.
+  const [enviandoRicardo, setEnviandoRicardo] = useState(false);
+  const handleEnviarRicardo = async () => {
+    if (!presupuesto) return;
+    setEnviandoRicardo(true);
+    try {
+      const resultado = await compartirPresupuestoConRicardo(presupuesto);
+      if (resultado === 'compartido') toast.success('Presupuesto compartido');
+      if (resultado === 'wa_me') toast.warning('PDF descargado y chat de Ricardo abierto: adjunta el PDF al mensaje');
+    } catch (err) {
+      toast.error(mensajeError(err, 'No se pudo enviar el presupuesto a Ricardo'));
+    } finally {
+      setEnviandoRicardo(false);
+    }
+  };
+
   const handleDescargarPdf = async () => {
     try {
       if (tipo === 'presupuesto' && presupuesto) await conAvisoDescarga(() => generarPdfPresupuesto(presupuesto), toast);
@@ -522,6 +539,14 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               <span className="flex items-center gap-1.5">
                 <FileSignature size={14} />
                 {descargandoFirmado === 'certificado' ? 'Descargando…' : 'Certificado de firma'}
+              </span>
+            </Button>
+          )}
+          {tipo === 'presupuesto' && presupuesto && (
+            <Button variant="secondary" onClick={handleEnviarRicardo} disabled={enviandoRicardo}>
+              <span className="flex items-center gap-1.5">
+                <MessageCircle size={14} />
+                {enviandoRicardo ? 'Preparando…' : 'Enviar a Ricardo'}
               </span>
             </Button>
           )}

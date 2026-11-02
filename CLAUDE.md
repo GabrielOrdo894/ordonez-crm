@@ -1314,6 +1314,13 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   Hostinger, así que llega aunque Gmail esté caído. Configuración muestra bajo Calendar, Gmail y un bloque nuevo
   de Maps el resultado de la última comprobación. Probado en producción invalidando el token de Gmail de forma
   reversible: se anotó la caída y se limpió al restaurarlo.
+- **«Enviar a Ricardo» por WhatsApp desde la vista del presupuesto** (2026-11-02, petición de Gabriel):
+  `src/lib/compartirWhatsapp.ts` genera el PDF y lo pasa al menú de compartir del sistema (Web Share API con
+  archivos, como la galería) con un resumen en español (número, cliente, obra, totales y `nota_interna`); si el
+  navegador no admite compartir archivos, descarga el PDF y abre `wa.me` con el texto ya escrito. El número de
+  Ricardo es el teléfono de la empresa en España (`empresa_config.datos.es.telefono`), nunca en el código. Un envío
+  totalmente automático queda descartado a propósito (API de WhatsApp Business o librerías no oficiales que
+  arriesgan el número). El buscador de `/finanzas/presupuestos` busca también por dirección de la obra y sin acentos.
 - **Formularios que llevan al dato que falta, y presentación del equipo al cliente** (2026-10-30, petición de
   Gabriel): `src/lib/enfocarError.ts` (`enfocarPrimerError`, `enfocarLinea`) desplaza la vista y pone el foco en
   el primer campo pintado en rojo (`border-red-400`, el que ya usan Input/Select/TelefonoInput/MapsAutocomplete
