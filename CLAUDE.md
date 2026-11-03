@@ -1376,3 +1376,21 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   operaciones (TVA 44551, IS 444, comisión 627, peajes sin justificante 6251, socio 455, préstamo 164, caja 53,
   transferencia interna 58, URSSAF 646, rémunération 641) van al libro contra 512. Filtro «Sin justificante»:
   pagos sin conciliar o con algún gasto sin adjunto.
+- **Recordatorios automáticos de facturas vencidas** (2026-11-03, decisión de Gabriel: programados y cancelables, a
+  +3, +10 y +20 días del vencimiento). Edge Function `recordatorio-pago-automatico` (cron `recordatorio-pago-diario`,
+  07:15 UTC): envía los programados la víspera (comprobando antes que la factura sigue con pendiente, email y
+  recordatorios activos) y programa el paso que toque; el envío espera a la pasada siguiente (24 h para cancelarlo, la
+  campana avisa). Tabla `recordatorios_pago` (un paso por factura, `unique(factura_id, paso)`), textos FR/ES con IBAN
+  del país emisor en `_shared/recordatorioPago.ts` (con tests); el tercero avisa de reclamación formal pero no es una
+  mise en demeure. En la factura: «Cancelar recordatorio de pago n/3» y «No enviar recordatorios de pago»
+  (`facturas.recordatorios_desactivados`). Solo facturas normal/acompte, no `estructura_anterior`.
+- **Aviso de cobros del plan de pago** (2026-11-03): cada plazo admite `fecha_prevista` opcional (no cuenta como
+  cambio de lo firmado ni regenera el enlace de Documenso, `planSinFechas`). `presupuestos/planPago.ts` (con tests):
+  los plazos se cubren por orden con los acomptes del presupuesto y el último con la factura final. La campana avisa
+  del plazo inicial al aceptarse y de los demás el día de su fecha, con enlace que abre el acompte ya elegido
+  (`crearAcomptePlazo` en el state de navegación). La ficha del presupuesto muestra el bloque «Plan de pago».
+- **Avenants** (2026-11-03, decisión de Gabriel: suman al presupuesto original). Un avenant es un presupuesto
+  `tipo = 'normal'` con `avenant_de_id` → original, número `<original>-A<n>` (no gasta `seq_presupuesto`), título
+  AVENANT/ANEXO, condiciones cortas que remiten al original, y se firma por Documenso como cualquier presupuesto. No
+  tiene acomptes ni factura propios: «Crear factura final (con avenants)» del original añade las líneas de sus
+  avenants aceptados. No entra en el embudo (trigger `funnel_eventos_ignorar_avenants`) ni en los avisos de plazos.

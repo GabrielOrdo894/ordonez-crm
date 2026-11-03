@@ -1,5 +1,12 @@
 export type { Linea } from '../lineas';
-export { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, validarLineas } from '../lineas';
+export {
+  UNIDADES,
+  getTiposServicio,
+  lineaVacia,
+  calcularLinea,
+  calcularTotales,
+  validarLineas,
+} from '../lineas';
 export { TIPOS_IVA, porcentajeIva, paisDesdeTipoIva } from '../iva';
 
 import { lineaVacia, calcularLinea, REFERENCIA_ACOMPTE_ANTERIOR } from '../lineas';
@@ -49,6 +56,8 @@ export type Factura = {
   // campana pide decidirlo a mano). NULL = todavía no evaluada.
   resena_auto_estado: 'programada' | 'enviada' | 'cancelada' | 'revisar' | null;
   resena_auto_programada_en: string | null;
+  // true: recordatorio-pago-automatico no programa recordatorios para esta factura (2026-11-03).
+  recordatorios_desactivados?: boolean;
   // Cobro de una estructura empresarial anterior a la EURL actual (2026-08-22) — se registra en
   // el CRM solo para que lineaDeduccionAcomptes calcule bien la factura definitiva, pero no es
   // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de
@@ -67,7 +76,14 @@ export type NuevaFactura = Omit<Factura, 'id' | 'created_at'>;
 // 'Aplicada'/'Reembolsada' solo para rectificativas (2026-10-01): una nota de crédito no se cobra —
 // queda 'Aplicada' y pasa a 'Reembolsada' cuando se registra la devolución del dinero al cliente.
 // Antes salían 'Pendiente' para siempre y contaban como pendientes de cobro.
-export const ESTADOS_COBRO = ['Pendiente', 'Cobrada', 'Cobrada parcialmente', 'Vencida', 'Aplicada', 'Reembolsada'] as const;
+export const ESTADOS_COBRO = [
+  'Pendiente',
+  'Cobrada',
+  'Cobrada parcialmente',
+  'Vencida',
+  'Aplicada',
+  'Reembolsada',
+] as const;
 export type EstadoCobro = (typeof ESTADOS_COBRO)[number];
 export const METODOS_PAGO = ['Transferencia', 'Efectivo', 'Tarjeta', 'Cheque', 'Domiciliación'];
 
@@ -106,7 +122,9 @@ export function estadoCobroDePagos(
   opciones: { tipo?: TipoFactura | null; fechaVence?: string | null; hoy?: string } = {},
 ): EstadoCobro {
   if (opciones.tipo === 'rectificativa') {
-    return Math.abs(totalPagado) >= Math.abs(totalFactura) - 0.01 && Math.abs(totalPagado) > 0.01 ? 'Reembolsada' : 'Aplicada';
+    return Math.abs(totalPagado) >= Math.abs(totalFactura) - 0.01 && Math.abs(totalPagado) > 0.01
+      ? 'Reembolsada'
+      : 'Aplicada';
   }
   if (totalPagado >= totalFactura - 0.01 && totalPagado > 0.01) return 'Cobrada';
   if (opciones.fechaVence && opciones.hoy && opciones.fechaVence < opciones.hoy) return 'Vencida';
@@ -127,7 +145,10 @@ export function fraccionTvaExigibleRectificativa(
 ): number {
   const anulado = Math.abs(totalRectificativa);
   if (anulado < 0.005) return 1;
-  const pendienteOriginal = Math.max(0, Math.abs(totalOriginal) - cobradoOriginal - Math.abs(anuladoPrevio));
+  const pendienteOriginal = Math.max(
+    0,
+    Math.abs(totalOriginal) - cobradoOriginal - Math.abs(anuladoPrevio),
+  );
   const exigible = Math.max(0, anulado - pendienteOriginal);
   return Math.round(Math.min(1, exigible / anulado) * 1000000) / 1000000;
 }
@@ -136,7 +157,8 @@ export function fraccionTvaExigibleRectificativa(
 // FacturaForm, FacturaPreview y generarPdfFactura para no repetir la misma cadena de ternarios.
 export function tituloDocumentoFactura(tipo: TipoFactura, idiomaCorto: 'es' | 'fr'): string {
   if (tipo === 'acompte') return idiomaCorto === 'fr' ? "FACTURE D'ACOMPTE" : 'FACTURA DE ANTICIPO';
-  if (tipo === 'rectificativa') return idiomaCorto === 'fr' ? 'FACTURE RECTIFICATIVE' : 'FACTURA RECTIFICATIVA';
+  if (tipo === 'rectificativa')
+    return idiomaCorto === 'fr' ? 'FACTURE RECTIFICATIVE' : 'FACTURA RECTIFICATIVA';
   return idiomaCorto === 'fr' ? 'FACTURE' : 'FACTURA';
 }
 
@@ -173,7 +195,10 @@ export function lineaDeduccionAcomptes(
     (s, f) => s + f.lineas.reduce((s2, l) => s2 + (l.es_incluido ? 0 : l.total_sin_iva), 0),
     0,
   );
-  const numeros = acomptes.map((f) => f.numero).filter(Boolean).join(', ');
+  const numeros = acomptes
+    .map((f) => f.numero)
+    .filter(Boolean)
+    .join(', ');
   const esFr = idioma === 'Français';
   return calcularLinea(
     {
@@ -205,7 +230,11 @@ export function lineasDeduccionAcomptes(
   const anteriores = documentos.filter((d) => d.estructura_anterior);
   const lineas: Linea[] = [];
   if (eurl.length > 0) lineas.push(lineaDeduccionAcomptes(eurl, tipoIva, idioma));
-  if (anteriores.length > 0) lineas.push({ ...lineaDeduccionAcomptes(anteriores, tipoIva, idioma), referencia: REFERENCIA_ACOMPTE_ANTERIOR });
+  if (anteriores.length > 0)
+    lineas.push({
+      ...lineaDeduccionAcomptes(anteriores, tipoIva, idioma),
+      referencia: REFERENCIA_ACOMPTE_ANTERIOR,
+    });
   return lineas.filter((l) => Math.abs(l.total_sin_iva) >= 0.005);
 }
 
@@ -213,7 +242,9 @@ export function lineasDeduccionAcomptes(
 // desaparecer (numeración sin huecos, Code de commerce A123-12). Para anularla hace falta una
 // factura rectificativa, no la papelera (auditoría contable 2026-09-29 — antes la papelera anulaba
 // su contabilidad sin ninguna factura que lo justificara).
-export function motivoNoPapeleraFactura(f: Pick<Factura, 'pais' | 'estructura_anterior' | 'numero'>): string | null {
+export function motivoNoPapeleraFactura(
+  f: Pick<Factura, 'pais' | 'estructura_anterior' | 'numero'>,
+): string | null {
   if (f.pais !== 'Francia' || f.estructura_anterior) return null;
   return `La factura ${f.numero ?? ''} ya está contabilizada: para anularla, crea una factura rectificativa desde su menú.`;
 }

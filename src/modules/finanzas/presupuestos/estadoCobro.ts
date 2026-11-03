@@ -12,9 +12,12 @@ export type FacturaParaCobro = {
   tipo: string;
   estado_cobro: string;
   monto_pagado: number | null;
+  numero?: string | null;
+  fecha_factura?: string | null;
 };
 
-export const SELECT_FACTURAS_COBRO = 'presupuesto_id, tipo, estado_cobro, monto_pagado';
+export const SELECT_FACTURAS_COBRO =
+  'presupuesto_id, tipo, estado_cobro, monto_pagado, numero, fecha_factura';
 
 export function estadoCobroPresupuesto(
   presupuesto: { id: string; estado: string; lineas: Linea[] },

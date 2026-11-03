@@ -44,8 +44,12 @@ export function PresupuestoPreview({ presupuesto }: { presupuesto: Presupuesto }
     bic: presupuesto.banco_bic || entidadInfo?.entidad?.bic || '',
   };
 
-  const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);
-  const condPago = presupuesto.condiciones_pago ?? (config?.datos as { condicionesPago?: Record<string, string> })?.condicionesPago;
+  const configPlantilla = configPlantillaDesde(
+    (config?.datos as { plantilla_documento?: unknown })?.plantilla_documento,
+  );
+  const condPago =
+    presupuesto.condiciones_pago ??
+    (config?.datos as { condicionesPago?: Record<string, string> })?.condicionesPago;
   const condicionesPago = condPago
     ? {
         delai: idiomaCorto === 'fr' ? condPago.delaiFr : condPago.delaiEs,
@@ -62,7 +66,8 @@ export function PresupuestoPreview({ presupuesto }: { presupuesto: Presupuesto }
       ? config?.tc_fr
       : config?.tc_es;
   const tc = tcCrudo ? renderizarTC(tcCrudo, presupuesto.plan_pago, idiomaCorto) : undefined;
-  const mensajeGracias = idiomaCorto === 'fr' ? config?.mensaje_gracias_fr : config?.mensaje_gracias_es;
+  const mensajeGracias =
+    idiomaCorto === 'fr' ? config?.mensaje_gracias_fr : config?.mensaje_gracias_es;
 
   return (
     <DocumentoPreview
@@ -79,7 +84,12 @@ export function PresupuestoPreview({ presupuesto }: { presupuesto: Presupuesto }
       piePagina={configPlantilla.piePagina}
       idioma={idiomaCorto}
       tituloDocumento={
-        (idiomaCorto === 'fr' ? 'DEVIS' : 'PRESUPUESTO') + (esOrientativo ? (idiomaCorto === 'fr' ? ' INDICATIF' : ' ORIENTATIVO') : '')
+        presupuesto.avenant_de_id
+          ? idiomaCorto === 'fr'
+            ? 'AVENANT'
+            : 'ANEXO'
+          : (idiomaCorto === 'fr' ? 'DEVIS' : 'PRESUPUESTO') +
+            (esOrientativo ? (idiomaCorto === 'fr' ? ' INDICATIF' : ' ORIENTATIVO') : '')
       }
       titulo={presupuesto.titulo ?? undefined}
       numero={presupuesto.numero}
@@ -89,16 +99,27 @@ export function PresupuestoPreview({ presupuesto }: { presupuesto: Presupuesto }
       clienteNombre={presupuesto.cliente_nombre ?? ''}
       clienteDir={presupuesto.cliente_dir ?? ''}
       clienteDirExtra={presupuesto.cliente_dir_extra ?? undefined}
-      clienteContacto={[presupuesto.cliente_tel, presupuesto.cliente_email].filter(Boolean).join(' · ')}
+      clienteContacto={[presupuesto.cliente_tel, presupuesto.cliente_email]
+        .filter(Boolean)
+        .join(' · ')}
       labelCif={(presupuesto.pais ?? 'España') === 'Francia' ? 'SIRET' : 'CIF'}
       camposDocumento={[
         { label: idiomaCorto === 'fr' ? 'Numéro' : 'Número', valor: presupuesto.numero ?? '—' },
-        { label: idiomaCorto === 'fr' ? 'Émission' : 'Emisión', valor: presupuesto.fecha_emision ?? '' },
-        { label: idiomaCorto === 'fr' ? "Valable jusqu'au" : 'Válido hasta', valor: presupuesto.fecha_validez ?? '' },
+        {
+          label: idiomaCorto === 'fr' ? 'Émission' : 'Emisión',
+          valor: presupuesto.fecha_emision ?? '',
+        },
+        {
+          label: idiomaCorto === 'fr' ? "Valable jusqu'au" : 'Válido hasta',
+          valor: presupuesto.fecha_validez ?? '',
+        },
         { label: idiomaCorto === 'fr' ? 'TVA' : 'IVA', valor: `${porcentaje}%` },
         {
           label: idiomaCorto === 'fr' ? 'État' : 'Estado',
-          valor: idiomaCorto === 'fr' ? (ESTADO_FR[presupuesto.estado] ?? presupuesto.estado) : presupuesto.estado,
+          valor:
+            idiomaCorto === 'fr'
+              ? (ESTADO_FR[presupuesto.estado] ?? presupuesto.estado)
+              : presupuesto.estado,
           claseColor: claseColorEstado(presupuesto.estado),
         },
       ]}
@@ -123,7 +144,13 @@ export function PresupuestoPreview({ presupuesto }: { presupuesto: Presupuesto }
       firmaBase64={esOrientativo ? undefined : presupuesto.firma_base64}
       firmaNombre={presupuesto.firma_nombre}
       firmaFecha={presupuesto.firma_fecha}
-      labelFirma={esOrientativo ? undefined : idiomaCorto === 'fr' ? 'Signature du client' : 'Firma del cliente'}
+      labelFirma={
+        esOrientativo
+          ? undefined
+          : idiomaCorto === 'fr'
+            ? 'Signature du client'
+            : 'Firma del cliente'
+      }
       labelPendienteFirma={idiomaCorto === 'fr' ? 'En attente de signature' : 'Pendiente de firma'}
       mensajeGracias={mensajeGracias ?? undefined}
       tc={tc}

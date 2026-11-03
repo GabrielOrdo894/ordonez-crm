@@ -1,5 +1,14 @@
 export type { Linea } from '../lineas';
-export { UNIDADES, getTiposServicio, lineaVacia, calcularLinea, calcularTotales, calcularTotalesRango, totalLineaMax, validarLineas } from '../lineas';
+export {
+  UNIDADES,
+  getTiposServicio,
+  lineaVacia,
+  calcularLinea,
+  calcularTotales,
+  calcularTotalesRango,
+  totalLineaMax,
+  validarLineas,
+} from '../lineas';
 export { TIPOS_IVA, porcentajeIva, paisDesdeTipoIva } from '../iva';
 
 import type { Linea } from '../lineas';
@@ -8,6 +17,9 @@ export type PlazoPago = {
   concepto: string;
   porcentaje: number;
   importe: number;
+  /** Fecha prevista de cobro (opcional, 2026-11-03): el día que llega, la campana avisa de que toca
+   * facturar ese plazo. El primero avisa al aceptarse el presupuesto aunque no tenga fecha. */
+  fecha_prevista?: string | null;
 };
 
 /** Traducción interna generada por IA (Edge Function `traducir-presupuesto`) — solo el texto
@@ -50,6 +62,9 @@ export type Presupuesto = {
   formato: FormatoPresupuesto;
   portada_foto_url: string | null;
   presupuesto_origen_id: string | null;
+  // Avenant (2026-11-03): presupuesto original al que completa con trabajos añadidos. Se firma aparte
+  // y su importe se factura con la factura final del original. Número: <original>-A<n>.
+  avenant_de_id?: string | null;
   banco_titular: string | null;
   banco_nombre: string | null;
   banco_iban: string | null;
@@ -90,16 +105,21 @@ export const TIPOS_PRESUPUESTO: { value: TipoPresupuesto; label: string }[] = [
 
 export type FormatoPresupuesto = 'completo' | 'rapido';
 
-export const FORMATOS_PRESUPUESTO: { value: FormatoPresupuesto; label: string; descripcion: string }[] = [
+export const FORMATOS_PRESUPUESTO: {
+  value: FormatoPresupuesto;
+  label: string;
+  descripcion: string;
+}[] = [
   {
     value: 'completo',
     label: 'Formato completo',
-    descripcion: 'Con portada — para obras grandes y clientes nuevos. Incluye portada, presupuesto y términos y condiciones.',
+    descripcion:
+      'Con portada — para obras grandes y clientes nuevos. Incluye portada, presupuesto y términos y condiciones.',
   },
   {
     value: 'rapido',
     label: 'Formato rápido',
-    descripcion: 'Sin portada — recomendado para clientes habituales u obras pequeñas y rápidas (reparaciones, pintar humedades...).',
+    descripcion:
+      'Sin portada — recomendado para clientes habituales u obras pequeñas y rápidas (reparaciones, pintar humedades...).',
   },
 ];
-

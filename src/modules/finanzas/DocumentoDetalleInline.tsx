@@ -1,7 +1,19 @@
 import { EditorTexto } from '../../components/ui/EditorTexto';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Pencil, FileSignature, Copy, ExternalLink, Languages, Eye, StickyNote, AlertTriangle, MessageCircle } from 'lucide-react';
+import {
+  ArrowLeft,
+  Download,
+  Pencil,
+  FileSignature,
+  Copy,
+  ExternalLink,
+  Languages,
+  Eye,
+  StickyNote,
+  AlertTriangle,
+  MessageCircle,
+} from 'lucide-react';
 import { congelarTerminosCondiciones } from '../../lib/terminos';
 import { supabase } from '../../lib/supabase';
 import { camposContactoFaltantes } from '../../lib/datosContacto';
@@ -13,12 +25,17 @@ import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { Input } from '../../components/ui/Input';
 import { DropdownMenu, type AccionMenu } from '../../components/ui/DropdownMenu';
-import { fechaCorta } from '../../lib/fechas';
+import { fechaCorta, hoyLocalIso } from '../../lib/fechas';
+import { estadoPlazos } from './presupuestos/planPago';
 import { cargarEventos, registrarEvento } from '../../lib/eventos';
 import { registrarEtapaPresupuestoConBackfill } from '../../lib/funnelTracking';
 import { notaSistema } from '../../lib/notaSistema';
 import { vaciarPagosFactura, rectificarAsientosFacturaSiHaceFalta } from '../../lib/pagosFactura';
-import { generarPdfPresupuesto, generarPdfPresupuestoTraducido, verPdfPresupuestoTraducido } from '../../lib/generarPdfPresupuesto';
+import {
+  generarPdfPresupuesto,
+  generarPdfPresupuestoTraducido,
+  verPdfPresupuestoTraducido,
+} from '../../lib/generarPdfPresupuesto';
 import { generarPdfFactura } from '../../lib/generarPdfFactura';
 import { enviarPresupuestoAFirmar, descargarDocumentoFirmado } from '../../lib/documenso';
 import { conAvisoDescarga } from '../../lib/conAvisoDescarga';
@@ -33,15 +50,23 @@ import { PresupuestoForm } from './presupuestos/PresupuestoForm';
 import { CrearAcompteModal } from './presupuestos/CrearAcompteModal';
 import type { Presupuesto } from './presupuestos/types';
 import type { Linea } from './lineas';
+import { formatearPrecio } from './lineas';
 import { FacturaPreview } from './facturas/FacturaPreview';
 import { FacturaForm } from './facturas/FacturaForm';
 import { RegistrarPagoModal } from './facturas/RegistrarPagoModal';
 import { motivoNoPapeleraFactura, type Factura } from './facturas/types';
-import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './presupuestos/estadoCobro';
+import {
+  estadoCobroPresupuesto,
+  SELECT_FACTURAS_COBRO,
+  type FacturaParaCobro,
+} from './presupuestos/estadoCobro';
 
 export type TipoDocumento = 'presupuesto' | 'factura';
 
-const VARIANTE_ESTADO: Record<string, 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'default'> = {
+const VARIANTE_ESTADO: Record<
+  string,
+  'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'vencida' | 'default'
+> = {
   Borrador: 'default',
   Pendiente: 'pendiente',
   Aceptado: 'realizada',
@@ -58,9 +83,17 @@ type DocumentoDetalleInlineProps = {
   id: string;
   onClose: () => void;
   onAbrirOtro: (tipo: TipoDocumento, id: string) => void;
+  // Índice del plazo del plan de pago cuyo acompte se abre nada más cargar (aviso de la campana).
+  abrirAcomptePlazo?: number;
 };
 
-export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: DocumentoDetalleInlineProps) {
+export function DocumentoDetalleInline({
+  tipo,
+  id,
+  onClose,
+  onAbrirOtro,
+  abrirAcomptePlazo,
+}: DocumentoDetalleInlineProps) {
   const { user } = useAuth();
   const nombreUsuarioActual = (user?.user_metadata?.nombre as string) || user?.email || 'Sistema';
   const toast = useToast();
@@ -70,7 +103,12 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   const [facturandoCompleta, setFacturandoCompleta] = useState(false);
   const [creandoNormalVinculado, setCreandoNormalVinculado] = useState(false);
   const [creandoAcompte, setCreandoAcompte] = useState(false);
-  const [acompteAConstruir, setAcompteAConstruir] = useState<{ linea: Linea; fecha: string } | null>(null);
+  const [creandoAvenant, setCreandoAvenant] = useState(false);
+  const [plazoAcompte, setPlazoAcompte] = useState(0);
+  const [acompteAConstruir, setAcompteAConstruir] = useState<{
+    linea: Linea;
+    fecha: string;
+  } | null>(null);
   const [registrandoPago, setRegistrandoPago] = useState(false);
   const [clienteAbierto, setClienteAbierto] = useState(false);
 
@@ -98,7 +136,10 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
 
   const { data: facturasCobro } = useQuery({
     queryKey: ['facturas', 'cobro-por-presupuesto', id],
-    enabled: tipo === 'presupuesto' && presupuesto?.estado === 'Aceptado' && presupuesto?.tipo !== 'orientativo',
+    enabled:
+      tipo === 'presupuesto' &&
+      presupuesto?.estado === 'Aceptado' &&
+      presupuesto?.tipo !== 'orientativo',
     queryFn: async () => {
       const { data, error } = await supabase
         .from('facturas')
@@ -113,6 +154,77 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     tipo === 'presupuesto' && presupuesto && presupuesto.tipo !== 'orientativo'
       ? estadoCobroPresupuesto(presupuesto, facturasCobro ?? [])
       : null;
+  // Avenants del presupuesto (2026-11-03): sus líneas entran en la factura final del original.
+  const { data: avenants } = useQuery({
+    queryKey: ['presupuestos', 'avenants-de', id],
+    enabled:
+      tipo === 'presupuesto' &&
+      !!presupuesto &&
+      !presupuesto.avenant_de_id &&
+      presupuesto.tipo !== 'orientativo',
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select('id, numero, estado, lineas')
+        .eq('avenant_de_id', id)
+        .is('eliminado_en', null)
+        .order('created_at');
+      if (error) throw error;
+      return data as Pick<Presupuesto, 'id' | 'numero' | 'estado' | 'lineas'>[];
+    },
+  });
+  const avenantsAceptados = (avenants ?? []).filter((a) => a.estado === 'Aceptado');
+  const abrirFacturaFinal = () => {
+    const sinAceptar = (avenants ?? []).filter(
+      (a) => a.estado !== 'Aceptado' && a.estado !== 'Rechazado',
+    );
+    if (sinAceptar.length > 0) {
+      toast.warning(
+        `${sinAceptar.map((a) => a.numero).join(', ')} todavía no está aceptado: no entra en la factura final.`,
+      );
+    }
+    setFacturandoCompleta(true);
+  };
+  const presupuestoParaFacturaFinal =
+    presupuesto && avenantsAceptados.length > 0
+      ? {
+          ...presupuesto,
+          lineas: [
+            ...presupuesto.lineas,
+            ...avenantsAceptados.flatMap((a) =>
+              a.lineas.map((l) => ({
+                ...l,
+                designacion: `${l.designacion} (${presupuesto.idioma === 'Français' ? 'avenant' : 'anexo'} ${a.numero ?? ''})`,
+              })),
+            ),
+          ],
+        }
+      : presupuesto;
+
+  // Plan de pago con lo facturado de cada plazo (2026-11-03).
+  const plazos =
+    tipo === 'presupuesto' &&
+    presupuesto?.estado === 'Aceptado' &&
+    presupuesto.tipo !== 'orientativo' &&
+    !presupuesto.avenant_de_id &&
+    facturasCobro
+      ? estadoPlazos(
+          presupuesto.plan_pago ?? [],
+          facturasCobro.filter((f) => f.tipo !== 'rectificativa'),
+          hoyLocalIso(),
+        )
+      : [];
+  const abrirAcompte = (indice: number) => {
+    setPlazoAcompte(indice);
+    setCreandoAcompte(true);
+  };
+  const acompteAutoAbierto = useRef(false);
+  useEffect(() => {
+    if (abrirAcomptePlazo === undefined || acompteAutoAbierto.current || !presupuesto) return;
+    acompteAutoAbierto.current = true;
+    abrirAcompte(abrirAcomptePlazo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirAcomptePlazo, presupuesto]);
 
   const { data: eventos } = useQuery({
     queryKey: ['documento_eventos', tipo, id],
@@ -121,14 +233,32 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   });
 
   const { data: relaciones } = useQuery({
-    queryKey: ['documento_relaciones', tipo, id, presupuesto?.presupuesto_origen_id, presupuesto?.tipo, factura?.presupuesto_id],
+    queryKey: [
+      'documento_relaciones',
+      tipo,
+      id,
+      presupuesto?.presupuesto_origen_id,
+      presupuesto?.tipo,
+      presupuesto?.avenant_de_id,
+      factura?.presupuesto_id,
+    ],
     queryFn: async (): Promise<RelacionItem[]> => {
       const items: RelacionItem[] = [];
       if (tipo === 'factura' && factura) {
         if (factura.presupuesto_id) {
-          const { data: p, error: errorP } = await supabase.from('presupuestos').select('*').eq('id', factura.presupuesto_id).single();
+          const { data: p, error: errorP } = await supabase
+            .from('presupuestos')
+            .select('*')
+            .eq('id', factura.presupuesto_id)
+            .single();
           if (errorP) throw errorP;
-          if (p) items.push({ tipo: 'presupuesto', id: p.id, label: `Presupuesto ${p.numero ?? ''}`, sublabel: p.estado });
+          if (p)
+            items.push({
+              tipo: 'presupuesto',
+              id: p.id,
+              label: `Presupuesto ${p.numero ?? ''}`,
+              sublabel: p.estado,
+            });
           const { data: hermanas, error: errorHermanas } = await supabase
             .from('facturas')
             .select('*')
@@ -167,7 +297,44 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             .eq('id', presupuesto.presupuesto_origen_id)
             .single();
           if (errorOrigen) throw errorOrigen;
-          if (origen) items.push({ tipo: 'presupuesto', id: origen.id, label: `Presupuesto orientativo ${origen.numero ?? ''}`, sublabel: origen.estado });
+          if (origen)
+            items.push({
+              tipo: 'presupuesto',
+              id: origen.id,
+              label: `Presupuesto orientativo ${origen.numero ?? ''}`,
+              sublabel: origen.estado,
+            });
+        }
+        // Avenants (2026-11-03): el original lista los suyos y cada avenant enlaza a su original.
+        if (presupuesto.avenant_de_id) {
+          const { data: original, error: errorOriginal } = await supabase
+            .from('presupuestos')
+            .select('id, numero, estado')
+            .eq('id', presupuesto.avenant_de_id)
+            .single();
+          if (errorOriginal) throw errorOriginal;
+          if (original)
+            items.push({
+              tipo: 'presupuesto',
+              id: original.id,
+              label: `Presupuesto original ${original.numero ?? ''}`,
+              sublabel: original.estado,
+            });
+        } else {
+          const { data: avenants, error: errorAvenants } = await supabase
+            .from('presupuestos')
+            .select('id, numero, estado')
+            .eq('avenant_de_id', presupuesto.id)
+            .is('eliminado_en', null)
+            .order('created_at');
+          if (errorAvenants) throw errorAvenants;
+          for (const a of avenants ?? [])
+            items.push({
+              tipo: 'presupuesto',
+              id: a.id,
+              label: `Avenant ${a.numero ?? ''}`,
+              sublabel: a.estado,
+            });
         }
         if (presupuesto.tipo === 'orientativo') {
           const { data: hijos, error: errorHijos } = await supabase
@@ -177,7 +344,12 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             .eq('presupuesto_origen_id', presupuesto.id);
           if (errorHijos) throw errorHijos;
           for (const p of (hijos ?? []) as Presupuesto[]) {
-            items.push({ tipo: 'presupuesto', id: p.id, label: `Presupuesto normal ${p.numero ?? ''}`, sublabel: p.estado });
+            items.push({
+              tipo: 'presupuesto',
+              id: p.id,
+              label: `Presupuesto normal ${p.numero ?? ''}`,
+              sublabel: p.estado,
+            });
           }
         }
       }
@@ -228,9 +400,15 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [tipo === 'presupuesto' ? 'presupuestos' : 'facturas'] });
+      queryClient.invalidateQueries({
+        queryKey: [tipo === 'presupuesto' ? 'presupuestos' : 'facturas'],
+      });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      toast.success(tipo === 'presupuesto' ? 'Presupuesto movido a la papelera' : 'Factura movida a la papelera');
+      toast.success(
+        tipo === 'presupuesto'
+          ? 'Presupuesto movido a la papelera'
+          : 'Factura movida a la papelera',
+      );
       onClose();
     },
     onError: (error) => toast.error(error.message),
@@ -241,13 +419,18 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     // desde aquí no se congelaban los T&C al aceptar ni quedaba nota de sistema).
     mutationFn: async (estado: string) => {
       if (presupuesto?.firmado && (estado === 'Borrador' || estado === 'Pendiente')) {
-        throw new Error('Este presupuesto está firmado por el cliente: no puede volver a ' + estado + '.');
+        throw new Error(
+          'Este presupuesto está firmado por el cliente: no puede volver a ' + estado + '.',
+        );
       }
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', id);
       if (error) throw error;
       if (estado === 'Aceptado' && presupuesto) await congelarTerminosCondiciones(presupuesto);
       if (presupuesto?.visita_id) {
-        await notaSistema(presupuesto.visita_id, `Presupuesto ${presupuesto.numero} marcado como ${estado} por ${nombreUsuarioActual}`);
+        await notaSistema(
+          presupuesto.visita_id,
+          `Presupuesto ${presupuesto.numero} marcado como ${estado} por ${nombreUsuarioActual}`,
+        );
       }
       await registrarEvento('presupuesto', id, `Marcado como ${estado}`);
       await registrarEtapaPresupuestoConBackfill(estado, id);
@@ -265,7 +448,10 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   // (la campana avisa con 24 h de margen). Solo visible mientras está 'programada'.
   const cancelarResenaAutoMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('facturas').update({ resena_auto_estado: 'cancelada' }).eq('id', id);
+      const { error } = await supabase
+        .from('facturas')
+        .update({ resena_auto_estado: 'cancelada' })
+        .eq('id', id);
       if (error) throw error;
       await registrarEvento('factura', id, 'Reseña automática cancelada');
     },
@@ -274,6 +460,72 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
       refetchFactura();
       toast.success('Reseña automática cancelada');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  // Recordatorios automáticos de pago (recordatorio-pago-automatico, 2026-11-03): el programado se
+  // puede cancelar antes de que salga, y la factura entera puede quedarse sin recordatorios.
+  const { data: recordatorioProgramado } = useQuery({
+    queryKey: ['recordatorios_pago', 'factura', id],
+    enabled: tipo === 'factura',
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('recordatorios_pago')
+        .select('id, paso')
+        .eq('factura_id', id)
+        .eq('estado', 'programado')
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const recordatoriosMutation = useMutation({
+    mutationFn: async (accion: 'cancelar' | 'desactivar' | 'reactivar') => {
+      if (accion !== 'reactivar') {
+        const { error } = await supabase
+          .from('recordatorios_pago')
+          .update({
+            estado: 'cancelado',
+            motivo_cancelacion:
+              accion === 'cancelar'
+                ? 'cancelado a mano'
+                : 'recordatorios desactivados en la factura',
+          })
+          .eq('factura_id', id)
+          .eq('estado', 'programado');
+        if (error) throw error;
+      }
+      if (accion !== 'cancelar') {
+        const { error } = await supabase
+          .from('facturas')
+          .update({ recordatorios_desactivados: accion === 'desactivar' })
+          .eq('id', id);
+        if (error) throw error;
+      }
+      await registrarEvento(
+        'factura',
+        id,
+        accion === 'cancelar'
+          ? 'Recordatorio de pago programado cancelado'
+          : accion === 'desactivar'
+            ? 'Recordatorios automáticos de pago desactivados'
+            : 'Recordatorios automáticos de pago reactivados',
+      );
+      return accion;
+    },
+    onSuccess: (accion) => {
+      queryClient.invalidateQueries({ queryKey: ['facturas'] });
+      queryClient.invalidateQueries({ queryKey: ['recordatorios_pago'] });
+      queryClient.invalidateQueries({ queryKey: ['documento_eventos', 'factura', id] });
+      refetchFactura();
+      toast.success(
+        accion === 'cancelar'
+          ? 'Recordatorio cancelado (el siguiente paso se programará en su fecha)'
+          : accion === 'desactivar'
+            ? 'Esta factura ya no recibirá recordatorios automáticos'
+            : 'Recordatorios automáticos reactivados',
+      );
     },
     onError: (error) => toast.error(error.message),
   });
@@ -303,7 +555,10 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
 
   const notaInternaMutation = useMutation({
     mutationFn: async (valor: string) => {
-      const { error } = await supabase.from('presupuestos').update({ nota_interna: valor || null }).eq('id', id);
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({ nota_interna: valor || null })
+        .eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -324,7 +579,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
 
   const handleDescargarPdfTraducido = async () => {
     try {
-      if (presupuesto) await conAvisoDescarga(() => generarPdfPresupuestoTraducido(presupuesto), toast);
+      if (presupuesto)
+        await conAvisoDescarga(() => generarPdfPresupuestoTraducido(presupuesto), toast);
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el PDF traducido'));
     }
@@ -340,7 +596,10 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     onSuccess: async (resultado) => {
       setLinkDocumensoModal(resultado.signingUrl);
       if (presupuesto?.visita_id) {
-        await notaSistema(presupuesto.visita_id, `Presupuesto ${presupuesto.numero} enviado a firmar con Documenso`);
+        await notaSistema(
+          presupuesto.visita_id,
+          `Presupuesto ${presupuesto.numero} enviado a firmar con Documenso`,
+        );
       }
       await registrarEvento('presupuesto', id, 'Enviado a firmar con Documenso');
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
@@ -364,7 +623,9 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     toast.success('Enlace copiado');
   };
 
-  const [descargandoFirmado, setDescargandoFirmado] = useState<'firmado' | 'certificado' | null>(null);
+  const [descargandoFirmado, setDescargandoFirmado] = useState<'firmado' | 'certificado' | null>(
+    null,
+  );
   const handleDescargarFirmado = async (clase: 'firmado' | 'certificado') => {
     setDescargandoFirmado(clase);
     try {
@@ -384,7 +645,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
     try {
       const resultado = await compartirPresupuestoConRicardo(presupuesto);
       if (resultado === 'compartido') toast.success('Presupuesto compartido');
-      if (resultado === 'wa_me') toast.warning('PDF descargado y chat de Ricardo abierto: adjunta el PDF al mensaje');
+      if (resultado === 'wa_me')
+        toast.warning('PDF descargado y chat de Ricardo abierto: adjunta el PDF al mensaje');
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo enviar el presupuesto a Ricardo'));
     } finally {
@@ -394,20 +656,30 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
 
   const handleDescargarPdf = async () => {
     try {
-      if (tipo === 'presupuesto' && presupuesto) await conAvisoDescarga(() => generarPdfPresupuesto(presupuesto), toast);
-      if (tipo === 'factura' && factura) await conAvisoDescarga(() => generarPdfFactura(factura), toast);
+      if (tipo === 'presupuesto' && presupuesto)
+        await conAvisoDescarga(() => generarPdfPresupuesto(presupuesto), toast);
+      if (tipo === 'factura' && factura)
+        await conAvisoDescarga(() => generarPdfFactura(factura), toast);
     } catch (err) {
       toast.error(mensajeError(err, 'No se pudo generar el PDF'));
     }
   };
 
   const handleEliminar = async () => {
-    if (!(await confirmar(`¿Eliminar ${tipo === 'presupuesto' ? 'el presupuesto' : 'la factura'} ${doc?.numero ?? ''}? Se moverá a la Papelera.`))) return;
+    if (
+      !(await confirmar(
+        `¿Eliminar ${tipo === 'presupuesto' ? 'el presupuesto' : 'la factura'} ${doc?.numero ?? ''}? Se moverá a la Papelera.`,
+      ))
+    )
+      return;
     eliminarMutation.mutate();
   };
 
   const volver = () => (
-    <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3">
+    <button
+      onClick={onClose}
+      className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-3"
+    >
       <ArrowLeft size={15} />
       Volver a {tipo === 'presupuesto' ? 'presupuestos' : 'facturas'}
     </button>
@@ -441,7 +713,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
   if (facturandoCompleta && presupuesto) {
     return (
       <FacturaForm
-        desdePresupuesto={presupuesto}
+        desdePresupuesto={presupuestoParaFacturaFinal}
         onClose={() => {
           setFacturandoCompleta(false);
           queryClient.invalidateQueries({ queryKey: ['documento_relaciones'] });
@@ -461,6 +733,20 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           setAcompteAConstruir(null);
           queryClient.invalidateQueries({ queryKey: ['documento_relaciones'] });
           queryClient.invalidateQueries({ queryKey: ['documento_eventos'] });
+        }}
+      />
+    );
+  }
+
+  if (creandoAvenant && presupuesto) {
+    return (
+      <PresupuestoForm
+        presupuesto={null}
+        avenantDe={presupuesto}
+        onClose={() => {
+          setCreandoAvenant(false);
+          queryClient.invalidateQueries({ queryKey: ['documento_relaciones'] });
+          queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
         }}
       />
     );
@@ -493,7 +779,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       <div className="flex items-start justify-between gap-3 flex-wrap mb-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
-            {tipo === 'presupuesto' ? (presupuesto?.tipo === 'orientativo' ? 'Presupuesto orientativo' : 'Presupuesto') : 'Factura'}
+            {tipo === 'presupuesto'
+              ? presupuesto?.tipo === 'orientativo'
+                ? 'Presupuesto orientativo'
+                : 'Presupuesto'
+              : 'Factura'}
           </p>
           <h1 className="text-lg font-semibold text-gray-900">
             {numero}
@@ -507,7 +797,9 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             ) : (
               <Badge
                 variant={
-                  tipo === 'presupuesto' && estado === 'Aceptado' && presupuesto?.tipo === 'orientativo'
+                  tipo === 'presupuesto' &&
+                  estado === 'Aceptado' &&
+                  presupuesto?.tipo === 'orientativo'
                     ? 'aceptado-orientativo'
                     : (VARIANTE_ESTADO[estado] ?? 'default')
                 }
@@ -528,7 +820,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           {/* PDF firmado y certificado de firma de Documenso a la vista, no escondidos en el paso 7
               del formulario de edición (petición de Gabriel 2026-09-26). */}
           {tipo === 'presupuesto' && presupuesto?.firmado && (
-            <Button variant="secondary" onClick={() => handleDescargarFirmado('firmado')} disabled={descargandoFirmado !== null}>
+            <Button
+              variant="secondary"
+              onClick={() => handleDescargarFirmado('firmado')}
+              disabled={descargandoFirmado !== null}
+            >
               <span className="flex items-center gap-1.5">
                 <Download size={14} />
                 {descargandoFirmado === 'firmado' ? 'Descargando…' : 'PDF firmado'}
@@ -536,7 +832,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             </Button>
           )}
           {tipo === 'presupuesto' && presupuesto?.firmado && presupuesto.documenso_envelope_id && (
-            <Button variant="secondary" onClick={() => handleDescargarFirmado('certificado')} disabled={descargandoFirmado !== null}>
+            <Button
+              variant="secondary"
+              onClick={() => handleDescargarFirmado('certificado')}
+              disabled={descargandoFirmado !== null}
+            >
               <span className="flex items-center gap-1.5">
                 <FileSignature size={14} />
                 {descargandoFirmado === 'certificado' ? 'Descargando…' : 'Certificado de firma'}
@@ -557,18 +857,25 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               Editar
             </span>
           </Button>
-          {tipo === 'presupuesto' && presupuesto && presupuesto.tipo !== 'orientativo' && !presupuesto.firmado && (
-            <Button variant="secondary" onClick={handleObtenerFirma} disabled={enviarDocumensoMutation.isPending}>
-              <span className="flex items-center gap-1.5">
-                <FileSignature size={14} />
-                {enviarDocumensoMutation.isPending
-                  ? 'Generando…'
-                  : presupuesto.documenso_signing_url
-                    ? 'Ver enlace de firma'
-                    : 'Obtener enlace de firma'}
-              </span>
-            </Button>
-          )}
+          {tipo === 'presupuesto' &&
+            presupuesto &&
+            presupuesto.tipo !== 'orientativo' &&
+            !presupuesto.firmado && (
+              <Button
+                variant="secondary"
+                onClick={handleObtenerFirma}
+                disabled={enviarDocumensoMutation.isPending}
+              >
+                <span className="flex items-center gap-1.5">
+                  <FileSignature size={14} />
+                  {enviarDocumensoMutation.isPending
+                    ? 'Generando…'
+                    : presupuesto.documenso_signing_url
+                      ? 'Ver enlace de firma'
+                      : 'Obtener enlace de firma'}
+                </span>
+              </Button>
+            )}
           <DropdownMenu
             acciones={[
               ...(tipo === 'presupuesto' && presupuesto
@@ -581,7 +888,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                     {
                       label: 'Marcar pendiente',
                       onClick: () => cambiarEstadoMutation.mutate('Pendiente'),
-                      oculto: presupuesto.estado === 'Pendiente' || presupuesto.estado === 'Aceptado',
+                      oculto:
+                        presupuesto.estado === 'Pendiente' || presupuesto.estado === 'Aceptado',
                     },
                     {
                       label: 'Marcar rechazado',
@@ -589,19 +897,41 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                       oculto: presupuesto.estado === 'Rechazado',
                     },
                     {
-                      label: 'Crear factura completa',
-                      onClick: () => setFacturandoCompleta(true),
-                      oculto: !(presupuesto.estado === 'Aceptado' && presupuesto.tipo !== 'orientativo'),
+                      label:
+                        avenantsAceptados.length > 0
+                          ? 'Crear factura final (con avenants)'
+                          : 'Crear factura completa',
+                      onClick: abrirFacturaFinal,
+                      oculto: !(
+                        presupuesto.estado === 'Aceptado' &&
+                        presupuesto.tipo !== 'orientativo' &&
+                        !presupuesto.avenant_de_id
+                      ),
                     },
                     {
                       label: 'Crear anticipo (acompte)',
-                      onClick: () => setCreandoAcompte(true),
-                      oculto: !(presupuesto.estado === 'Aceptado' && presupuesto.tipo !== 'orientativo'),
+                      onClick: () => abrirAcompte(plazos.find((x) => !x.factura)?.indice ?? 0),
+                      oculto: !(
+                        presupuesto.estado === 'Aceptado' &&
+                        presupuesto.tipo !== 'orientativo' &&
+                        !presupuesto.avenant_de_id
+                      ),
+                    },
+                    {
+                      label: 'Crear avenant (trabajos añadidos)',
+                      onClick: () => setCreandoAvenant(true),
+                      oculto: !(
+                        presupuesto.estado === 'Aceptado' &&
+                        presupuesto.tipo !== 'orientativo' &&
+                        !presupuesto.avenant_de_id
+                      ),
                     },
                     {
                       label: 'Crear presupuesto normal vinculado',
                       onClick: () => setCreandoNormalVinculado(true),
-                      oculto: !(presupuesto.estado === 'Aceptado' && presupuesto.tipo === 'orientativo'),
+                      oculto: !(
+                        presupuesto.estado === 'Aceptado' && presupuesto.tipo === 'orientativo'
+                      ),
                     },
                   ] satisfies AccionMenu[])
                 : []),
@@ -626,6 +956,24 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                       onClick: () => cancelarResenaAutoMutation.mutate(),
                       oculto: factura.resena_auto_estado !== 'programada',
                     },
+                    {
+                      label: `Cancelar recordatorio de pago ${recordatorioProgramado?.paso ?? ''}/3`,
+                      onClick: () => recordatoriosMutation.mutate('cancelar'),
+                      oculto: !recordatorioProgramado,
+                    },
+                    {
+                      label: 'No enviar recordatorios de pago',
+                      onClick: () => recordatoriosMutation.mutate('desactivar'),
+                      oculto:
+                        !!factura.recordatorios_desactivados ||
+                        factura.tipo === 'rectificativa' ||
+                        factura.estado_cobro === 'Cobrada',
+                    },
+                    {
+                      label: 'Reactivar recordatorios de pago',
+                      onClick: () => recordatoriosMutation.mutate('reactivar'),
+                      oculto: !factura.recordatorios_desactivados,
+                    },
                   ] satisfies AccionMenu[])
                 : []),
               { label: 'Eliminar', onClick: handleEliminar, destructivo: true },
@@ -634,7 +982,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
         </div>
       </div>
 
-      <Modal open={!!linkDocumensoModal} onClose={() => setLinkDocumensoModal(null)} title="Enlace de firma">
+      <Modal
+        open={!!linkDocumensoModal}
+        onClose={() => setLinkDocumensoModal(null)}
+        title="Enlace de firma"
+      >
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Input value={linkDocumensoModal ?? ''} readOnly className="flex-1" />
@@ -655,8 +1007,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             </a>
           </div>
           <p className="text-xs text-gray-400">
-            Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto pasará a "Aceptado"
-            automáticamente.
+            Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto pasará a
+            "Aceptado" automáticamente.
           </p>
           <Button
             size="sm"
@@ -671,7 +1023,13 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       </Modal>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 items-start">
-        <div>{tipo === 'presupuesto' ? <PresupuestoPreview presupuesto={presupuesto!} /> : <FacturaPreview factura={factura!} />}</div>
+        <div>
+          {tipo === 'presupuesto' ? (
+            <PresupuestoPreview presupuesto={presupuesto!} />
+          ) : (
+            <FacturaPreview factura={factura!} />
+          )}
+        </div>
 
         <div className="flex flex-col gap-4">
           {tipo === 'presupuesto' && presupuesto && (
@@ -701,8 +1059,65 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
             </section>
           )}
 
+          {tipo === 'presupuesto' && presupuesto?.avenant_de_id && (
+            <section className="bg-brand-light border border-gray-200 rounded-sm p-3.5 text-sm text-gray-700">
+              Avenant: se firma aparte y su importe se factura con la factura final del presupuesto
+              original (sin acomptes propios). Ábrelo desde «Relaciones».
+            </section>
+          )}
+
+          {plazos.length > 0 && (
+            <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+                Plan de pago
+              </p>
+              <div className="flex flex-col gap-1.5">
+                {plazos.map((e) => {
+                  const primerPendiente = plazos.find((x) => !x.factura)?.indice === e.indice;
+                  return (
+                    <div
+                      key={e.indice}
+                      className="flex items-center justify-between gap-2 text-sm border border-gray-200 rounded-sm px-3 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{e.plazo.concepto}</p>
+                        <p
+                          className={`text-xs ${e.factura ? 'text-brand' : e.vencido ? 'text-amber-700' : 'text-gray-400'}`}
+                        >
+                          {e.factura
+                            ? `Facturado · ${e.factura.numero ?? ''}`
+                            : e.plazo.fecha_prevista
+                              ? `${e.vencido ? 'Tocaba facturar el' : 'Previsto para el'} ${fechaCorta(e.plazo.fecha_prevista)}`
+                              : e.esUltimo
+                                ? 'Con la factura final'
+                                : 'Pendiente de facturar'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-gray-600">
+                          {formatearPrecio(e.plazo.importe)}
+                        </span>
+                        {!e.factura && !e.esUltimo && primerPendiente && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => abrirAcompte(e.indice)}
+                          >
+                            Facturar
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Relaciones</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              Relaciones
+            </p>
             {!relaciones || relaciones.length === 0 ? (
               <p className="text-sm text-gray-400">No hay relaciones.</p>
             ) : (
@@ -722,7 +1137,9 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           </section>
 
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">Eventos</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3">
+              Eventos
+            </p>
             {!eventos || eventos.length === 0 ? (
               <p className="text-sm text-gray-400">Sin eventos registrados.</p>
             ) : (
@@ -736,7 +1153,13 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                     <div className="pb-1">
                       <p className="text-sm text-gray-800">{e.evento}</p>
                       <p className="text-xs text-gray-400">
-                        {new Date(e.created_at).toLocaleString('es', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(e.created_at).toLocaleString('es', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
                       </p>
                     </div>
                   </li>
@@ -746,7 +1169,9 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           </section>
 
           <section className="bg-surface border border-gray-200 rounded-sm p-3.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Cliente</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+              Cliente
+            </p>
             {cliente ? (
               <button
                 onClick={() => setClienteAbierto(true)}
@@ -754,14 +1179,18 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               >
                 <p className="text-sm font-semibold text-gray-900">{doc.cliente_nombre}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{doc.cliente_dir || '—'}</p>
-                <p className="text-xs text-gray-500">{[doc.cliente_tel, doc.cliente_email].filter(Boolean).join(' · ')}</p>
+                <p className="text-xs text-gray-500">
+                  {[doc.cliente_tel, doc.cliente_email].filter(Boolean).join(' · ')}
+                </p>
                 <p className="text-xs text-brand mt-1.5">Ver ficha completa del cliente</p>
               </button>
             ) : (
               <div className="border border-gray-200 rounded-sm px-3 py-2.5">
                 <p className="text-sm font-semibold text-gray-900">{doc.cliente_nombre || '—'}</p>
                 <p className="text-xs text-gray-500 mt-0.5">{doc.cliente_dir || '—'}</p>
-                <p className="text-xs text-gray-500">{[doc.cliente_tel, doc.cliente_email].filter(Boolean).join(' · ')}</p>
+                <p className="text-xs text-gray-500">
+                  {[doc.cliente_tel, doc.cliente_email].filter(Boolean).join(' · ')}
+                </p>
               </div>
             )}
             {tipo === 'presupuesto' &&
@@ -791,14 +1220,15 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
               {presupuesto.traduccion ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-xs text-gray-500">
-                    {presupuesto.traduccion.idioma} · generada {fechaCorta(presupuesto.traduccion.generado_en?.slice(0, 10))}
+                    {presupuesto.traduccion.idioma} · generada{' '}
+                    {fechaCorta(presupuesto.traduccion.generado_en?.slice(0, 10))}
                   </p>
                   {traduccionDesactualizada(presupuesto) && (
                     <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 flex items-center gap-2">
                       <AlertTriangle size={13} className="shrink-0" />
-                      Desactualizada: el presupuesto ha cambiado desde que se generó la traducción. El PDF
-                      traducido no reflejará el cambio hasta que se vuelva a generar (pídeselo a Claude, o
-                      guarda el presupuesto desde «Editar»).
+                      Desactualizada: el presupuesto ha cambiado desde que se generó la traducción.
+                      El PDF traducido no reflejará el cambio hasta que se vuelva a generar
+                      (pídeselo a Claude, o guarda el presupuesto desde «Editar»).
                     </p>
                   )}
                   <div className="flex gap-2 flex-wrap">
@@ -818,7 +1248,8 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
                 </div>
               ) : (
                 <p className="text-sm text-gray-400">
-                  Sin traducción todavía — pídesela al agente creador de presupuestos, la genera él mismo sin coste.
+                  Sin traducción todavía — pídesela al agente creador de presupuestos, la genera él
+                  mismo sin coste.
                 </p>
               )}
             </section>
@@ -829,6 +1260,7 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
       {tipo === 'presupuesto' && (
         <CrearAcompteModal
           presupuesto={creandoAcompte ? presupuesto! : null}
+          plazoInicial={plazoAcompte}
           onClose={() => setCreandoAcompte(false)}
           onCrear={(opts) => {
             setCreandoAcompte(false);
@@ -836,7 +1268,11 @@ export function DocumentoDetalleInline({ tipo, id, onClose, onAbrirOtro }: Docum
           }}
         />
       )}
-      <ClienteFicha cliente={cliente} open={clienteAbierto} onClose={() => setClienteAbierto(false)} />
+      <ClienteFicha
+        cliente={cliente}
+        open={clienteAbierto}
+        onClose={() => setClienteAbierto(false)}
+      />
       {tipo === 'factura' && factura && (
         <RegistrarPagoModal
           factura={registrandoPago ? (factura ?? null) : null}

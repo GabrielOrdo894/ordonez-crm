@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Star, Gift, Plus, Copy, ExternalLink, Download, Image as ImageIcon, AlertTriangle } from 'lucide-react';
+import {
+  ArrowLeft,
+  Trash2,
+  Star,
+  Gift,
+  Plus,
+  Copy,
+  ExternalLink,
+  Download,
+  Image as ImageIcon,
+  AlertTriangle,
+} from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { camposContactoFaltantes } from '../../../lib/datosContacto';
@@ -40,9 +51,60 @@ import {
   paisDesdeTipoIva,
   validarLineas,
 } from './types';
-import type { Presupuesto, NuevoPresupuesto, Linea, PlazoPago, TipoPresupuesto, FormatoPresupuesto } from './types';
-import { hoyLocalIso, sumarDiasIso, diasEntreIso, opcionesPlazoConActual } from '../../../lib/fechas';
-import { formatearPrecio, lineaInvalida, REFERENCIA_DESCUENTO_FIDELIDAD, REFERENCIA_DESCUENTO_REFERIDO } from '../lineas';
+import type {
+  Presupuesto,
+  NuevoPresupuesto,
+  Linea,
+  PlazoPago,
+  TipoPresupuesto,
+  FormatoPresupuesto,
+} from './types';
+import {
+  hoyLocalIso,
+  sumarDiasIso,
+  diasEntreIso,
+  opcionesPlazoConActual,
+} from '../../../lib/fechas';
+import {
+  formatearPrecio,
+  lineaInvalida,
+  REFERENCIA_DESCUENTO_FIDELIDAD,
+  REFERENCIA_DESCUENTO_REFERIDO,
+} from '../lineas';
+
+// La fecha prevista de cobro de cada plazo es un dato interno (aviso de la campana): no forma parte de
+// lo que firma el cliente ni obliga a regenerar el enlace de firma.
+// Textos de partida de un avenant, en el idioma del presupuesto original (francés real, no traducido).
+function textosAvenant(original: Presupuesto) {
+  const numero = original.numero ?? '';
+  const firma = original.firma_fecha
+    ? new Date(original.firma_fecha).toLocaleDateString(
+        original.idioma === 'Français' ? 'fr-FR' : 'es-ES',
+      )
+    : null;
+  if (original.idioma === 'Français') {
+    return {
+      titulo: `Avenant au devis ${numero}`,
+      plazo: `Payable avec la facture de solde du devis ${numero}`,
+      nota: `Le présent avenant complète le devis ${numero}${firma ? ` signé le ${firma}` : ''}. Il porte uniquement sur les travaux supplémentaires décrits ci-dessous, qui s'ajoutent au marché initial.`,
+      condiciones: `Le présent avenant est régi par les conditions générales du devis ${numero}, qui restent applicables dans leur intégralité. Seuls les travaux et montants décrits dans cet avenant s'ajoutent au marché initial ; ils sont facturés avec la facture de solde du chantier. Le délai d'exécution initial peut être prolongé de la durée nécessaire à leur réalisation.`,
+    };
+  }
+  return {
+    titulo: `Anexo al presupuesto ${numero}`,
+    plazo: `Se abona con la factura final del presupuesto ${numero}`,
+    nota: `Este anexo completa el presupuesto ${numero}${firma ? ` firmado el ${firma}` : ''}. Recoge únicamente los trabajos adicionales descritos a continuación, que se suman a la obra inicial.`,
+    condiciones: `Este anexo se rige por los términos y condiciones del presupuesto ${numero}, que siguen siendo aplicables en su totalidad. Solo los trabajos e importes descritos en este anexo se suman a la obra inicial y se facturan con la factura final de la obra. El plazo de ejecución inicial puede ampliarse el tiempo necesario para realizarlos.`,
+  };
+}
+
+function planSinFechas(plan: PlazoPago[] | null | undefined) {
+  return (plan ?? []).map(({ concepto, porcentaje, importe }) => ({
+    concepto,
+    porcentaje,
+    importe,
+  }));
+}
 
 const NOTA_ORIENTATIVO: Record<'es' | 'fr', string> = {
   es: 'Presupuesto orientativo — los precios son estimados y pueden variar tras la visita técnica.',
@@ -128,7 +190,15 @@ function vacio(): FormState {
   };
 }
 
-function FaseCard({ numero, titulo, children }: { numero: number; titulo: string; children: ReactNode }) {
+function FaseCard({
+  numero,
+  titulo,
+  children,
+}: {
+  numero: number;
+  titulo: string;
+  children: ReactNode;
+}) {
   return (
     <section className="bg-surface border border-gray-200 rounded-sm p-4">
       <div className="flex items-center gap-2 border-b border-gray-200 pb-2.5 mb-4">
@@ -154,6 +224,8 @@ type PresupuestoFormProps = {
   clientePotencialPrefill?: { nombre: string; telefono: string; email: string; idioma?: string };
   idiomaInicial?: string;
   desdeOrientativo?: Presupuesto | null;
+  // Avenant: trabajos añadidos a un presupuesto ya firmado (se firma aparte y suma a la obra).
+  avenantDe?: Presupuesto | null;
 };
 
 export function PresupuestoForm({
@@ -165,6 +237,7 @@ export function PresupuestoForm({
   clientePotencialPrefill,
   idiomaInicial,
   desdeOrientativo,
+  avenantDe,
 }: PresupuestoFormProps) {
   const { user } = useAuth();
   const toast = useToast();
@@ -230,6 +303,29 @@ export function PresupuestoForm({
         estado: presupuesto.estado,
       });
       setNotaActivada(!!presupuesto.nota);
+    } else if (avenantDe) {
+      const textos = textosAvenant(avenantDe);
+      setForm({
+        ...vacio(),
+        visita_id: avenantDe.visita_id,
+        pais: avenantDe.pais ?? 'España',
+        titulo: textos.titulo,
+        cliente_nombre: avenantDe.cliente_nombre ?? '',
+        cliente_dir: avenantDe.cliente_dir ?? '',
+        cliente_dir_extra: avenantDe.cliente_dir_extra ?? '',
+        cliente_email: avenantDe.cliente_email ?? '',
+        cliente_tel: avenantDe.cliente_tel ?? '',
+        idioma: avenantDe.idioma,
+        tipo_iva: avenantDe.tipo_iva ?? tipoIvaPorDefecto(avenantDe.pais ?? 'España'),
+        tipo: 'normal',
+        formato: 'rapido',
+        lineas: [lineaVacia()],
+        plan_pago: [{ concepto: textos.plazo, porcentaje: 100, importe: 0 }],
+        nota: textos.nota,
+        terminos_condiciones: textos.condiciones,
+      });
+      setClienteSeleccionado('');
+      setNotaActivada(true);
     } else if (desdeOrientativo) {
       const tipoIva = tipoIvaPorDefecto(desdeOrientativo.pais ?? 'España');
       setForm({
@@ -247,8 +343,8 @@ export function PresupuestoForm({
         tipo: 'normal',
         formato: desdeOrientativo.formato ?? 'rapido',
         portada_foto_url: desdeOrientativo.portada_foto_url ?? null,
-        lineas: (desdeOrientativo.lineas.length > 0 ? desdeOrientativo.lineas : [lineaVacia()]).map((l) =>
-          calcularLinea(l, porcentajeIva(tipoIva)),
+        lineas: (desdeOrientativo.lineas.length > 0 ? desdeOrientativo.lineas : [lineaVacia()]).map(
+          (l) => calcularLinea(l, porcentajeIva(tipoIva)),
         ),
       });
       setClienteSeleccionado('');
@@ -258,7 +354,10 @@ export function PresupuestoForm({
         ...vacio(),
         tipo: tipoInicial ?? 'normal',
         formato: formatoInicial ?? 'rapido',
-        idioma: clientePotencialPrefill?.idioma === 'Français' ? 'Français' : (idiomaInicial ?? 'Español'),
+        idioma:
+          clientePotencialPrefill?.idioma === 'Français'
+            ? 'Français'
+            : (idiomaInicial ?? 'Español'),
         cliente_nombre: clientePotencialPrefill?.nombre ?? '',
         cliente_tel: clientePotencialPrefill?.telefono ?? '',
         cliente_email: clientePotencialPrefill?.email ?? '',
@@ -267,7 +366,7 @@ export function PresupuestoForm({
       setNotaActivada(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presupuesto, desdeOrientativo]);
+  }, [presupuesto, desdeOrientativo, avenantDe]);
 
   useEffect(() => {
     if (!presupuesto && clienteInicialId && clientes.length > 0) {
@@ -308,7 +407,9 @@ export function PresupuestoForm({
     setSubiendoPortada(true);
     const extension = file.name.split('.').pop() ?? 'jpg';
     const path = `portada_presupuesto_${Date.now()}.${extension}`;
-    const { error } = await supabase.storage.from('empresa').upload(path, file, { contentType: file.type, upsert: true });
+    const { error } = await supabase.storage
+      .from('empresa')
+      .upload(path, file, { contentType: file.type, upsert: true });
     if (error) {
       toast.error(error.message);
       setSubiendoPortada(false);
@@ -333,7 +434,11 @@ export function PresupuestoForm({
   // tras la visita técnica) — se fuerza a "Exento" para que ningún cálculo le aplique impuesto.
   useEffect(() => {
     if (esOrientativo && form.tipo_iva !== 'EXENTO') {
-      setForm((f) => ({ ...f, tipo_iva: 'EXENTO', lineas: f.lineas.map((l) => calcularLinea(l, 0)) }));
+      setForm((f) => ({
+        ...f,
+        tipo_iva: 'EXENTO',
+        lineas: f.lineas.map((l) => calcularLinea(l, 0)),
+      }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [esOrientativo]);
@@ -352,15 +457,23 @@ export function PresupuestoForm({
   useEffect(() => {
     setForm((f) => {
       if (f.plan_pago.length === 0) return f;
-      const recalculado = f.plan_pago.map((p) => ({ ...p, importe: totalConIva * (p.porcentaje / 100) }));
-      const cambio = recalculado.some((p, i) => Math.abs(p.importe - f.plan_pago[i].importe) > 0.001);
+      const recalculado = f.plan_pago.map((p) => ({
+        ...p,
+        importe: totalConIva * (p.porcentaje / 100),
+      }));
+      const cambio = recalculado.some(
+        (p, i) => Math.abs(p.importe - f.plan_pago[i].importe) > 0.001,
+      );
       return cambio ? { ...f, plan_pago: recalculado } : f;
     });
   }, [totalConIva]);
 
   const aplicarPreset = (preset: '50/50' | '40-40-20' | 'firma') => {
     if (preset === 'firma') {
-      setForm((f) => ({ ...f, plan_pago: [{ concepto: 'A la firma', porcentaje: 100, importe: totalConIva }] }));
+      setForm((f) => ({
+        ...f,
+        plan_pago: [{ concepto: 'A la firma', porcentaje: 100, importe: totalConIva }],
+      }));
       return;
     }
     if (preset === '50/50') {
@@ -387,7 +500,10 @@ export function PresupuestoForm({
     setForm((f) => ({ ...f, plan_pago: f.plan_pago.filter((_, i) => i !== index) }));
   };
 
-  const handleCambiarPlazo = (index: number, cambios: Partial<Pick<PlazoPago, 'concepto' | 'porcentaje'>>) => {
+  const handleCambiarPlazo = (
+    index: number,
+    cambios: Partial<Pick<PlazoPago, 'concepto' | 'porcentaje' | 'fecha_prevista'>>,
+  ) => {
     setForm((f) => ({
       ...f,
       plan_pago: f.plan_pago.map((p, i) => {
@@ -407,14 +523,19 @@ export function PresupuestoForm({
       ...f,
       plan_pago: [
         ...f.plan_pago,
-        { concepto: nuevoConceptoPlazo.trim(), porcentaje: nuevoPorcentajePlazo, importe: totalConIva * (nuevoPorcentajePlazo / 100) },
+        {
+          concepto: nuevoConceptoPlazo.trim(),
+          porcentaje: nuevoPorcentajePlazo,
+          importe: totalConIva * (nuevoPorcentajePlazo / 100),
+        },
       ],
     }));
     setNuevoConceptoPlazo('');
     setNuevoPorcentajePlazo(0);
   };
 
-  const sumaPorcentajesPlazo = Math.round(form.plan_pago.reduce((s, p) => s + p.porcentaje, 0) * 10) / 10;
+  const sumaPorcentajesPlazo =
+    Math.round(form.plan_pago.reduce((s, p) => s + p.porcentaje, 0) * 10) / 10;
 
   // Genera el enlace de firma de Documenso automáticamente al guardar, si el presupuesto es
   // elegible (no orientativo, con email de cliente) y todavía no tiene uno — así el mensaje de
@@ -432,12 +553,16 @@ export function PresupuestoForm({
       const resultado = await enviarPresupuestoAFirmar(p, { regenerar: !!p.documenso_signing_url });
       setLinkDocumenso(resultado.signingUrl);
       if (p.documenso_signing_url) {
-        toast.warning('El presupuesto ha cambiado: se ha generado un enlace de firma nuevo y el anterior queda cancelado. Envía el nuevo al cliente.');
+        toast.warning(
+          'El presupuesto ha cambiado: se ha generado un enlace de firma nuevo y el anterior queda cancelado. Envía el nuevo al cliente.',
+        );
       }
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : String(err);
       if (p.documenso_signing_url) {
-        toast.warning(`El presupuesto cambió pero no se pudo regenerar el enlace de firma (${mensaje}). Usa "Generar nuevo enlace" antes de enviarlo.`);
+        toast.warning(
+          `El presupuesto cambió pero no se pudo regenerar el enlace de firma (${mensaje}). Usa "Generar nuevo enlace" antes de enviarlo.`,
+        );
       } else {
         console.error('No se pudo generar el enlace de firma automáticamente:', mensaje);
       }
@@ -450,15 +575,22 @@ export function PresupuestoForm({
   // aquí no impide guardar, y la ficha del presupuesto la sigue marcando "Desactualizada".
   const regenerarTraduccionSiHaceFalta = async (p: Presupuesto, anterior?: Presupuesto) => {
     if (p.pais !== 'Francia' || p.lineas.length === 0) return;
-    const alDia = !!p.traduccion && !traduccionDesactualizada(p) && (!anterior || mismoTextoTraducible(anterior, p));
+    const alDia =
+      !!p.traduccion &&
+      !traduccionDesactualizada(p) &&
+      (!anterior || mismoTextoTraducible(anterior, p));
     if (alDia) return;
     try {
-      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', { body: { id: p.id } });
+      const { data, error } = await supabase.functions.invoke('traducir-presupuesto', {
+        body: { id: p.id },
+      });
       if (error) throw new Error(await mensajeError(error));
       if (data?.error) throw new Error(data.error);
     } catch (err) {
       const mensaje = err instanceof Error ? err.message : String(err);
-      toast.warning(`El presupuesto se guardó, pero su traducción interna no se pudo actualizar (${mensaje}).`);
+      toast.warning(
+        `El presupuesto se guardó, pero su traducción interna no se pudo actualizar (${mensaje}).`,
+      );
     }
   };
 
@@ -482,6 +614,7 @@ export function PresupuestoForm({
         formato: form.formato,
         portada_foto_url: form.formato === 'completo' ? form.portada_foto_url || null : null,
         presupuesto_origen_id: presupuesto?.presupuesto_origen_id ?? desdeOrientativo?.id ?? null,
+        avenant_de_id: presupuesto?.avenant_de_id ?? avenantDe?.id ?? null,
         banco_titular: form.banco_titular || null,
         banco_nombre: form.banco_nombre || null,
         banco_iban: form.banco_iban || null,
@@ -504,19 +637,47 @@ export function PresupuestoForm({
       };
 
       if (presupuesto) {
-        const { error } = await supabase.from('presupuestos').update(nuevo).eq('id', presupuesto.id);
+        const { error } = await supabase
+          .from('presupuestos')
+          .update(nuevo)
+          .eq('id', presupuesto.id);
         if (error) throw error;
         const firmaRelevante = (x: Partial<NuevoPresupuesto>) =>
-          JSON.stringify([x.lineas, x.tipo_iva, x.plan_pago, x.terminos_condiciones, x.condiciones_pago, x.cliente_nombre, x.cliente_email, x.cliente_dir, x.titulo, x.nota]);
+          JSON.stringify([
+            x.lineas,
+            x.tipo_iva,
+            planSinFechas(x.plan_pago),
+            x.terminos_condiciones,
+            x.condiciones_pago,
+            x.cliente_nombre,
+            x.cliente_email,
+            x.cliente_dir,
+            x.titulo,
+            x.nota,
+          ]);
         await generarEnlaceDocumensoSiHaceFalta(
           { ...presupuesto, ...nuevo, id: presupuesto.id },
           firmaRelevante(presupuesto) !== firmaRelevante(nuevo),
         );
-        await regenerarTraduccionSiHaceFalta({ ...presupuesto, ...nuevo, id: presupuesto.id }, presupuesto);
+        await regenerarTraduccionSiHaceFalta(
+          { ...presupuesto, ...nuevo, id: presupuesto.id },
+          presupuesto,
+        );
         return presupuesto.id;
       }
 
-      const numero = await siguienteNumero('seq_presupuesto');
+      // Un avenant no gasta número de la serie: es <número del original>-A<n>.
+      let numero: string;
+      if (avenantDe) {
+        const { count, error: errorCuenta } = await supabase
+          .from('presupuestos')
+          .select('id', { count: 'exact', head: true })
+          .eq('avenant_de_id', avenantDe.id);
+        if (errorCuenta) throw errorCuenta;
+        numero = `${avenantDe.numero ?? 'P'}-A${(count ?? 0) + 1}`;
+      } else {
+        numero = await siguienteNumero('seq_presupuesto');
+      }
       const { data, error } = await supabase
         .from('presupuestos')
         .insert({ ...nuevo, numero })
@@ -524,16 +685,32 @@ export function PresupuestoForm({
         .single();
       if (error) throw error;
       if (form.visita_id) {
-        await notaSistema(form.visita_id, `Presupuesto ${numero} creado por ${nombreUsuarioActual}`);
+        await notaSistema(
+          form.visita_id,
+          `Presupuesto ${numero} creado por ${nombreUsuarioActual}`,
+        );
       }
-      await registrarEvento('presupuesto', data.id, 'Presupuesto creado');
-      await vincularSolicitudPorContacto(data.id, {
-        telefono: nuevo.cliente_tel,
-        email: nuevo.cliente_email,
-        nombre: nuevo.cliente_nombre,
-      });
+      await registrarEvento(
+        'presupuesto',
+        data.id,
+        avenantDe ? `Avenant del presupuesto ${avenantDe.numero} creado` : 'Presupuesto creado',
+      );
+      if (avenantDe) {
+        await registrarEvento('presupuesto', avenantDe.id, `Avenant ${numero} creado`);
+      } else {
+        // Un avenant no es un cliente nuevo: no se cruza con las solicitudes del embudo.
+        await vincularSolicitudPorContacto(data.id, {
+          telefono: nuevo.cliente_tel,
+          email: nuevo.cliente_email,
+          nombre: nuevo.cliente_nombre,
+        });
+      }
       if (desdeOrientativo) {
-        await registrarEvento('presupuesto', desdeOrientativo.id, `Presupuesto normal ${numero} creado a partir de este orientativo`);
+        await registrarEvento(
+          'presupuesto',
+          desdeOrientativo.id,
+          `Presupuesto normal ${numero} creado a partir de este orientativo`,
+        );
       }
       await generarEnlaceDocumensoSiHaceFalta(data as Presupuesto);
       await regenerarTraduccionSiHaceFalta(data as Presupuesto);
@@ -553,10 +730,16 @@ export function PresupuestoForm({
     // de un presupuesto firmado y los acomptes y la factura final salían de líneas no firmadas.
     if (
       presupuesto?.firmado &&
-      JSON.stringify([form.lineas, form.tipo_iva, form.plan_pago]) !==
-        JSON.stringify([presupuesto.lineas, presupuesto.tipo_iva, presupuesto.plan_pago])
+      JSON.stringify([form.lineas, form.tipo_iva, planSinFechas(form.plan_pago)]) !==
+        JSON.stringify([
+          presupuesto.lineas,
+          presupuesto.tipo_iva,
+          planSinFechas(presupuesto.plan_pago),
+        ])
     ) {
-      toast.error('Este presupuesto está firmado por el cliente: sus líneas, el IVA y el plan de pago no se pueden cambiar. Para un cambio de obra, crea un presupuesto nuevo.');
+      toast.error(
+        'Este presupuesto está firmado por el cliente: sus líneas, el IVA y el plan de pago no se pueden cambiar. Para trabajos añadidos, crea un avenant desde el menú del presupuesto.',
+      );
       return;
     }
     const mensaje = validarLineas(form.lineas);
@@ -576,7 +759,9 @@ export function PresupuestoForm({
     guardarMutation.mutate();
   };
 
-  const [linkDocumenso, setLinkDocumenso] = useState<string | null>(presupuesto?.documenso_signing_url ?? null);
+  const [linkDocumenso, setLinkDocumenso] = useState<string | null>(
+    presupuesto?.documenso_signing_url ?? null,
+  );
 
   const enviarDocumensoMutation = useMutation({
     mutationFn: async (regenerar: boolean = false) => {
@@ -586,9 +771,13 @@ export function PresupuestoForm({
     onSuccess: async (resultado) => {
       setLinkDocumenso(resultado.signingUrl);
       if (presupuesto?.visita_id) {
-        await notaSistema(presupuesto.visita_id, `Presupuesto ${presupuesto.numero} enviado a firmar con Documenso`);
+        await notaSistema(
+          presupuesto.visita_id,
+          `Presupuesto ${presupuesto.numero} enviado a firmar con Documenso`,
+        );
       }
-      if (presupuesto) await registrarEvento('presupuesto', presupuesto.id, 'Enviado a firmar con Documenso');
+      if (presupuesto)
+        await registrarEvento('presupuesto', presupuesto.id, 'Enviado a firmar con Documenso');
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
       toast.success('Enlace de firma generado');
     },
@@ -663,10 +852,17 @@ export function PresupuestoForm({
     queryFn: cargarConfigCompleta,
   });
 
-  const configPlantilla = useMemo(() => configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento), [config]);
+  const configPlantilla = useMemo(
+    () =>
+      configPlantillaDesde(
+        (config?.datos as { plantilla_documento?: unknown })?.plantilla_documento,
+      ),
+    [config],
+  );
 
   const tcRenderizado = useMemo(() => {
-    const configTc = config as { tc_es_orientativo?: string; tc_fr_orientativo?: string } | undefined;
+    const configTc = config as
+      { tc_es_orientativo?: string; tc_fr_orientativo?: string } | undefined;
     // Los T&C propios del presupuesto (pestaña "Condiciones") sustituyen a los generales de
     // Configuración — igual prioridad que usa generarPdfPresupuesto.ts al generar el PDF, para que
     // la vista previa refleje de verdad lo que se va a descargar.
@@ -685,21 +881,33 @@ export function PresupuestoForm({
       fechaValidez: form.fecha_validez,
       diasValidez: diasEntre(form.fecha_emision, form.fecha_validez),
     });
-  }, [config, form.terminos_condiciones, form.plan_pago, form.fecha_emision, form.fecha_validez, idiomaCorto, esOrientativo]);
+  }, [
+    config,
+    form.terminos_condiciones,
+    form.plan_pago,
+    form.fecha_emision,
+    form.fecha_validez,
+    idiomaCorto,
+    esOrientativo,
+  ]);
 
-  const mensajeGracias = idiomaCorto === 'fr' ? config?.mensaje_gracias_fr : config?.mensaje_gracias_es;
+  const mensajeGracias =
+    idiomaCorto === 'fr' ? config?.mensaje_gracias_fr : config?.mensaje_gracias_es;
   const condPago = (config?.datos as { condicionesPago?: CondicionesPagoValor })?.condicionesPago;
   const condPagoEfectivo = form.condiciones_pago ?? condPago;
   const condicionesPago = condPagoEfectivo
     ? {
         delai: idiomaCorto === 'fr' ? condPagoEfectivo.delaiFr : condPagoEfectivo.delaiEs,
-        penalizacion: idiomaCorto === 'fr' ? condPagoEfectivo.penalizacionFr : condPagoEfectivo.penalizacionEs,
+        penalizacion:
+          idiomaCorto === 'fr' ? condPagoEfectivo.penalizacionFr : condPagoEfectivo.penalizacionEs,
         medio: idiomaCorto === 'fr' ? condPagoEfectivo.medioFr : condPagoEfectivo.medioEs,
       }
     : undefined;
 
   const fidelidadConfig = useMemo(() => {
-    const datos = (config?.datos ?? {}) as { fidelidad?: { umbral?: number; porcentaje?: number; importeFijo?: number } };
+    const datos = (config?.datos ?? {}) as {
+      fidelidad?: { umbral?: number; porcentaje?: number; importeFijo?: number };
+    };
     return {
       umbral: datos.fidelidad?.umbral ?? 10000,
       porcentaje: datos.fidelidad?.porcentaje ?? 10,
@@ -714,11 +922,15 @@ export function PresupuestoForm({
     return cliente && cliente.visitas.length > 1 ? cliente : null;
   }, [form.cliente_tel, clientes]);
 
-  const descuentoYaAplicado = form.lineas.some((l) => l.referencia === REFERENCIA_DESCUENTO_FIDELIDAD);
+  const descuentoYaAplicado = form.lineas.some(
+    (l) => l.referencia === REFERENCIA_DESCUENTO_FIDELIDAD,
+  );
 
   const descuentoPropuesto = useMemo(
     () =>
-      totalConIva > fidelidadConfig.umbral ? totalConIva * (fidelidadConfig.porcentaje / 100) : fidelidadConfig.importeFijo,
+      totalConIva > fidelidadConfig.umbral
+        ? totalConIva * (fidelidadConfig.porcentaje / 100)
+        : fidelidadConfig.importeFijo,
     [totalConIva, fidelidadConfig],
   );
 
@@ -735,9 +947,11 @@ export function PresupuestoForm({
         // Antes salía con referencia y tipo de servicio vacíos y precio negativo: validarLineas
         // impedía guardar el presupuesto, así que el descuento nunca llegó a usarse (auditoría
         // 2026-10-01). Texto en el idioma del documento.
-        designacion: form.idioma === 'Français' ? 'Remise client fidélisé' : 'Descuento cliente fidelizado',
+        designacion:
+          form.idioma === 'Français' ? 'Remise client fidélisé' : 'Descuento cliente fidelizado',
         referencia: REFERENCIA_DESCUENTO_FIDELIDAD,
-        tipo_servicio: form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
+        tipo_servicio:
+          form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
         unidad: 'forfait',
         cantidad: 1,
         precio_unit: -descuentoImporte,
@@ -752,13 +966,24 @@ export function PresupuestoForm({
   // presupuesto (no hay forma fiable de saber cuál será desde aquí) y se avisa desde la campana de
   // notificaciones + ReferidoIncentivoBox en la ficha de la visita referida.
   const referidosConfig = useMemo(() => {
-    const datos = (config?.datos ?? {}) as { referidos?: { activo?: boolean; descuentoReferido?: number } };
-    return { activo: datos.referidos?.activo ?? false, descuentoReferido: datos.referidos?.descuentoReferido ?? 5 };
+    const datos = (config?.datos ?? {}) as {
+      referidos?: { activo?: boolean; descuentoReferido?: number };
+    };
+    return {
+      activo: datos.referidos?.activo ?? false,
+      descuentoReferido: datos.referidos?.descuentoReferido ?? 5,
+    };
   }, [config]);
 
-  const visitaVinculada = useMemo(() => (visitas ?? []).find((v) => v.id === form.visita_id) ?? null, [visitas, form.visita_id]);
-  const descuentoReferidoYaAplicado = form.lineas.some((l) => l.referencia === REFERENCIA_DESCUENTO_REFERIDO);
-  const mostrarDescuentoReferido = referidosConfig.activo && !!visitaVinculada?.referido_por && !descuentoReferidoYaAplicado;
+  const visitaVinculada = useMemo(
+    () => (visitas ?? []).find((v) => v.id === form.visita_id) ?? null,
+    [visitas, form.visita_id],
+  );
+  const descuentoReferidoYaAplicado = form.lineas.some(
+    (l) => l.referencia === REFERENCIA_DESCUENTO_REFERIDO,
+  );
+  const mostrarDescuentoReferido =
+    referidosConfig.activo && !!visitaVinculada?.referido_por && !descuentoReferidoYaAplicado;
 
   const descuentoReferidoPropuesto = useMemo(
     () => Math.round(totalConIva * (referidosConfig.descuentoReferido / 100) * 100) / 100,
@@ -775,9 +1000,13 @@ export function PresupuestoForm({
     const nuevaLinea = calcularLinea(
       {
         ...lineaVacia(),
-        designacion: form.idioma === 'Français' ? 'Remise de bienvenue — parrainage' : 'Descuento de bienvenida — cliente recomendado',
+        designacion:
+          form.idioma === 'Français'
+            ? 'Remise de bienvenue — parrainage'
+            : 'Descuento de bienvenida — cliente recomendado',
         referencia: REFERENCIA_DESCUENTO_REFERIDO,
-        tipo_servicio: form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
+        tipo_servicio:
+          form.idioma === 'Français' ? 'Prestations de services BIC' : 'Prestación de servicios',
         unidad: 'forfait',
         cantidad: 1,
         precio_unit: -descuentoReferidoImporte,
@@ -790,7 +1019,10 @@ export function PresupuestoForm({
   return (
     <div className="animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-4">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a presupuestos
         </button>
@@ -816,7 +1048,9 @@ export function PresupuestoForm({
               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
               className="mb-4"
             />
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Tipo de presupuesto</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
+              Tipo de presupuesto
+            </p>
             <span
               className={`inline-block text-xs font-medium rounded-sm px-2.5 py-1 ${
                 esOrientativo ? 'bg-amber-50 text-amber-800' : 'bg-brand-light text-brand'
@@ -826,20 +1060,28 @@ export function PresupuestoForm({
             </span>
             {esOrientativo && (
               <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 mt-2">
-                Los precios de las líneas se introducen como rango (desde/hasta), sin plan de pago ni firma.
+                Los precios de las líneas se introducen como rango (desde/hasta), sin plan de pago
+                ni firma.
               </p>
             )}
 
             {form.formato === 'completo' && (
               <div className="mt-4 pt-4 border-t border-gray-200">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Foto de portada de este presupuesto</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
+                  Foto de portada de este presupuesto
+                </p>
                 <p className="text-xs text-gray-400 mb-3">
-                  Opcional — si no subes ninguna, se usa la foto por defecto del Constructor de portadas.
+                  Opcional — si no subes ninguna, se usa la foto por defecto del Constructor de
+                  portadas.
                 </p>
                 <div className="flex items-center gap-4">
                   <div className="w-16 h-20 border border-gray-200 rounded-sm flex items-center justify-center bg-gray-50 shrink-0 overflow-hidden">
                     {form.portada_foto_url || FOTO_PORTADA_DEFECTO ? (
-                      <img src={form.portada_foto_url || FOTO_PORTADA_DEFECTO} alt="Foto de portada" className="w-full h-full object-cover" />
+                      <img
+                        src={form.portada_foto_url || FOTO_PORTADA_DEFECTO}
+                        alt="Foto de portada"
+                        className="w-full h-full object-cover"
+                      />
                     ) : (
                       <ImageIcon size={20} className="text-gray-300" />
                     )}
@@ -877,8 +1119,8 @@ export function PresupuestoForm({
           <FaseCard numero={2} titulo="Cliente">
             {!esOrientativo && !form.visita_id && (
               <p className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-sm px-2.5 py-1.5 mb-3">
-                Este presupuesto normal no está vinculado a ningún cliente registrado — elige uno existente
-                arriba o créalo desde Clientes para que quede como cliente real.
+                Este presupuesto normal no está vinculado a ningún cliente registrado — elige uno
+                existente arriba o créalo desde Clientes para que quede como cliente real.
               </p>
             )}
             {camposFaltantesCliente.length > 0 && (
@@ -893,8 +1135,12 @@ export function PresupuestoForm({
                 className="w-full text-left border border-gray-200 rounded-sm px-3.5 py-3 hover:border-brand transition-colors"
               >
                 <p className="text-sm font-semibold text-gray-900">{form.cliente_nombre}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{[form.cliente_dir, form.pais].filter(Boolean).join(' · ') || '—'}</p>
-                <p className="text-xs text-brand mt-1.5">Pulsa para modificar los datos del cliente</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {[form.cliente_dir, form.pais].filter(Boolean).join(' · ') || '—'}
+                </p>
+                <p className="text-xs text-brand mt-1.5">
+                  Pulsa para modificar los datos del cliente
+                </p>
               </button>
             ) : (
               <>
@@ -903,7 +1149,10 @@ export function PresupuestoForm({
                     label="Cliente existente (opcional)"
                     options={[
                       { value: '', label: '— Entrada manual —' },
-                      ...clientes.map((c) => ({ value: c.id, label: `${c.nombre} ${c.apellidos} · ${c.telefono}` })),
+                      ...clientes.map((c) => ({
+                        value: c.id,
+                        label: `${c.nombre} ${c.apellidos} · ${c.telefono}`,
+                      })),
                     ]}
                     value={clienteSeleccionado}
                     onChange={(e) => handleSeleccionarCliente(e.target.value)}
@@ -911,31 +1160,55 @@ export function PresupuestoForm({
                   />
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input label="Nombre" value={form.cliente_nombre} onChange={(e) => setForm((f) => ({ ...f, cliente_nombre: e.target.value }))} />
-                  <Input label="Teléfono" value={form.cliente_tel} onChange={(e) => setForm((f) => ({ ...f, cliente_tel: e.target.value }))} />
+                  <Input
+                    label="Nombre"
+                    value={form.cliente_nombre}
+                    onChange={(e) => setForm((f) => ({ ...f, cliente_nombre: e.target.value }))}
+                  />
+                  <Input
+                    label="Teléfono"
+                    value={form.cliente_tel}
+                    onChange={(e) => setForm((f) => ({ ...f, cliente_tel: e.target.value }))}
+                  />
                   <div className="sm:col-span-2">
-                    <Input label="Dirección" value={form.cliente_dir} onChange={(e) => setForm((f) => ({ ...f, cliente_dir: e.target.value }))} />
+                    <Input
+                      label="Dirección"
+                      value={form.cliente_dir}
+                      onChange={(e) => setForm((f) => ({ ...f, cliente_dir: e.target.value }))}
+                    />
                   </div>
                   <div className="sm:col-span-2">
                     <Input
                       label="Piso / puerta / referencia (opcional)"
                       hint="Ej.: 2º piso, puerta B — étage 4, porte gauche"
                       value={form.cliente_dir_extra}
-                      onChange={(e) => setForm((f) => ({ ...f, cliente_dir_extra: e.target.value }))}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, cliente_dir_extra: e.target.value }))
+                      }
                     />
                   </div>
-                  <Input label="Email" value={form.cliente_email} onChange={(e) => setForm((f) => ({ ...f, cliente_email: e.target.value }))} />
+                  <Input
+                    label="Email"
+                    value={form.cliente_email}
+                    onChange={(e) => setForm((f) => ({ ...f, cliente_email: e.target.value }))}
+                  />
                   {form.pais === 'Francia' && (
                     <Select
                       label="Idioma del documento"
-                      options={[{ value: 'Español', label: 'Español' }, { value: 'Français', label: 'Français' }]}
+                      options={[
+                        { value: 'Español', label: 'Español' },
+                        { value: 'Français', label: 'Français' },
+                      ]}
                       value={form.idioma}
                       onChange={(e) => setForm((f) => ({ ...f, idioma: e.target.value }))}
                     />
                   )}
                   <Select
                     label="País (datos de empresa a mostrar)"
-                    options={[{ value: 'España', label: 'España' }, { value: 'Francia', label: 'Francia' }]}
+                    options={[
+                      { value: 'España', label: 'España' },
+                      { value: 'Francia', label: 'Francia' },
+                    ]}
                     value={form.pais}
                     onChange={(e) => {
                       const nuevoPais = e.target.value;
@@ -956,7 +1229,12 @@ export function PresupuestoForm({
                   />
                 </div>
                 {editandoCliente && (
-                  <Button size="sm" variant="secondary" className="mt-3" onClick={() => setEditandoCliente(false)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-3"
+                    onClick={() => setEditandoCliente(false)}
+                  >
                     Listo
                   </Button>
                 )}
@@ -968,8 +1246,8 @@ export function PresupuestoForm({
                 <div className="flex items-center gap-2 text-xs text-brand">
                   <Star size={14} className="shrink-0" />
                   <span>
-                    Cliente fidelizado — {clienteFidelizado.visitas.length} obras registradas. Descuento propuesto:{' '}
-                    {formatearPrecio(descuentoImporte)}
+                    Cliente fidelizado — {clienteFidelizado.visitas.length} obras registradas.
+                    Descuento propuesto: {formatearPrecio(descuentoImporte)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -991,8 +1269,8 @@ export function PresupuestoForm({
                 <div className="flex items-center gap-2 text-xs text-brand">
                   <Gift size={14} className="shrink-0" />
                   <span>
-                    Referido por {visitaVinculada?.referido_por} — descuento de bienvenida propuesto:{' '}
-                    {formatearPrecio(descuentoReferidoImporte)}
+                    Referido por {visitaVinculada?.referido_por} — descuento de bienvenida
+                    propuesto: {formatearPrecio(descuentoReferidoImporte)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1012,10 +1290,11 @@ export function PresupuestoForm({
 
           {presupuesto && presupuesto.documenso_signing_url && !presupuesto.firmado && (
             <div className="bg-amber-50 border border-amber-300 rounded-sm px-3 py-2 text-xs text-amber-800">
-              Este presupuesto ya tiene un enlace de firma enviado al cliente y todavía sin firmar. El PDF que el
-              cliente ve y puede firmar en cualquier momento es el que se generó al enviarlo — si cambias líneas o
-              precios aquí, el cliente seguirá viendo el importe anterior hasta que generes un nuevo enlace ("Generar
-              nuevo enlace" en Firma, más abajo).
+              Este presupuesto ya tiene un enlace de firma enviado al cliente y todavía sin firmar.
+              El PDF que el cliente ve y puede firmar en cualquier momento es el que se generó al
+              enviarlo — si cambias líneas o precios aquí, el cliente seguirá viendo el importe
+              anterior hasta que generes un nuevo enlace ("Generar nuevo enlace" en Firma, más
+              abajo).
             </div>
           )}
 
@@ -1033,26 +1312,40 @@ export function PresupuestoForm({
           <FaseCard numero={4} titulo="Condiciones">
             {presupuesto && (
               <p className="text-xs text-gray-500 mb-3">
-                Estado actual: <span className="font-medium text-gray-800">{presupuesto.estado}</span> — cámbialo desde el
-                menú de la tabla de presupuestos.
+                Estado actual:{' '}
+                <span className="font-medium text-gray-800">{presupuesto.estado}</span> — cámbialo
+                desde el menú de la tabla de presupuestos.
               </p>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Input label="Fecha emisión" type="date" value={form.fecha_emision} onChange={(e) => setForm((f) => ({ ...f, fecha_emision: e.target.value }))} />
+              <Input
+                label="Fecha emisión"
+                type="date"
+                value={form.fecha_emision}
+                onChange={(e) => setForm((f) => ({ ...f, fecha_emision: e.target.value }))}
+              />
               <div>
                 <Select
                   label="Válido hasta"
-                  options={opcionesPlazoConActual(OPCIONES_VALIDEZ, diasEntre(form.fecha_emision, form.fecha_validez))}
+                  options={opcionesPlazoConActual(
+                    OPCIONES_VALIDEZ,
+                    diasEntre(form.fecha_emision, form.fecha_validez),
+                  )}
                   value={String(diasEntre(form.fecha_emision, form.fecha_validez))}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, fecha_validez: sumarDias(f.fecha_emision, Number(e.target.value)) }))
+                    setForm((f) => ({
+                      ...f,
+                      fecha_validez: sumarDias(f.fecha_emision, Number(e.target.value)),
+                    }))
                   }
                 />
                 <p className="text-xs text-gray-400 mt-1">→ {form.fecha_validez}</p>
               </div>
               {esOrientativo ? (
                 <div>
-                  <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Impuesto</p>
+                  <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Impuesto
+                  </p>
                   <p className="text-sm text-gray-500 border border-gray-200 rounded-sm px-2.5 py-1.5">
                     Sin IVA — se determina en el presupuesto normal tras la visita técnica
                   </p>
@@ -1090,7 +1383,14 @@ export function PresupuestoForm({
                     setForm((f) => ({
                       ...f,
                       condiciones_pago: e.target.checked
-                        ? (condPago ?? { delaiEs: '', delaiFr: '', penalizacionEs: '', penalizacionFr: '', medioEs: '', medioFr: '' })
+                        ? (condPago ?? {
+                            delaiEs: '',
+                            delaiFr: '',
+                            penalizacionEs: '',
+                            penalizacionFr: '',
+                            medioEs: '',
+                            medioFr: '',
+                          })
                         : null,
                     }))
                   }
@@ -1106,12 +1406,17 @@ export function PresupuestoForm({
             </div>
             <div className="mt-3 border-t border-gray-200 pt-3">
               <label className="flex items-center gap-2 text-sm text-gray-700 mb-3">
-                <input type="checkbox" checked={notaActivada} onChange={(e) => setNotaActivada(e.target.checked)} />
-                Añadir una nota al documento (aparece tras el resumen de pago y el seguro y garantía)
+                <input
+                  type="checkbox"
+                  checked={notaActivada}
+                  onChange={(e) => setNotaActivada(e.target.checked)}
+                />
+                Añadir una nota al documento (aparece tras el resumen de pago y el seguro y
+                garantía)
               </label>
               {notaActivada && (
                 <EditorTexto
-                idioma={form.idioma === 'Français' ? 'fr' : 'es'}
+                  idioma={form.idioma === 'Français' ? 'fr' : 'es'}
                   value={form.nota}
                   onChange={(v) => setForm((f) => ({ ...f, nota: v }))}
                   placeholder="Observaciones, acuerdos verbales, cosas que nos ha dicho el cliente..."
@@ -1123,8 +1428,8 @@ export function PresupuestoForm({
 
           <FaseCard numero={5} titulo="Datos bancarios">
             <p className="text-xs text-gray-400 mb-3">
-              Se rellenan por defecto con los datos de Configuración — cámbialos aquí solo si este presupuesto necesita unos
-              distintos.
+              Se rellenan por defecto con los datos de Configuración — cámbialos aquí solo si este
+              presupuesto necesita unos distintos.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
@@ -1164,9 +1469,14 @@ export function PresupuestoForm({
                 </Button>
               </div>
               <div className="flex flex-col gap-1.5">
-                {form.plan_pago.length === 0 && <p className="text-sm text-gray-400">Sin plan de pago definido</p>}
+                {form.plan_pago.length === 0 && (
+                  <p className="text-sm text-gray-400">Sin plan de pago definido</p>
+                )}
                 {form.plan_pago.map((plazo, i) => (
-                  <div key={i} className="flex items-center gap-2 border border-gray-200 rounded-sm pl-3 pr-2 py-1.5">
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 border border-gray-200 rounded-sm pl-3 pr-2 py-1.5"
+                  >
                     <input
                       value={plazo.concepto}
                       onChange={(e) => handleCambiarPlazo(i, { concepto: e.target.value })}
@@ -1179,13 +1489,29 @@ export function PresupuestoForm({
                         min={0}
                         max={100}
                         value={plazo.porcentaje}
-                        onChange={(e) => handleCambiarPlazo(i, { porcentaje: Number(e.target.value) })}
+                        onChange={(e) =>
+                          handleCambiarPlazo(i, { porcentaje: Number(e.target.value) })
+                        }
                         className="w-14 text-sm text-right border border-gray-200 rounded-sm px-1.5 py-0.5 focus:border-brand focus:outline-none"
                       />
                       <span className="text-sm text-gray-500">%</span>
                     </div>
-                    <span className="text-sm text-gray-600 w-24 text-right shrink-0">{formatearPrecio(plazo.importe)}</span>
-                    <button onClick={() => handleEliminarPlazo(i)} className="text-gray-300 hover:text-red-600 shrink-0">
+                    <span className="text-sm text-gray-600 w-24 text-right shrink-0">
+                      {formatearPrecio(plazo.importe)}
+                    </span>
+                    <input
+                      type="date"
+                      value={plazo.fecha_prevista ?? ''}
+                      onChange={(e) =>
+                        handleCambiarPlazo(i, { fecha_prevista: e.target.value || null })
+                      }
+                      title="Fecha prevista de cobro (opcional): ese día la campana avisa de que toca facturar este plazo"
+                      className="w-32 shrink-0 text-xs text-gray-600 border border-gray-200 rounded-sm px-1.5 py-0.5 focus:border-brand focus:outline-none"
+                    />
+                    <button
+                      onClick={() => handleEliminarPlazo(i)}
+                      className="text-gray-300 hover:text-red-600 shrink-0"
+                    >
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -1225,8 +1551,11 @@ export function PresupuestoForm({
               </div>
 
               {form.plan_pago.length > 0 && (
-                <p className={`text-xs mt-2 ${sumaPorcentajesPlazo === 100 ? 'text-gray-400' : 'text-amber-600'}`}>
-                  Suma de porcentajes: {sumaPorcentajesPlazo}%{sumaPorcentajesPlazo !== 100 ? ' — no suma 100%' : ''}
+                <p
+                  className={`text-xs mt-2 ${sumaPorcentajesPlazo === 100 ? 'text-gray-400' : 'text-amber-600'}`}
+                >
+                  Suma de porcentajes: {sumaPorcentajesPlazo}%
+                  {sumaPorcentajesPlazo !== 100 ? ' — no suma 100%' : ''}
                 </p>
               )}
             </FaseCard>
@@ -1237,11 +1566,19 @@ export function PresupuestoForm({
               {presupuesto.firmado ? (
                 <div className="flex flex-col gap-2">
                   <p className="text-sm text-gray-600">
-                    Firmado {presupuesto.firma_metodo === 'documenso' ? 'electrónicamente (Documenso) ' : ''}
+                    Firmado{' '}
+                    {presupuesto.firma_metodo === 'documenso'
+                      ? 'electrónicamente (Documenso) '
+                      : ''}
                     por {presupuesto.firma_nombre} el {presupuesto.firma_fecha?.slice(0, 10)}
                   </p>
                   {presupuesto.documenso_envelope_id && (
-                    <Button size="sm" variant="secondary" onClick={handleDescargarPdfFirmado} className="self-start">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleDescargarPdfFirmado}
+                      className="self-start"
+                    >
                       <span className="flex items-center gap-1.5">
                         <Download size={13} />
                         Descargar presupuesto firmado (PDF)
@@ -1270,8 +1607,8 @@ export function PresupuestoForm({
                     </a>
                   </div>
                   <p className="text-xs text-gray-400">
-                    Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto pasará a
-                    "Aceptado" automáticamente.
+                    Comparte este enlace con el cliente para que firme. Al firmar, el presupuesto
+                    pasará a "Aceptado" automáticamente.
                   </p>
                   <Button
                     size="sm"
@@ -1293,7 +1630,9 @@ export function PresupuestoForm({
                     {enviarDocumensoMutation.isPending ? 'Generando…' : 'Obtener enlace de firma'}
                   </Button>
                   {!form.cliente_email && (
-                    <p className="text-xs text-amber-600 mt-1">Añade un email de cliente para poder enviarlo a firmar.</p>
+                    <p className="text-xs text-amber-600 mt-1">
+                      Añade un email de cliente para poder enviarlo a firmar.
+                    </p>
                   )}
                 </div>
               )}
@@ -1302,7 +1641,9 @@ export function PresupuestoForm({
         </div>
 
         <div className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Vista previa</p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">
+            Vista previa
+          </p>
           <DocumentoPreview
             plantilla={configPlantilla.estructura}
             colorPrimario={configPlantilla.colorPrimario}
@@ -1317,7 +1658,8 @@ export function PresupuestoForm({
             piePagina={configPlantilla.piePagina}
             idioma={idiomaCorto}
             tituloDocumento={
-              (idiomaCorto === 'fr' ? 'DEVIS' : 'PRESUPUESTO') + (esOrientativo ? (idiomaCorto === 'fr' ? ' INDICATIF' : ' ORIENTATIVO') : '')
+              (idiomaCorto === 'fr' ? 'DEVIS' : 'PRESUPUESTO') +
+              (esOrientativo ? (idiomaCorto === 'fr' ? ' INDICATIF' : ' ORIENTATIVO') : '')
             }
             titulo={form.titulo || undefined}
             numero={presupuesto?.numero ?? null}
@@ -1330,9 +1672,15 @@ export function PresupuestoForm({
             clienteContacto={[form.cliente_tel, form.cliente_email].filter(Boolean).join(' · ')}
             labelCif={form.pais === 'Francia' ? 'SIRET' : 'CIF'}
             camposDocumento={[
-              { label: idiomaCorto === 'fr' ? 'Numéro' : 'Número', valor: presupuesto?.numero ?? '—' },
+              {
+                label: idiomaCorto === 'fr' ? 'Numéro' : 'Número',
+                valor: presupuesto?.numero ?? '—',
+              },
               { label: idiomaCorto === 'fr' ? 'Émission' : 'Emisión', valor: form.fecha_emision },
-              { label: idiomaCorto === 'fr' ? "Valable jusqu'au" : 'Válido hasta', valor: form.fecha_validez },
+              {
+                label: idiomaCorto === 'fr' ? "Valable jusqu'au" : 'Válido hasta',
+                valor: form.fecha_validez,
+              },
               { label: idiomaCorto === 'fr' ? 'TVA' : 'IVA', valor: `${porcentaje}%` },
               {
                 label: idiomaCorto === 'fr' ? 'État' : 'Estado',
@@ -1343,7 +1691,14 @@ export function PresupuestoForm({
             columnasTabla={
               idiomaCorto === 'fr'
                 ? ['Nº', 'Désignation', 'Qt', 'Prix unit. (HT)', 'Total', 'Total TTC']
-                : ['Nº', 'Designación', 'Cant.', 'Precio unit. (s/IVA)', 'Total', 'Total con Impuestos']
+                : [
+                    'Nº',
+                    'Designación',
+                    'Cant.',
+                    'Precio unit. (s/IVA)',
+                    'Total',
+                    'Total con Impuestos',
+                  ]
             }
             lineas={form.lineas}
             totalSinIva={totalSinIva}
@@ -1361,8 +1716,16 @@ export function PresupuestoForm({
             firmaBase64={esOrientativo ? undefined : presupuesto?.firma_base64}
             firmaNombre={presupuesto?.firma_nombre}
             firmaFecha={presupuesto?.firma_fecha}
-            labelFirma={esOrientativo ? undefined : idiomaCorto === 'fr' ? 'Signature du client' : 'Firma del cliente'}
-            labelPendienteFirma={idiomaCorto === 'fr' ? 'En attente de signature' : 'Pendiente de firma'}
+            labelFirma={
+              esOrientativo
+                ? undefined
+                : idiomaCorto === 'fr'
+                  ? 'Signature du client'
+                  : 'Firma del cliente'
+            }
+            labelPendienteFirma={
+              idiomaCorto === 'fr' ? 'En attente de signature' : 'Pendiente de firma'
+            }
             mensajeGracias={mensajeGracias ?? undefined}
             tc={tcRenderizado}
             labelTyc={idiomaCorto === 'fr' ? 'Conditions générales' : 'Términos y condiciones'}
@@ -1402,7 +1765,8 @@ export function PresupuestoForm({
         }
       >
         <p className="text-sm text-gray-600">
-          ¿Quieres modificar los datos de este cliente? Los cambios se guardarán en este presupuesto al pulsar "Guardar".
+          ¿Quieres modificar los datos de este cliente? Los cambios se guardarán en este presupuesto
+          al pulsar "Guardar".
         </p>
       </Modal>
     </div>

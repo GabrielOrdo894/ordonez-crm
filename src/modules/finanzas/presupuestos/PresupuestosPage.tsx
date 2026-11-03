@@ -6,7 +6,11 @@ import JSZip from 'jszip';
 import { supabase } from '../../../lib/supabase';
 import { notaSistema } from '../../../lib/notaSistema';
 import { sincronizarPipelineCliente } from '../../../lib/pipelineSync';
-import { generarPdfPresupuesto, generarPdfPresupuestoBlob, generarPdfPresupuestoTraducido } from '../../../lib/generarPdfPresupuesto';
+import {
+  generarPdfPresupuesto,
+  generarPdfPresupuestoBlob,
+  generarPdfPresupuestoTraducido,
+} from '../../../lib/generarPdfPresupuesto';
 import { conAvisoDescarga } from '../../../lib/conAvisoDescarga';
 import { mensajeError } from '../../../lib/mensajeError';
 import { fechaCorta, hoyLocalIso } from '../../../lib/fechas';
@@ -29,7 +33,12 @@ import { BulkActionsBar } from '../../../components/ui/BulkActionsBar';
 import { AccionesFila, type AccionRapida } from '../../../components/ui/AccionesFila';
 import type { AccionMenu } from '../../../components/ui/DropdownMenu';
 import { DescargarZipModal } from '../../../components/ui/DescargarZipModal';
-import { ESTADOS_PRESUPUESTO, TIPOS_PRESUPUESTO, calcularTotalesRango, porcentajeIva } from './types';
+import {
+  ESTADOS_PRESUPUESTO,
+  TIPOS_PRESUPUESTO,
+  calcularTotalesRango,
+  porcentajeIva,
+} from './types';
 import { formatearPrecio, formatearRangoPrecio } from '../lineas';
 import type { Linea } from '../lineas';
 import type { Presupuesto } from './types';
@@ -38,7 +47,11 @@ import { CrearAcompteModal } from './CrearAcompteModal';
 import { IniciarPresupuestoPage } from './IniciarPresupuestoPage';
 import type { InicioPresupuesto } from './IniciarPresupuestoPage';
 import { FacturaForm } from '../facturas/FacturaForm';
-import { estadoCobroPresupuesto, SELECT_FACTURAS_COBRO, type FacturaParaCobro } from './estadoCobro';
+import {
+  estadoCobroPresupuesto,
+  SELECT_FACTURAS_COBRO,
+  type FacturaParaCobro,
+} from './estadoCobro';
 import { descargarDocumentoFirmado } from '../../../lib/documenso';
 import { normalizarNombre } from '../../clientes/types';
 
@@ -50,7 +63,10 @@ const PAISES_FILTRO = [
   { value: 'Francia', label: 'Francia' },
 ];
 
-const VARIANTE_ESTADO: Record<string, 'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'default'> = {
+const VARIANTE_ESTADO: Record<
+  string,
+  'pendiente' | 'confirmada' | 'realizada' | 'cancelada' | 'default'
+> = {
   Borrador: 'default',
   Pendiente: 'pendiente',
   Aceptado: 'realizada',
@@ -89,6 +105,8 @@ export default function PresupuestosPage() {
   const [creandoDesdeOrientativo, setCreandoDesdeOrientativo] = useState<Presupuesto | null>(null);
   const [creandoAcompte, setCreandoAcompte] = useState<Presupuesto | null>(null);
   const [viendoId, setViendoId] = useState<string | null>(null);
+  // Aviso de cobro del plan de pago (campana): abre el presupuesto con el acompte de ese plazo.
+  const [acomptePlazo, setAcomptePlazo] = useState<number | undefined>(undefined);
   const { seleccion, toggleFila, toggleTodas, limpiar } = useSeleccionMultiple();
 
   const [zipAbierto, setZipAbierto] = useState(false);
@@ -109,9 +127,14 @@ export default function PresupuestosPage() {
   };
 
   useEffect(() => {
-    const st = location.state as { verDocId?: string; verDocTipo?: TipoDocumento } | null;
+    const st = location.state as {
+      verDocId?: string;
+      verDocTipo?: TipoDocumento;
+      crearAcomptePlazo?: number;
+    } | null;
     if (st?.verDocTipo === 'presupuesto' && st.verDocId) {
       setViendoId(st.verDocId);
+      setAcomptePlazo(st.crearAcomptePlazo);
       window.history.replaceState({}, '');
     }
   }, [location.state]);
@@ -162,7 +185,10 @@ export default function PresupuestosPage() {
   const { data: presupuestosSinOrdenar, isLoading } = useQuery({
     queryKey: ['presupuestos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('presupuestos').select('*').is('eliminado_en', null);
+      const { data, error } = await supabase
+        .from('presupuestos')
+        .select('*')
+        .is('eliminado_en', null);
       if (error) throw error;
       return data as Presupuesto[];
     },
@@ -170,7 +196,9 @@ export default function PresupuestosPage() {
   const presupuestos = useMemo(
     () =>
       presupuestosSinOrdenar
-        ? [...presupuestosSinOrdenar].sort((a, b) => numeroOrdenable(b.numero) - numeroOrdenable(a.numero))
+        ? [...presupuestosSinOrdenar].sort(
+            (a, b) => numeroOrdenable(b.numero) - numeroOrdenable(a.numero),
+          )
         : presupuestosSinOrdenar,
     [presupuestosSinOrdenar],
   );
@@ -195,7 +223,9 @@ export default function PresupuestosPage() {
       // Un presupuesto firmado por el cliente es un contrato: no vuelve a Borrador ni a Pendiente
       // (antes se podía con un clic y seguía marcado como firmado — auditoría 2026-10-01).
       if (p.firmado && (estado === 'Borrador' || estado === 'Pendiente')) {
-        throw new Error(`El presupuesto ${p.numero ?? ''} está firmado por el cliente: no puede volver a ${estado}.`);
+        throw new Error(
+          `El presupuesto ${p.numero ?? ''} está firmado por el cliente: no puede volver a ${estado}.`,
+        );
       }
       const { error } = await supabase.from('presupuestos').update({ estado }).eq('id', p.id);
       if (error) throw error;
@@ -204,7 +234,10 @@ export default function PresupuestosPage() {
       // el momento del acuerdo aunque Configuración cambie después.
       if (estado === 'Aceptado') await congelarTerminosCondiciones(p);
       if (p.visita_id) {
-        await notaSistema(p.visita_id, `Presupuesto ${p.numero} marcado como ${estado} por ${nombreUsuarioActual}`);
+        await notaSistema(
+          p.visita_id,
+          `Presupuesto ${p.numero} marcado como ${estado} por ${nombreUsuarioActual}`,
+        );
       }
       await registrarEvento('presupuesto', p.id, `Marcado como ${estado}`);
       await registrarEtapaPresupuestoConBackfill(estado, p.id);
@@ -235,17 +268,28 @@ export default function PresupuestosPage() {
 
   const cambiarEstadoVariosMutation = useMutation({
     mutationFn: async ({ ids, estado }: { ids: (string | number)[]; estado: string }) => {
-      const firmados = (presupuestos ?? []).filter((p) => (ids as string[]).includes(p.id) && p.firmado);
+      const firmados = (presupuestos ?? []).filter(
+        (p) => (ids as string[]).includes(p.id) && p.firmado,
+      );
       if (firmados.length > 0 && (estado === 'Borrador' || estado === 'Pendiente')) {
-        throw new Error(`${firmados.map((p) => p.numero).join(', ')} están firmados por el cliente: no pueden volver a ${estado}. No se ha cambiado nada.`);
+        throw new Error(
+          `${firmados.map((p) => p.numero).join(', ')} están firmados por el cliente: no pueden volver a ${estado}. No se ha cambiado nada.`,
+        );
       }
-      const { error } = await supabase.from('presupuestos').update({ estado }).in('id', ids as string[]);
+      const { error } = await supabase
+        .from('presupuestos')
+        .update({ estado })
+        .in('id', ids as string[]);
       if (error) throw error;
       if (estado === 'Aceptado') {
         const seleccionados = (presupuestos ?? []).filter((p) => (ids as string[]).includes(p.id));
         await Promise.all(seleccionados.map((p) => congelarTerminosCondiciones(p)));
       }
-      await Promise.all((ids as string[]).map((presupuestoId) => registrarEtapaPresupuestoConBackfill(estado, presupuestoId)));
+      await Promise.all(
+        (ids as string[]).map((presupuestoId) =>
+          registrarEtapaPresupuestoConBackfill(estado, presupuestoId),
+        ),
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['presupuestos'] });
@@ -264,7 +308,13 @@ export default function PresupuestosPage() {
       if (desde && (!p.fecha_emision || p.fecha_emision < desde)) return false;
       if (hasta && (!p.fecha_emision || p.fecha_emision > hasta)) return false;
       // También por dirección de la obra y sin distinguir acentos («colon» encuentra «Colón»), petición de Gabriel 2026-11-02.
-      if (q && !normalizarNombre(`${p.numero ?? ''} ${p.cliente_nombre ?? ''} ${p.cliente_dir ?? ''}`).includes(normalizarNombre(q))) return false;
+      if (
+        q &&
+        !normalizarNombre(
+          `${p.numero ?? ''} ${p.cliente_nombre ?? ''} ${p.cliente_dir ?? ''}`,
+        ).includes(normalizarNombre(q))
+      )
+        return false;
       return true;
     });
   }, [presupuestos, busqueda, filtroEstado, filtroTipo, desde, hasta]);
@@ -288,13 +338,16 @@ export default function PresupuestosPage() {
     // adelante), así que contarlo aquí inflaba el KPI de ingresos (hallazgo real de Gabriel,
     // 2026-09-16). El desglose "Normales / orientativos" de abajo sigue mostrando el total de
     // orientativos por separado.
-    const aceptados = todos.filter((p) => p.estado === 'Aceptado' && (p.tipo ?? 'normal') === 'normal');
+    const aceptados = todos.filter(
+      (p) => p.estado === 'Aceptado' && (p.tipo ?? 'normal') === 'normal',
+    );
     const enEspera = todos.filter((p) => p.estado === 'Pendiente');
     const normales = todos.filter((p) => (p.tipo ?? 'normal') === 'normal');
     const orientativos = todos.filter((p) => p.tipo === 'orientativo');
     const normalesFrancia = normales.filter((p) => p.pais === 'Francia').length;
     const normalesEspana = normales.filter((p) => p.pais === 'España').length;
-    const sinIva = (lista: Presupuesto[]) => lista.reduce((s, p) => s + totalPresupuestoSinIva(p), 0);
+    const sinIva = (lista: Presupuesto[]) =>
+      lista.reduce((s, p) => s + totalPresupuestoSinIva(p), 0);
     const conIva = (lista: Presupuesto[]) => lista.reduce((s, p) => s + totalPresupuesto(p), 0);
     return [
       { label: 'Presupuestos normales Francia', valor: normalesFrancia, acento: true },
@@ -333,7 +386,12 @@ export default function PresupuestosPage() {
       p.documenso_envelope_id && !p.firmado
         ? ' Este presupuesto tiene un enlace de firma enviado y sin firmar todavía — si el cliente firma después de moverlo a la papelera, la firma no se registrará.'
         : '';
-    if (!(await confirmar(`¿Eliminar el presupuesto ${p.numero ?? ''}? Se moverá a la Papelera.${avisoFirma}`))) return;
+    if (
+      !(await confirmar(
+        `¿Eliminar el presupuesto ${p.numero ?? ''}? Se moverá a la Papelera.${avisoFirma}`,
+      ))
+    )
+      return;
     eliminarMutation.mutate(p.id);
   };
 
@@ -403,14 +461,44 @@ export default function PresupuestosPage() {
     const cambiar = (estado: string) => () => cambiarEstadoMutation.mutate({ p, estado });
     const transicion: AccionRapida =
       p.estado === 'Pendiente'
-        ? { icon: Check, label: 'Marcar como aceptado', tono: 'brand', onClick: cambiar('Aceptado') }
+        ? {
+            icon: Check,
+            label: 'Marcar como aceptado',
+            tono: 'brand',
+            onClick: cambiar('Aceptado'),
+          }
         : p.estado === 'Borrador'
-          ? { icon: Send, label: 'Marcar como pendiente', tono: 'neutro', onClick: cambiar('Pendiente') }
-          : { icon: RotateCcw, label: 'Volver a borrador', tono: 'neutro', onClick: cambiar('Borrador') };
+          ? {
+              icon: Send,
+              label: 'Marcar como pendiente',
+              tono: 'neutro',
+              onClick: cambiar('Pendiente'),
+            }
+          : {
+              icon: RotateCcw,
+              label: 'Volver a borrador',
+              tono: 'neutro',
+              onClick: cambiar('Borrador'),
+            };
     if (p.firmado && transicion.label === 'Volver a borrador') {
-      return [{ icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(p) }];
+      return [
+        {
+          icon: Download,
+          label: 'Descargar PDF',
+          tono: 'neutro',
+          onClick: () => handleDescargarPdf(p),
+        },
+      ];
     }
-    return [transicion, { icon: Download, label: 'Descargar PDF', tono: 'neutro', onClick: () => handleDescargarPdf(p) }];
+    return [
+      transicion,
+      {
+        icon: Download,
+        label: 'Descargar PDF',
+        tono: 'neutro',
+        onClick: () => handleDescargarPdf(p),
+      },
+    ];
   };
 
   if (creandoNuevo && !inicioPresupuesto) {
@@ -438,16 +526,34 @@ export default function PresupuestosPage() {
     );
   }
   if (presupuestoSeleccionado) {
-    return <PresupuestoForm onClose={() => setPresupuestoSeleccionado(null)} presupuesto={presupuestoSeleccionado} />;
+    return (
+      <PresupuestoForm
+        onClose={() => setPresupuestoSeleccionado(null)}
+        presupuesto={presupuestoSeleccionado}
+      />
+    );
   }
   if (viendoId) {
     return (
-      <DocumentoDetalleInline tipo="presupuesto" id={viendoId} onClose={() => setViendoId(null)} onAbrirOtro={onAbrirOtro} />
+      <DocumentoDetalleInline
+        tipo="presupuesto"
+        id={viendoId}
+        onClose={() => {
+          setViendoId(null);
+          setAcomptePlazo(undefined);
+        }}
+        onAbrirOtro={onAbrirOtro}
+        abrirAcomptePlazo={acomptePlazo}
+      />
     );
   }
   if (creandoDesdeOrientativo) {
     return (
-      <PresupuestoForm onClose={() => setCreandoDesdeOrientativo(null)} presupuesto={null} desdeOrientativo={creandoDesdeOrientativo} />
+      <PresupuestoForm
+        onClose={() => setCreandoDesdeOrientativo(null)}
+        presupuesto={null}
+        desdeOrientativo={creandoDesdeOrientativo}
+      />
     );
   }
   if (facturandoDesde) {
@@ -500,8 +606,20 @@ export default function PresupuestosPage() {
           onChange={(e) => setFiltroTipo(e.target.value)}
           className="w-48"
         />
-        <Input label="Emisión desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
-        <Input label="Emisión hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
+        <Input
+          label="Emisión desde"
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="w-40"
+        />
+        <Input
+          label="Emisión hasta"
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="w-40"
+        />
       </div>
 
       <KpiRow items={kpis} />
@@ -512,12 +630,20 @@ export default function PresupuestosPage() {
         acciones={[
           {
             label: 'Marcar aceptado',
-            onClick: () => cambiarEstadoVariosMutation.mutate({ ids: Array.from(seleccion), estado: 'Aceptado' }),
+            onClick: () =>
+              cambiarEstadoVariosMutation.mutate({
+                ids: Array.from(seleccion),
+                estado: 'Aceptado',
+              }),
             disabled: cambiarEstadoVariosMutation.isPending,
           },
           {
             label: 'Marcar rechazado',
-            onClick: () => cambiarEstadoVariosMutation.mutate({ ids: Array.from(seleccion), estado: 'Rechazado' }),
+            onClick: () =>
+              cambiarEstadoVariosMutation.mutate({
+                ids: Array.from(seleccion),
+                estado: 'Rechazado',
+              }),
             disabled: cambiarEstadoVariosMutation.isPending,
           },
           {
@@ -525,12 +651,19 @@ export default function PresupuestosPage() {
             variant: 'danger',
             onClick: async () => {
               const seleccionados = (presupuestos ?? []).filter((p) => seleccion.has(p.id));
-              const conFirmaPendiente = seleccionados.filter((p) => p.documenso_envelope_id && !p.firmado).length;
+              const conFirmaPendiente = seleccionados.filter(
+                (p) => p.documenso_envelope_id && !p.firmado,
+              ).length;
               const avisoFirma =
                 conFirmaPendiente > 0
                   ? ` ${conFirmaPendiente} de ellos tiene un enlace de firma enviado y sin firmar — si el cliente firma después, esa firma no se registrará.`
                   : '';
-              if (!(await confirmar(`¿Eliminar ${seleccion.size} presupuesto(s)? Se moverán a la Papelera.${avisoFirma}`))) return;
+              if (
+                !(await confirmar(
+                  `¿Eliminar ${seleccion.size} presupuesto(s)? Se moverán a la Papelera.${avisoFirma}`,
+                ))
+              )
+                return;
               eliminarVariosMutation.mutate(Array.from(seleccion));
             },
             disabled: eliminarVariosMutation.isPending,
@@ -580,7 +713,8 @@ export default function PresupuestosPage() {
               label: 'Base (sin IVA)',
               sortValue: (p) => totalPresupuestoSinIva(p),
               render: (p) => {
-                if ((p.tipo ?? 'normal') !== 'orientativo') return formatearPrecio(totalPresupuestoSinIva(p));
+                if ((p.tipo ?? 'normal') !== 'orientativo')
+                  return formatearPrecio(totalPresupuestoSinIva(p));
                 const rango = calcularTotalesRango(p.lineas, porcentajeIva(p.tipo_iva));
                 return formatearRangoPrecio(rango.totalSinIvaMin, rango.totalSinIvaMax);
               },
@@ -590,7 +724,8 @@ export default function PresupuestosPage() {
               label: 'Total (con IVA)',
               sortValue: (p) => totalPresupuesto(p),
               render: (p) => {
-                if ((p.tipo ?? 'normal') !== 'orientativo') return formatearPrecio(totalPresupuesto(p));
+                if ((p.tipo ?? 'normal') !== 'orientativo')
+                  return formatearPrecio(totalPresupuesto(p));
                 // Orientativo nunca lleva IVA — mismo importe que "Base (sin IVA)", nunca se le suma nada.
                 const rango = calcularTotalesRango(p.lineas, 0);
                 return formatearRangoPrecio(rango.totalSinIvaMin, rango.totalSinIvaMax);
@@ -600,13 +735,17 @@ export default function PresupuestosPage() {
               key: 'estado',
               label: 'Estado',
               render: (p) => {
-                const cobro = p.tipo === 'orientativo' ? null : estadoCobroPresupuesto(p, facturasCobro ?? []);
+                const cobro =
+                  p.tipo === 'orientativo' ? null : estadoCobroPresupuesto(p, facturasCobro ?? []);
                 if (cobro === 'Pagado') return <Badge variant="pagado">Pagado</Badge>;
-                if (cobro === 'Primer pago recibido') return <Badge variant="confirmada">Primer pago recibido</Badge>;
+                if (cobro === 'Primer pago recibido')
+                  return <Badge variant="confirmada">Primer pago recibido</Badge>;
                 return (
                   <Badge
                     variant={
-                      p.estado === 'Aceptado' && p.tipo === 'orientativo' ? 'aceptado-orientativo' : (VARIANTE_ESTADO[p.estado] ?? 'default')
+                      p.estado === 'Aceptado' && p.tipo === 'orientativo'
+                        ? 'aceptado-orientativo'
+                        : (VARIANTE_ESTADO[p.estado] ?? 'default')
                     }
                   >
                     {p.estado}
@@ -627,7 +766,11 @@ export default function PresupuestosPage() {
                 const menu: AccionMenu[] = [
                   { label: 'Editar / Firmar', onClick: () => setPresupuestoSeleccionado(p) },
                   { label: 'Descargar PDF', onClick: () => handleDescargarPdf(p) },
-                  { label: 'Descargar PDF firmado', onClick: () => handleDescargarFirmado(p, 'firmado'), oculto: !p.firmado },
+                  {
+                    label: 'Descargar PDF firmado',
+                    onClick: () => handleDescargarFirmado(p, 'firmado'),
+                    oculto: !p.firmado,
+                  },
                   {
                     label: 'Descargar certificado de firma',
                     onClick: () => handleDescargarFirmado(p, 'certificado'),
@@ -682,7 +825,12 @@ export default function PresupuestosPage() {
         presupuesto={creandoAcompte}
         onClose={() => setCreandoAcompte(null)}
         onCrear={({ linea, fecha }) => {
-          if (creandoAcompte) setFacturandoDesde({ presupuesto: creandoAcompte, lineaAcompte: linea, fechaAcompte: fecha });
+          if (creandoAcompte)
+            setFacturandoDesde({
+              presupuesto: creandoAcompte,
+              lineaAcompte: linea,
+              fechaAcompte: fecha,
+            });
           setCreandoAcompte(null);
         }}
       />
@@ -703,11 +851,31 @@ export default function PresupuestosPage() {
             value={zipEstado}
             onChange={(e) => setZipEstado(e.target.value)}
           />
-          <Select label="Tipo" options={TIPOS_FILTRO} value={zipTipo} onChange={(e) => setZipTipo(e.target.value)} />
-          <Select label="País" options={PAISES_FILTRO} value={zipPais} onChange={(e) => setZipPais(e.target.value)} />
+          <Select
+            label="Tipo"
+            options={TIPOS_FILTRO}
+            value={zipTipo}
+            onChange={(e) => setZipTipo(e.target.value)}
+          />
+          <Select
+            label="País"
+            options={PAISES_FILTRO}
+            value={zipPais}
+            onChange={(e) => setZipPais(e.target.value)}
+          />
           <div />
-          <Input label="Emisión desde" type="date" value={zipDesde} onChange={(e) => setZipDesde(e.target.value)} />
-          <Input label="Emisión hasta" type="date" value={zipHasta} onChange={(e) => setZipHasta(e.target.value)} />
+          <Input
+            label="Emisión desde"
+            type="date"
+            value={zipDesde}
+            onChange={(e) => setZipDesde(e.target.value)}
+          />
+          <Input
+            label="Emisión hasta"
+            type="date"
+            value={zipHasta}
+            onChange={(e) => setZipHasta(e.target.value)}
+          />
         </div>
       </DescargarZipModal>
     </div>

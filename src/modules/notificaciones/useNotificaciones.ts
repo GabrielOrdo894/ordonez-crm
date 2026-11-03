@@ -1,10 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatearPrecio } from '../finanzas/lineas';
+import { fechaVisitaCorta } from '../../lib/fechas';
+import { plazoQueTocaFacturar } from '../finanzas/presupuestos/planPago';
+import type { PlazoPago } from '../finanzas/presupuestos/types';
 import { useQuery } from '@tanstack/react-query';
 import { contarMensajesNoLeidos, ultimoMensajeNoLeido } from '../mensajeria/types';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { useAlertasFiscales } from '../fiscalidad/useAlertasFiscales';
-import { estadoSeguimiento, tieneRespuestaSinRevisar, SELECT_RESPUESTAS_PRESUPUESTO, SELECT_SOLICITUDES, type PresupuestoConRespuesta, type Solicitud } from '../solicitudes/types';
+import {
+  estadoSeguimiento,
+  tieneRespuestaSinRevisar,
+  SELECT_RESPUESTAS_PRESUPUESTO,
+  SELECT_SOLICITUDES,
+  type PresupuestoConRespuesta,
+  type Solicitud,
+} from '../solicitudes/types';
 import { normalizarTelefono } from '../clientes/types';
 import { cargarConfigCompleta } from '../../lib/pdfEmpresa';
 import type { Factura } from '../finanzas/facturas/types';
@@ -17,13 +28,17 @@ const LIMITE_HISTORIAL = 50;
 // Visitas Realizadas sin ningún presupuesto enviado (un Borrador no cuenta como enviado). Función
 // pura compartida por la campana y por el KPI "Presupuestos sin enviar" de la Home (InicioPage.tsx)
 // para que ambos den siempre el mismo número — mismo criterio que alerta-diaria/index.ts.
-export function filtrarVisitasSinPresupuesto<V extends Pick<Visita, 'id' | 'estado' | 'email' | 'telefono'>>(
+export function filtrarVisitasSinPresupuesto<
+  V extends Pick<Visita, 'id' | 'estado' | 'email' | 'telefono'>,
+>(
   visitas: V[] | undefined,
   presupuestos: { visita_id: string | null; estado: string }[] | undefined,
   solicitudes: Pick<Solicitud, 'estado' | 'email' | 'telefono' | 'visita_id'>[] | undefined,
 ): V[] {
   const visitaIdsConPresupuestoEnviado = new Set(
-    (presupuestos ?? []).filter((p) => p.estado !== 'Borrador' && p.visita_id).map((p) => p.visita_id as string),
+    (presupuestos ?? [])
+      .filter((p) => p.estado !== 'Borrador' && p.visita_id)
+      .map((p) => p.visita_id as string),
   );
   // 'Eliminada' excluida a propósito (bug real, 2026-09-21, caso Mickaël Maystre): es un
   // borrado definitivo (sustituye al DELETE real), no una decisión de negocio de no
@@ -93,7 +108,17 @@ function guardarHistorial(userId: string, historial: Notificacion[]) {
   localStorage.setItem(claveHistorial(userId), JSON.stringify(historial));
 }
 
-export type CategoriaNotificacion = 'fiscal' | 'factura' | 'visita' | 'mensaje' | 'presupuesto' | 'resena' | 'galeria' | 'solicitud' | 'gasto' | 'referido';
+export type CategoriaNotificacion =
+  | 'fiscal'
+  | 'factura'
+  | 'visita'
+  | 'mensaje'
+  | 'presupuesto'
+  | 'resena'
+  | 'galeria'
+  | 'solicitud'
+  | 'gasto'
+  | 'referido';
 
 export type Notificacion = {
   id: string;
@@ -135,6 +160,32 @@ export function useNotificaciones() {
       const { data, error } = await supabase.from('facturas').select('*').is('eliminado_en', null);
       if (error) throw error;
       return data as Factura[];
+    },
+  });
+
+  // Recordatorios de pago programados por recordatorio-pago-automatico (2026-11-03): salen al día
+  // siguiente salvo que se cancelen desde la factura.
+  const { data: recordatoriosProgramados } = useQuery({
+    queryKey: ['recordatorios_pago', 'programados'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('recordatorios_pago')
+        .select(
+          'id, paso, programado_en, factura_id, facturas(numero, cliente_nombre, cliente_email)',
+        )
+        .eq('estado', 'programado');
+      if (error) throw error;
+      return data as unknown as {
+        id: string;
+        paso: number;
+        programado_en: string;
+        factura_id: string;
+        facturas: {
+          numero: string | null;
+          cliente_nombre: string | null;
+          cliente_email: string | null;
+        } | null;
+      }[];
     },
   });
 
@@ -203,17 +254,31 @@ export function useNotificaciones() {
     queryKey: ['empresa_config', 'completa'],
     queryFn: cargarConfigCompleta,
   });
-  const diasEsperaResena = ((config?.datos as { resenas?: { diasEspera?: number } } | undefined)?.resenas?.diasEspera) ?? 3;
+  const diasEsperaResena =
+    (config?.datos as { resenas?: { diasEspera?: number } } | undefined)?.resenas?.diasEspera ?? 3;
 
   const { data: presupuestos } = useQuery({
     queryKey: ['presupuestos', 'notificaciones'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('presupuestos')
-        .select('id, visita_id, estado, numero, cliente_nombre, fecha_validez, created_at')
+        .select(
+          'id, visita_id, estado, tipo, numero, cliente_nombre, fecha_validez, created_at, plan_pago, avenant_de_id',
+        )
         .is('eliminado_en', null);
       if (error) throw error;
-      return data as { id: string; visita_id: string | null; estado: string; numero: string | null; cliente_nombre: string | null; fecha_validez: string | null; created_at: string }[];
+      return data as {
+        id: string;
+        visita_id: string | null;
+        estado: string;
+        tipo: string | null;
+        numero: string | null;
+        cliente_nombre: string | null;
+        fecha_validez: string | null;
+        created_at: string;
+        plan_pago: PlazoPago[] | null;
+        avenant_de_id: string | null;
+      }[];
     },
   });
 
@@ -230,7 +295,10 @@ export function useNotificaciones() {
   const { data: gastosKilometricoPendientes } = useQuery({
     queryKey: ['gastos', 'kilometrico-pendiente'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('id, descripcion').eq('estado_gasto', 'pendiente');
+      const { data, error } = await supabase
+        .from('gastos')
+        .select('id, descripcion')
+        .eq('estado_gasto', 'pendiente');
       if (error) throw error;
       return data as { id: string; descripcion: string | null }[];
     },
@@ -241,7 +309,10 @@ export function useNotificaciones() {
     queryFn: async () => {
       // Mismo select que Sidebar/Inicio/Solicitudes (comparten queryKey): con '*' a secas se perdía el
       // presupuesto vinculado en la tabla de Solicitudes si esta consulta ganaba la caché.
-      const { data, error } = await supabase.from('solicitudes').select(SELECT_SOLICITUDES).order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('solicitudes')
+        .select(SELECT_SOLICITUDES)
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return data as Solicitud[];
     },
@@ -304,7 +375,8 @@ export function useNotificaciones() {
         resumen: a.mensaje,
         buenasPracticas: a.buenasPracticas,
         to: `/fiscalidad/${tabFiscal}`,
-        urgente: a.tipo === 'tva_urgente' || a.tipo === 'tramo_superado' || a.tipo === 'echeance_urgente',
+        urgente:
+          a.tipo === 'tva_urgente' || a.tipo === 'tramo_superado' || a.tipo === 'echeance_urgente',
       });
     }
 
@@ -317,6 +389,53 @@ export function useNotificaciones() {
         resumen: `${f.cliente_nombre ?? 'Cliente sin nombre'} — pendiente de cobro.`,
         to: '/finanzas/facturas',
         urgente: true,
+      });
+    }
+
+    for (const r of recordatoriosProgramados ?? []) {
+      const envio = new Date(r.programado_en);
+      envio.setDate(envio.getDate() + 1);
+      lista.push({
+        id: `recordatorio-pago-${r.id}`,
+        categoria: 'factura',
+        titulo: `Recordatorio de pago ${r.paso}/3 programado: ${r.facturas?.numero ?? 'factura'}`,
+        resumen: `Se enviará el ${envio.toLocaleDateString('es', { day: '2-digit', month: 'short' })} hacia las 8:15 a ${r.facturas?.cliente_email ?? 'el cliente'} (${r.facturas?.cliente_nombre ?? ''}). Si no procede, cancélalo desde la factura.`,
+        to: '/finanzas/facturas',
+        state: { verDocId: r.factura_id, verDocTipo: 'factura' },
+      });
+    }
+
+    // Plazos del plan de pago que toca facturar (2026-11-03): el inicial al aceptar el presupuesto y
+    // los demás el día de su fecha prevista. El enlace abre el presupuesto con el acompte ya elegido.
+    const hoyPlazos = isoHaceDias(0);
+    for (const p of presupuestos ?? []) {
+      // Un avenant se factura con la factura final del original: no tiene plazos propios que avisar.
+      if (
+        p.estado !== 'Aceptado' ||
+        p.tipo === 'orientativo' ||
+        p.avenant_de_id ||
+        !p.plan_pago?.length
+      )
+        continue;
+      const suyas = (facturas ?? []).filter(
+        (f) => f.presupuesto_id === p.id && f.tipo !== 'rectificativa',
+      );
+      const toca = plazoQueTocaFacturar(p.plan_pago, suyas, hoyPlazos);
+      if (!toca) continue;
+      lista.push({
+        id: `plazo-${p.id}-${toca.indice}`,
+        categoria: 'presupuesto',
+        titulo: `Toca facturar: ${toca.plazo.concepto} de ${p.numero ?? 'presupuesto'}`,
+        resumen: `${p.cliente_nombre ?? 'Cliente'} — ${formatearPrecio(toca.plazo.importe)}${
+          toca.motivo === 'fecha'
+            ? ` (previsto para el ${fechaVisitaCorta(toca.plazo.fecha_prevista ?? '')})`
+            : ' (presupuesto aceptado)'
+        }. ${toca.esUltimo ? 'Es el último plazo: va en la factura final.' : 'Abre el presupuesto con el acompte ya preparado.'}`,
+        to: '/finanzas/presupuestos',
+        state: toca.esUltimo
+          ? { verDocId: p.id, verDocTipo: 'presupuesto' }
+          : { verDocId: p.id, verDocTipo: 'presupuesto', crearAcomptePlazo: toca.indice },
+        urgente: toca.motivo === 'fecha',
       });
     }
 
@@ -346,13 +465,21 @@ export function useNotificaciones() {
     // aviso interno no aparece en Gmail 15 min después de enviarse — el cliente probablemente
     // tampoco recibió su confirmación. Se completa solo al reenviar desde la ficha y verificarse.
     const avisosNoLlegados = (visitas ?? []).filter(
-      (v) => v.estado === 'Pendiente' && v.aviso_no_llegado_en && !v.aviso_verificado_en && (!v.fecha_visita || v.fecha_visita >= hoyVisitas),
+      (v) =>
+        v.estado === 'Pendiente' &&
+        v.aviso_no_llegado_en &&
+        !v.aviso_verificado_en &&
+        (!v.fecha_visita || v.fecha_visita >= hoyVisitas),
     );
     for (const v of avisosNoLlegados) {
       lista.push({
         id: `visita-aviso-no-llegado-${v.id}`,
         categoria: 'visita',
-        titulo: `El aviso de la visita de ${v.nombre} ${v.apellidos ?? ''} todavía no ha llegado`.replace(/\s+/g, ' '),
+        titulo:
+          `El aviso de la visita de ${v.nombre} ${v.apellidos ?? ''} todavía no ha llegado`.replace(
+            /\s+/g,
+            ' ',
+          ),
         resumen: v.aviso_cliente_email
           ? `Probablemente ${v.aviso_cliente_email} tampoco recibió su confirmación. Reenvíala desde la ficha.`
           : 'El email no llegó al equipo. Reenvía la confirmación desde la ficha.',
@@ -387,7 +514,9 @@ export function useNotificaciones() {
         id: `gasto-km-pendiente-${g.id}`,
         categoria: 'gasto',
         titulo: 'Gasto de kilometraje pendiente de revisar',
-        resumen: g.descripcion || 'Generado al completar una visita — regístralo como pagado o recházalo si no corresponde.',
+        resumen:
+          g.descripcion ||
+          'Generado al completar una visita — regístralo como pagado o recházalo si no corresponde.',
         to: '/contabilidad/gastos',
       });
     }
@@ -433,7 +562,9 @@ export function useNotificaciones() {
     // se acerca o ya ha pasado sin que el cliente haya decidido.
     const hoy = isoHaceDias(0);
     const limite7d = isoHaceDias(-7); // dentro de los próximos 7 días
-    const presupuestosPendientes = (presupuestos ?? []).filter((p) => p.estado === 'Pendiente' && p.fecha_validez);
+    const presupuestosPendientes = (presupuestos ?? []).filter(
+      (p) => p.estado === 'Pendiente' && p.fecha_validez,
+    );
 
     const caducados = presupuestosPendientes.filter((p) => p.fecha_validez! < hoy);
     for (const p of caducados) {
@@ -447,7 +578,9 @@ export function useNotificaciones() {
       });
     }
 
-    const porCaducar = presupuestosPendientes.filter((p) => p.fecha_validez! >= hoy && p.fecha_validez! <= limite7d);
+    const porCaducar = presupuestosPendientes.filter(
+      (p) => p.fecha_validez! >= hoy && p.fecha_validez! <= limite7d,
+    );
     for (const p of porCaducar) {
       lista.push({
         id: `presupuesto-por-caducar-${p.id}`,
@@ -470,18 +603,28 @@ export function useNotificaciones() {
       // teléfono (antes exigía email — el mensaje de cierre de obra ahora también sale por
       // WhatsApp, ver CierreObraBanner).
       const cobradasConContacto = (facturas ?? []).filter(
-        (f) => f.tipo === 'normal' && f.estado_cobro === 'Cobrada' && (f.cliente_email || f.cliente_tel) && f.fecha_pago,
+        (f) =>
+          f.tipo === 'normal' &&
+          f.estado_cobro === 'Cobrada' &&
+          (f.cliente_email || f.cliente_tel) &&
+          f.fecha_pago,
       );
 
       // Un aviso por CLIENTE, no por factura (2026-10-20): una obra con varias facturas finales
       // repetía el aviso una vez por factura (ver resenasCliente.ts). Si a un cliente ya se le pidió
       // la reseña o se le mandó la cortesía por cualquiera de sus facturas, no se vuelve a avisar.
-      const clavesResenaPedida = new Set((facturas ?? []).filter((f) => f.resena_enviado_en).map(claveClienteFactura));
-      const clavesCortesiaHecha = new Set((facturas ?? []).filter((f) => f.resena_cortesia_enviada_en).map(claveClienteFactura));
+      const clavesResenaPedida = new Set(
+        (facturas ?? []).filter((f) => f.resena_enviado_en).map(claveClienteFactura),
+      );
+      const clavesCortesiaHecha = new Set(
+        (facturas ?? []).filter((f) => f.resena_cortesia_enviada_en).map(claveClienteFactura),
+      );
       const clavesConAvisoResena = new Set<string>();
       const clavesConAvisoCortesia = new Set<string>();
 
-      for (const f of [...cobradasConContacto].sort((a, b) => (b.fecha_pago ?? '').localeCompare(a.fecha_pago ?? ''))) {
+      for (const f of [...cobradasConContacto].sort((a, b) =>
+        (b.fecha_pago ?? '').localeCompare(a.fecha_pago ?? ''),
+      )) {
         const clave = claveClienteFactura(f);
         const resenaYaResuelta = clavesResenaPedida.has(clave) || clavesConAvisoResena.has(clave);
         // Reseña automática (resena-automatica, 2026-09-24): mientras está 'programada' o en
@@ -490,7 +633,9 @@ export function useNotificaciones() {
         // segundo hay que decidirlo a mano porque el cron encontró una rectificativa o notas recientes.
         if (!resenaYaResuelta && f.resena_auto_estado === 'programada' && !f.resena_enviado_en) {
           clavesConAvisoResena.add(clave);
-          const envio = f.resena_auto_programada_en ? new Date(f.resena_auto_programada_en) : new Date();
+          const envio = f.resena_auto_programada_en
+            ? new Date(f.resena_auto_programada_en)
+            : new Date();
           envio.setDate(envio.getDate() + 1);
           lista.push({
             id: `resena-auto-${f.id}`,
@@ -539,16 +684,24 @@ export function useNotificaciones() {
             id: `resena-cortesia-${f.id}`,
             categoria: 'resena',
             titulo: `Mensaje de cortesía (6 meses) a ${f.cliente_nombre ?? 'cliente'}`,
-            resumen: 'Han pasado 6 meses desde su obra. Envíale un mensaje de cortesía y, si no dejó reseña, anímale a escribirla.',
+            resumen:
+              'Han pasado 6 meses desde su obra. Envíale un mensaje de cortesía y, si no dejó reseña, anímale a escribirla.',
             to: '/',
           });
         }
       }
 
-      const visitaIdsConGaleria = new Set((galeria ?? []).map((g) => g.visita_id).filter((id): id is string => !!id));
+      const visitaIdsConGaleria = new Set(
+        (galeria ?? []).map((g) => g.visita_id).filter((id): id is string => !!id),
+      );
       const visitasConAvisoCaso = new Set<string>();
       for (const f of cobradasConContacto) {
-        if (f.visita_id && f.fecha_pago! <= limite3d && !visitaIdsConGaleria.has(f.visita_id) && !visitasConAvisoCaso.has(f.visita_id)) {
+        if (
+          f.visita_id &&
+          f.fecha_pago! <= limite3d &&
+          !visitaIdsConGaleria.has(f.visita_id) &&
+          !visitasConAvisoCaso.has(f.visita_id)
+        ) {
           visitasConAvisoCaso.add(f.visita_id);
           lista.push({
             id: `caso-exito-${f.id}`,
@@ -564,10 +717,15 @@ export function useNotificaciones() {
       // a Aceptado — hora de aplicar el descuento al cliente que refirió, en su próxima obra. Se
       // marca resuelto desde ReferidoIncentivoBox (VisitaDetalleContenido.tsx), nunca solo.
       const visitaIdsConPresupuestoAceptado = new Set(
-        (presupuestos ?? []).filter((p) => p.estado === 'Aceptado' && p.visita_id).map((p) => p.visita_id as string),
+        (presupuestos ?? [])
+          .filter((p) => p.estado === 'Aceptado' && p.visita_id)
+          .map((p) => p.visita_id as string),
       );
       const referidosConvertidos = (visitas ?? []).filter(
-        (v) => v.referido_por && !v.referido_incentivo_aplicado_en && visitaIdsConPresupuestoAceptado.has(v.id),
+        (v) =>
+          v.referido_por &&
+          !v.referido_incentivo_aplicado_en &&
+          visitaIdsConPresupuestoAceptado.has(v.id),
       );
       for (const v of referidosConvertidos) {
         lista.push({
@@ -585,7 +743,9 @@ export function useNotificaciones() {
     // `revisar-gmail` volvió a poner en "Nueva" porque el cliente respondió en el mismo hilo
     // (`mensaje_enviado_en` no-null) — esa segunda es una respuesta pendiente, no un lead nuevo,
     // y antes salía con el mismo título "solicitud nueva" que la primera (bug real, 2026-08-19).
-    const solicitudesNuevas = (solicitudes ?? []).filter((s) => s.estado === 'Nueva' && !s.mensaje_enviado_en);
+    const solicitudesNuevas = (solicitudes ?? []).filter(
+      (s) => s.estado === 'Nueva' && !s.mensaje_enviado_en,
+    );
     for (const s of solicitudesNuevas) {
       lista.push({
         id: `solicitud-nueva-${s.id}`,
@@ -659,7 +819,9 @@ export function useNotificaciones() {
     // la pasada diaria: un único aviso con la fecha más antigua de las dos.
     const errorGmail = estadoGmail?.gmail_ultimo_error || estadoGmail?.gmail_token_ultimo_error;
     if (errorGmail) {
-      const fechas = [estadoGmail?.gmail_ultimo_error_en, estadoGmail?.gmail_token_caido_desde].filter((f): f is string => !!f).sort();
+      const fechas = [estadoGmail?.gmail_ultimo_error_en, estadoGmail?.gmail_token_caido_desde]
+        .filter((f): f is string => !!f)
+        .sort();
       const desde = (fechas[0] ?? '').slice(0, 10);
       lista.push({
         id: `gmail-error-${desde}`,
@@ -676,7 +838,8 @@ export function useNotificaciones() {
     } else if (estadoGmail?.gmail_ultima_revision_en) {
       // Sin error anotado pero sin ninguna pasada en 36 h: el cron no está llegando a la función
       // (p. ej. 401 por el secreto del service role) — también hay que mirarlo.
-      const horasSinRevisar = (Date.now() - new Date(estadoGmail.gmail_ultima_revision_en).getTime()) / 3_600_000;
+      const horasSinRevisar =
+        (Date.now() - new Date(estadoGmail.gmail_ultima_revision_en).getTime()) / 3_600_000;
       if (horasSinRevisar > 36) {
         lista.push({
           id: `gmail-sin-revision-${estadoGmail.gmail_ultima_revision_en.slice(0, 10)}`,
@@ -754,6 +917,7 @@ export function useNotificaciones() {
     visitasSinPresupuesto,
     diasEsperaResena,
     ultimoNoLeido,
+    recordatoriosProgramados,
   ]);
 
   // Vuelca los eventos activos en el historial persistido (localStorage): añade los que son
@@ -791,12 +955,19 @@ export function useNotificaciones() {
 
       if (nuevos.length === 0 && !huboAutocompletado) return actual;
       const ahora = new Date().toISOString();
-      const todos = [...nuevos.map((n) => ({ ...n, hecha: false, creadaEn: ahora })), ...actualizado];
+      const todos = [
+        ...nuevos.map((n) => ({ ...n, hecha: false, creadaEn: ahora })),
+        ...actualizado,
+      ];
       // El tope solo recorta avisos ya resueltos: si se recortaba uno cuya condición seguía viva
       // (p. ej. marcado como hecho a mano), en el siguiente recálculo reaparecía como pendiente
       // nuevo (auditoría 2026-10-01).
       const vivos = todos.filter((n) => idsVivos.has(n.id));
-      const resueltos = new Set(todos.filter((n) => !idsVivos.has(n.id)).slice(0, Math.max(0, LIMITE_HISTORIAL - vivos.length)));
+      const resueltos = new Set(
+        todos
+          .filter((n) => !idsVivos.has(n.id))
+          .slice(0, Math.max(0, LIMITE_HISTORIAL - vivos.length)),
+      );
       const combinado = todos.filter((n) => idsVivos.has(n.id) || resueltos.has(n));
       guardarHistorial(user.id, combinado);
       return combinado;

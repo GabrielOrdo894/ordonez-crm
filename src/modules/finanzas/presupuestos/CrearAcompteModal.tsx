@@ -4,7 +4,13 @@ import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
-import { lineaVacia, calcularLinea, calcularTotales, getTiposServicio, formatearPrecio } from '../lineas';
+import {
+  lineaVacia,
+  calcularLinea,
+  calcularTotales,
+  getTiposServicio,
+  formatearPrecio,
+} from '../lineas';
 import type { Linea } from '../lineas';
 import { porcentajeIva } from '../iva';
 import type { Presupuesto } from './types';
@@ -23,9 +29,16 @@ type CrearAcompteModalProps = {
   presupuesto: Presupuesto | null;
   onClose: () => void;
   onCrear: (opts: { linea: Linea; fecha: string }) => void;
+  // Plazo del plan de pago a preseleccionar (aviso de cobro de la campana o «Facturar» en la ficha).
+  plazoInicial?: number;
 };
 
-export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompteModalProps) {
+export function CrearAcompteModal({
+  presupuesto,
+  onClose,
+  onCrear,
+  plazoInicial = 0,
+}: CrearAcompteModalProps) {
   const toast = useToast();
   const [creando, setCreando] = useState(false);
   const [modo, setModo] = useState<Modo>('porcentaje');
@@ -38,7 +51,7 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
   useEffect(() => {
     if (!presupuesto) return;
     setModo(presupuesto.plan_pago.length > 0 ? 'porcentaje' : 'fijo');
-    setPlazoIdx(0);
+    setPlazoIdx(Math.min(plazoInicial, Math.max(0, presupuesto.plan_pago.length - 1)));
     setImporteFijo(0);
     setFecha(fechaHoy());
     setDescripcionManual(false);
@@ -50,7 +63,11 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
   const plazoActual = presupuesto?.plan_pago[plazoIdx];
   const importeTtc = modo === 'porcentaje' ? (plazoActual?.importe ?? 0) : importeFijo;
   const porcentajeEfectivo =
-    modo === 'porcentaje' ? (plazoActual?.porcentaje ?? 0) : totalPresupuesto > 0 ? Math.round((importeFijo / totalPresupuesto) * 1000) / 10 : 0;
+    modo === 'porcentaje'
+      ? (plazoActual?.porcentaje ?? 0)
+      : totalPresupuesto > 0
+        ? Math.round((importeFijo / totalPresupuesto) * 1000) / 10
+        : 0;
 
   useEffect(() => {
     if (!presupuesto || descripcionManual) return;
@@ -118,17 +135,26 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
       }
     >
       <div className="space-y-4">
-        <Input label="Fecha del anticipo" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        <Input
+          label="Fecha del anticipo"
+          type="date"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+        />
 
         <div>
-          <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Cálculo del importe</p>
+          <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">
+            Cálculo del importe
+          </p>
           <div className="flex gap-2 mb-3">
             <button
               type="button"
               onClick={() => setModo('porcentaje')}
               disabled={presupuesto.plan_pago.length === 0}
               className={`px-2.5 py-1 rounded-full text-xs border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                modo === 'porcentaje' ? 'bg-brand text-white border-brand' : 'bg-surface text-gray-600 border-gray-200 hover:border-brand'
+                modo === 'porcentaje'
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-surface text-gray-600 border-gray-200 hover:border-brand'
               }`}
             >
               Porcentaje del plan de pago
@@ -137,7 +163,9 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
               type="button"
               onClick={() => setModo('fijo')}
               className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
-                modo === 'fijo' ? 'bg-brand text-white border-brand' : 'bg-surface text-gray-600 border-gray-200 hover:border-brand'
+                modo === 'fijo'
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-surface text-gray-600 border-gray-200 hover:border-brand'
               }`}
             >
               Importe fijo (IVA incluido)
@@ -156,7 +184,9 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
                 }))}
               />
             ) : (
-              <p className="text-xs text-gray-400">Este presupuesto no tiene plan de pago definido.</p>
+              <p className="text-xs text-gray-400">
+                Este presupuesto no tiene plan de pago definido.
+              </p>
             )
           ) : (
             <Input
@@ -164,16 +194,26 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
               type="number"
               value={importeFijo}
               onChange={(e) => setImporteFijo(Number(e.target.value))}
-              hint={totalPresupuesto > 0 ? `≈ ${porcentajeEfectivo}% del total del presupuesto (${formatearPrecio(totalPresupuesto)})` : undefined}
+              hint={
+                totalPresupuesto > 0
+                  ? `≈ ${porcentajeEfectivo}% del total del presupuesto (${formatearPrecio(totalPresupuesto)})`
+                  : undefined
+              }
             />
           )}
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Descripción</label>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Descripción
+            </label>
             {descripcionManual && (
-              <button type="button" onClick={() => setDescripcionManual(false)} className="text-xs text-brand hover:underline">
+              <button
+                type="button"
+                onClick={() => setDescripcionManual(false)}
+                className="text-xs text-brand hover:underline"
+              >
                 Restablecer texto automático
               </button>
             )}
@@ -189,7 +229,9 @@ export function CrearAcompteModal({ presupuesto, onClose, onCrear }: CrearAcompt
         </div>
 
         <p className="text-sm text-gray-500 border-t border-gray-100 pt-3">
-          Importe del anticipo: <span className="font-semibold text-gray-900">{formatearPrecio(importeTtc)}</span> (IVA incluido)
+          Importe del anticipo:{' '}
+          <span className="font-semibold text-gray-900">{formatearPrecio(importeTtc)}</span> (IVA
+          incluido)
         </p>
       </div>
     </Modal>

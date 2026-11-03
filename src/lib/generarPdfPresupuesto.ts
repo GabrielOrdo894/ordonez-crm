@@ -24,8 +24,18 @@ import { parsearTextoEnriquecido, estiloFuente } from './textoEnriquecido';
 import { renderizarTC, tamanoFuenteTC } from './terminos';
 import { mencionIvaReducida } from '../modules/finanzas/iva';
 import { colorEstadoPdf } from '../modules/finanzas/estadoColor';
-import { porcentajeIva, paisDesdeTipoIva, calcularTotales, calcularTotalesRango, totalLineaMax } from '../modules/finanzas/presupuestos/types';
-import { formatearUnidadTexto, formatearPrecio, formatearRangoPrecio } from '../modules/finanzas/lineas';
+import {
+  porcentajeIva,
+  paisDesdeTipoIva,
+  calcularTotales,
+  calcularTotalesRango,
+  totalLineaMax,
+} from '../modules/finanzas/presupuestos/types';
+import {
+  formatearUnidadTexto,
+  formatearPrecio,
+  formatearRangoPrecio,
+} from '../modules/finanzas/lineas';
 import { direccionEnDosLineas } from './direcciones';
 import { registrarFuentePoppins, FUENTE_PDF } from './fuentePdf';
 import type { Presupuesto } from '../modules/finanzas/presupuestos/types';
@@ -33,7 +43,10 @@ import type { Presupuesto } from '../modules/finanzas/presupuestos/types';
 export type CajaFirma = { pagina: number; x: number; y: number; width: number; height: number };
 
 const TAM_TITULO_DOC: Record<TamanoTitulo, number> = { sm: 10, md: 12, lg: 15 };
-const HALIGN_DESDE_ALINEACION: Record<Exclude<AlineacionEncabezado, 'auto'>, 'left' | 'center' | 'right'> = {
+const HALIGN_DESDE_ALINEACION: Record<
+  Exclude<AlineacionEncabezado, 'auto'>,
+  'left' | 'center' | 'right'
+> = {
   izquierda: 'left',
   centro: 'center',
   derecha: 'right',
@@ -62,13 +75,23 @@ const TEXTOS = {
     emision: 'Emisión',
     validez: 'Válido hasta',
     tipoImpuesto: 'Impuesto',
-    columnas: ['Nº', 'Designación', 'Descripción', 'Ud.', 'Cant.', 'Precio unit. (s/IVA)', 'Total', 'Total con Impuestos'],
+    columnas: [
+      'Nº',
+      'Designación',
+      'Descripción',
+      'Ud.',
+      'Cant.',
+      'Precio unit. (s/IVA)',
+      'Total',
+      'Total con Impuestos',
+    ],
     estado: 'Estado',
     totalSinIva: 'Base imponible',
     iva: 'IVA',
     total: 'TOTAL',
     totalOrientativo: 'TOTAL',
-    notaSinIva: 'IVA no incluido — se determinará en el presupuesto definitivo tras la visita técnica.',
+    notaSinIva:
+      'IVA no incluido — se determinará en el presupuesto definitivo tras la visita técnica.',
     planPago: 'Plan de pago',
     columnasPago: ['Concepto', '%', 'Importe'],
     incluido: 'Incluido',
@@ -93,13 +116,23 @@ const TEXTOS = {
     emision: 'Émission',
     validez: "Valable jusqu'au",
     tipoImpuesto: 'Taxe',
-    columnas: ['Nº', 'Désignation', 'Description', 'Unit', 'Qt', 'Prix unit. (HT)', 'Total', 'Total TTC'],
+    columnas: [
+      'Nº',
+      'Désignation',
+      'Description',
+      'Unit',
+      'Qt',
+      'Prix unit. (HT)',
+      'Total',
+      'Total TTC',
+    ],
     estado: 'État',
     totalSinIva: 'Base HT',
     iva: 'TVA',
     total: 'TOTAL',
     totalOrientativo: 'TOTAL',
-    notaSinIva: 'TVA non incluse — sera déterminée dans le devis définitif après la visite technique.',
+    notaSinIva:
+      'TVA non incluse — sera déterminée dans le devis définitif après la visite technique.',
     planPago: 'Plan de paiement',
     columnasPago: ['Concept', '%', 'Montant'],
     incluido: 'Inclus',
@@ -124,7 +157,9 @@ export async function generarPdfPresupuesto(p: Presupuesto) {
 
 /** Igual que generarPdfPresupuesto pero devuelve el PDF como Blob en vez de descargarlo (para subirlo a
  * Documenso), junto con la posición exacta del recuadro de firma del cliente en el PDF. */
-export async function generarPdfPresupuestoBlob(p: Presupuesto): Promise<{ blob: Blob; cajaFirma: CajaFirma | null }> {
+export async function generarPdfPresupuestoBlob(
+  p: Presupuesto,
+): Promise<{ blob: Blob; cajaFirma: CajaFirma | null }> {
   const { doc, cajaFirma } = await construirPdfPresupuesto(p);
   return { blob: doc.output('blob'), cajaFirma };
 }
@@ -148,7 +183,8 @@ async function construirPdfPresupuestoTraducido(p: Presupuesto) {
   };
   const { doc } = await construirPdfPresupuesto(pTraducido);
 
-  const AVISO = 'TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO OFICIAL  ·  TRADUCTION INTERNE — NON VALABLE COMME DOCUMENT OFFICIEL';
+  const AVISO =
+    'TRADUCCIÓN INTERNA — NO VÁLIDA COMO DOCUMENTO OFICIAL  ·  TRADUCTION INTERNE — NON VALABLE COMME DOCUMENT OFFICIEL';
   const totalPaginas = totalPaginasPdf(doc);
   for (let i = 1; i <= totalPaginas; i++) {
     doc.setPage(i);
@@ -195,7 +231,10 @@ export type OpcionesConstruccionPresupuesto = {
   incluirPie?: boolean;
 };
 
-export async function construirPdfPresupuesto(p: Presupuesto, opciones?: OpcionesConstruccionPresupuesto) {
+export async function construirPdfPresupuesto(
+  p: Presupuesto,
+  opciones?: OpcionesConstruccionPresupuesto,
+) {
   const idioma = p.idioma === 'Français' ? 'fr' : 'es';
   const t = TEXTOS[idioma];
   const esOrientativo = p.tipo === 'orientativo';
@@ -212,9 +251,13 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     bic: p.banco_bic || entidadBase.bic,
   };
   const config = await cargarConfigCompleta();
-  const configPlantilla = configPlantillaDesde((config?.datos as { plantilla_documento?: unknown })?.plantilla_documento);
+  const configPlantilla = configPlantillaDesde(
+    (config?.datos as { plantilla_documento?: unknown })?.plantilla_documento,
+  );
   const configPortada = configPortadaDesde((config?.datos as { portada?: unknown })?.portada);
-  const condPagoDatos = p.condiciones_pago ?? (config?.datos as { condicionesPago?: Record<string, string> })?.condicionesPago;
+  const condPagoDatos =
+    p.condiciones_pago ??
+    (config?.datos as { condicionesPago?: Record<string, string> })?.condicionesPago;
   const condicionesPago = condPagoDatos
     ? {
         delai: idioma === 'fr' ? condPagoDatos.delaiFr : condPagoDatos.delaiEs,
@@ -242,13 +285,25 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
   const etiquetaOrientativo = idioma === 'fr' ? 'INDICATIF' : 'ORIENTATIVO';
   // Si es orientativo, la etiqueta va pegada al título ("PRESUPUESTO ORIENTATIVO"), no suelta
   // debajo — así no compite por espacio con el subtítulo ni se corta.
-  const tituloDoc = esOrientativo ? `${t.titulo} ${etiquetaOrientativo}` : t.titulo;
+  // Un avenant (trabajos añadidos a un presupuesto firmado) se titula AVENANT / ANEXO.
+  const tituloDoc = p.avenant_de_id
+    ? idioma === 'fr'
+      ? 'AVENANT'
+      : 'ANEXO'
+    : esOrientativo
+      ? `${t.titulo} ${etiquetaOrientativo}`
+      : t.titulo;
 
   // ---- Portada (solo formato completo) ----
   const incluirPortada = opciones?.incluirPortada ?? p.formato === 'completo';
-  const diasValidez = p.fecha_emision && p.fecha_validez
-    ? Math.round((Date.parse(`${p.fecha_validez}T00:00:00Z`) - Date.parse(`${p.fecha_emision}T00:00:00Z`)) / 86_400_000)
-    : null;
+  const diasValidez =
+    p.fecha_emision && p.fecha_validez
+      ? Math.round(
+          (Date.parse(`${p.fecha_validez}T00:00:00Z`) -
+            Date.parse(`${p.fecha_emision}T00:00:00Z`)) /
+            86_400_000,
+        )
+      : null;
   if (incluirPortada) {
     const descripcionPortada = esOrientativo
       ? idioma === 'fr'
@@ -271,7 +326,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       tituloDoc,
       tamanoTitulo: esOrientativo ? 25 : 30,
       interlineaTitulo: esOrientativo ? 9 : 10.5,
-      proyecto: p.titulo ? { label: idioma === 'fr' ? 'PROJET' : 'PROYECTO', titulo: p.titulo } : undefined,
+      proyecto: p.titulo
+        ? { label: idioma === 'fr' ? 'PROJET' : 'PROYECTO', titulo: p.titulo }
+        : undefined,
       descripcion: descripcionPortada,
       filas: [
         { icono: 'calendario', etiqueta: t.emision, valor: p.fecha_emision || '—' },
@@ -282,7 +339,8 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       pais,
       labelCif,
       labelEmpresa: idioma === 'fr' ? 'ENTREPRISE' : 'EMPRESA',
-      tagline: idioma === 'fr' ? configPlantilla.portadaTaglineFr : configPlantilla.portadaTaglineEs,
+      tagline:
+        idioma === 'fr' ? configPlantilla.portadaTaglineFr : configPlantilla.portadaTaglineEs,
     });
   }
 
@@ -363,7 +421,11 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
 
     doc.setTextColor(...colorRgb);
     doc.setFont(FUENTE_PDF, 'bold');
-    doc.setFontSize(esOrientativo ? TAM_TITULO_DOC[configPlantilla.tamanoTituloDocumento] - 2 : TAM_TITULO_DOC[configPlantilla.tamanoTituloDocumento]);
+    doc.setFontSize(
+      esOrientativo
+        ? TAM_TITULO_DOC[configPlantilla.tamanoTituloDocumento] - 2
+        : TAM_TITULO_DOC[configPlantilla.tamanoTituloDocumento],
+    );
     doc.text(tituloDoc, 195, 13, { align: 'right' });
     let yTituloMin = 19;
     if (p.titulo) {
@@ -454,7 +516,8 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       doc.rect(0, 0, 210, 30, 'F');
     }
 
-    const colorPrincipal: [number, number, number] = plantilla === 'moderna' ? [30, 30, 30] : [255, 255, 255];
+    const colorPrincipal: [number, number, number] =
+      plantilla === 'moderna' ? [30, 30, 30] : [255, 255, 255];
 
     let xTexto = margen;
     if (logoActivo) {
@@ -469,7 +532,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     doc.setFontSize(13);
     doc.text(entidad.razon_social || 'Reformas Ordoñez', xTexto, 17);
 
-    doc.setTextColor(...(plantilla === 'moderna' ? colorRgb : ([255, 255, 255] as [number, number, number])));
+    doc.setTextColor(
+      ...(plantilla === 'moderna' ? colorRgb : ([255, 255, 255] as [number, number, number])),
+    );
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(esOrientativo ? 17 : 24);
     doc.text(tituloDoc, 195, 18, { align: 'right' });
@@ -509,7 +574,11 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     yDerDatos += 4.5;
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setTextColor(...colorEstadoPdf(p.estado));
-    doc.text(`${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`, xDerDatos, yDerDatos);
+    doc.text(
+      `${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`,
+      xDerDatos,
+      yDerDatos,
+    );
     doc.setFont(FUENTE_PDF, 'normal');
     doc.setTextColor(...GRIS_TEXTO);
     yDerDatos += 4.5;
@@ -523,7 +592,8 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       entidad.telefono,
       entidad.web,
       entidad.identificador && `${labelCif}: ${entidad.identificador}`,
-      entidad.identificador_extra && (pais === 'Francia' ? `TVA: ${entidad.identificador_extra}` : entidad.identificador_extra),
+      entidad.identificador_extra &&
+        (pais === 'Francia' ? `TVA: ${entidad.identificador_extra}` : entidad.identificador_extra),
     ].filter(Boolean) as string[];
     if (lineasCabecera.length > 0) {
       doc.setFont(FUENTE_PDF, 'normal');
@@ -600,7 +670,12 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     }
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setTextColor(...colorEstadoPdf(p.estado));
-    doc.text(`${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`, xDer, yInfo, { align: 'right' });
+    doc.text(
+      `${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`,
+      xDer,
+      yInfo,
+      { align: 'right' },
+    );
     doc.setFont(FUENTE_PDF, 'normal');
     doc.setTextColor(30, 30, 30);
     yInfo += 8;
@@ -670,7 +745,13 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
           yy += 5;
         }
         if (entidad.identificador_extra) {
-          doc.text(pais === 'Francia' ? `TVA: ${entidad.identificador_extra}` : entidad.identificador_extra, x + 4, yy);
+          doc.text(
+            pais === 'Francia'
+              ? `TVA: ${entidad.identificador_extra}`
+              : entidad.identificador_extra,
+            x + 4,
+            yy,
+          );
         }
       };
 
@@ -702,7 +783,11 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
         }
         doc.setFont(FUENTE_PDF, 'bold');
         doc.setTextColor(...colorEstadoPdf(p.estado));
-        doc.text(`${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`, x + 4, yEstado);
+        doc.text(
+          `${t.estado} : ${idioma === 'fr' ? (ESTADO_FR[p.estado] ?? p.estado) : p.estado}`,
+          x + 4,
+          yEstado,
+        );
         doc.setFont(FUENTE_PDF, 'normal');
         doc.setTextColor(30, 30, 30);
       };
@@ -758,7 +843,12 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
 
   const anchoLineaH = configPlantilla.tabla.lineas ? 0.1 : 0;
   const anchoLineaV = configPlantilla.tabla.lineasVerticales ? 0.1 : 0;
-  const lineWidthTabla = { top: anchoLineaH, bottom: anchoLineaH, left: anchoLineaV, right: anchoLineaV };
+  const lineWidthTabla = {
+    top: anchoLineaH,
+    bottom: anchoLineaH,
+    left: anchoLineaV,
+    right: anchoLineaV,
+  };
 
   autoTable(doc, {
     startY: yTabla,
@@ -779,10 +869,17 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       if (colTabla.unidad) fila.push(formatearUnidadTexto(l.unidad));
       fila.push(
         String(l.cantidad),
-        esOrientativo ? formatearRangoPrecio(l.precio_unit, l.precio_unit_max ?? l.precio_unit) : formatearPrecio(l.precio_unit),
-        l.es_incluido ? t.incluido : esOrientativo ? formatearRangoPrecio(l.total_sin_iva, max.sinIva) : formatearPrecio(l.total_sin_iva),
+        esOrientativo
+          ? formatearRangoPrecio(l.precio_unit, l.precio_unit_max ?? l.precio_unit)
+          : formatearPrecio(l.precio_unit),
+        l.es_incluido
+          ? t.incluido
+          : esOrientativo
+            ? formatearRangoPrecio(l.total_sin_iva, max.sinIva)
+            : formatearPrecio(l.total_sin_iva),
       );
-      if (mostrarTotalImpuestos) fila.push(l.es_incluido ? t.incluido : formatearPrecio(l.total_con_iva));
+      if (mostrarTotalImpuestos)
+        fila.push(l.es_incluido ? t.incluido : formatearPrecio(l.total_con_iva));
       return fila;
     }),
     styles: { font: FUENTE_PDF, lineWidth: lineWidthTabla, lineColor: GRIS_BORDE, valign: 'top' },
@@ -797,7 +894,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
           lineColor: [17, 24, 39],
         },
     bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-    ...(configPlantilla.tabla.filasIntercaladas ? { alternateRowStyles: { fillColor: colorClaroRgb } } : {}),
+    ...(configPlantilla.tabla.filasIntercaladas
+      ? { alternateRowStyles: { fillColor: colorClaroRgb } }
+      : {}),
     columnStyles: {
       0: { halign: 'right', cellWidth: ANCHO_NUM },
       [idxDesignacion]: { cellWidth: anchoDesignacion },
@@ -805,7 +904,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       [idxNumerica]: { halign: 'right', cellWidth: ANCHO_CANT },
       [idxNumerica + 1]: { halign: 'right', cellWidth: ANCHO_PRECIO },
       [idxNumerica + 2]: { halign: 'right', cellWidth: ANCHO_TOTAL },
-      ...(mostrarTotalImpuestos ? { [idxNumerica + 3]: { halign: 'right', cellWidth: ANCHO_TOTAL_IMP } } : {}),
+      ...(mostrarTotalImpuestos
+        ? { [idxNumerica + 3]: { halign: 'right', cellWidth: ANCHO_TOTAL_IMP } }
+        : {}),
     },
     didParseCell: (data) => {
       // Alineación forzada de encabezados (izquierda/centro/derecha) — 'auto' deja la alineación
@@ -832,7 +933,10 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       if (colTabla.referencia && l.referencia) lineas += 1;
       doc.setFont(FUENTE_PDF, 'bold');
       doc.setFontSize(9.5);
-      lineas += doc.splitTextToSize(formatearUnidadTexto(l.designacion) || '—', anchoTextoDesignacion).length;
+      lineas += doc.splitTextToSize(
+        formatearUnidadTexto(l.designacion) || '—',
+        anchoTextoDesignacion,
+      ).length;
       if (colTabla.descripcion && l.tipo_servicio && l.tipo_servicio !== '—') {
         lineas += 1;
         if (l.descripcion) alturaExtra += GAP_TIPO_DESC;
@@ -841,7 +945,10 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
         doc.setFontSize(7.5);
         for (const bloque of parsearTextoEnriquecido(formatearUnidadTexto(l.descripcion))) {
           doc.setFont(FUENTE_PDF, estiloFuente(bloque.negrita, bloque.cursiva));
-          lineas += doc.splitTextToSize(bloque.texto, anchoTextoDesignacion - (bloque.tipo === 'lista' ? 2 : 0)).length;
+          lineas += doc.splitTextToSize(
+            bloque.texto,
+            anchoTextoDesignacion - (bloque.tipo === 'lista' ? 2 : 0),
+          ).length;
         }
       }
       doc.setFont(FUENTE_PDF, 'normal');
@@ -866,7 +973,10 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       doc.setFont(FUENTE_PDF, 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(30, 30, 30);
-      const desigLineas = doc.splitTextToSize(formatearUnidadTexto(l.designacion) || '—', anchoTextoDesignacion);
+      const desigLineas = doc.splitTextToSize(
+        formatearUnidadTexto(l.designacion) || '—',
+        anchoTextoDesignacion,
+      );
       doc.text(desigLineas, x, ty);
       ty += desigLineas.length * LINE_H;
       if (colTabla.descripcion && l.tipo_servicio && l.tipo_servicio !== '—') {
@@ -944,19 +1054,29 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     const anchoConcepto = anchoCol - 14 - 24; // ancho total menos las columnas fijas de % e importe
     alturaColIzquierda += 9; // cabecera de la tabla
     for (const plazo of p.plan_pago) {
-      alturaColIzquierda += Math.max(1, doc.splitTextToSize(plazo.concepto, anchoConcepto).length) * 4.5 + 3;
+      alturaColIzquierda +=
+        Math.max(1, doc.splitTextToSize(plazo.concepto, anchoConcepto).length) * 4.5 + 3;
     }
     alturaColIzquierda += 10; // mismo gap que "+ 10" tras la tabla al dibujarla de verdad
   }
-  if (condicionesPago && (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)) {
+  if (
+    condicionesPago &&
+    (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)
+  ) {
     let altoCond = 11;
-    for (const valor of [condicionesPago.delai, condicionesPago.penalizacion, condicionesPago.medio]) {
+    for (const valor of [
+      condicionesPago.delai,
+      condicionesPago.penalizacion,
+      condicionesPago.medio,
+    ]) {
       if (valor) altoCond += 4 + doc.splitTextToSize(valor, anchoCol).length * 4 + 2;
     }
     alturaColIzquierda += altoCond;
   }
   if (entidad.iban) {
-    const numCampos = [entidad.nombre_titular, entidad.iban, entidad.bic, entidad.banco].filter(Boolean).length;
+    const numCampos = [entidad.nombre_titular, entidad.iban, entidad.bic, entidad.banco].filter(
+      Boolean,
+    ).length;
     alturaColIzquierda += 11 + numCampos * 5.5;
   }
 
@@ -987,7 +1107,10 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     // el presupuesto normal tras la visita técnica. Las dos cifras (Base y TOTAL) son siempre sin
     // IVA, calculadas directamente de cantidad × precio de cada línea (no dependen del tipo de
     // IVA guardado) — la nota de debajo aclara que el IVA no está incluido.
-    const rangoSinIva = formatearRangoPrecio(rangoTotales.totalSinIvaMin, rangoTotales.totalSinIvaMax);
+    const rangoSinIva = formatearRangoPrecio(
+      rangoTotales.totalSinIvaMin,
+      rangoTotales.totalSinIvaMax,
+    );
     doc.text(t.totalSinIva, xResumenFirma + 4, y + 10);
     doc.text(rangoSinIva, xResumenFirma + anchoCol - 4, y + 10, { align: 'right' });
     doc.setDrawColor(...GRIS_BORDE);
@@ -1001,14 +1124,18 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     doc.text(t.totalSinIva, xResumenFirma + 4, y + 7);
     doc.text(formatearPrecio(totalSinIva), xResumenFirma + anchoCol - 4, y + 7, { align: 'right' });
     doc.text(`${t.iva} (${porcentajeIva(p.tipo_iva)}%)`, xResumenFirma + 4, y + 13);
-    doc.text(formatearPrecio(totalConIva - totalSinIva), xResumenFirma + anchoCol - 4, y + 13, { align: 'right' });
+    doc.text(formatearPrecio(totalConIva - totalSinIva), xResumenFirma + anchoCol - 4, y + 13, {
+      align: 'right',
+    });
     doc.setDrawColor(...GRIS_BORDE);
     doc.line(xResumenFirma + 4, y + 16, xResumenFirma + anchoCol - 4, y + 16);
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(12);
     doc.setTextColor(...colorRgb);
     doc.text(t.total, xResumenFirma + 4, y + 23);
-    doc.text(formatearPrecio(totalConIva), xResumenFirma + anchoCol - 4, y + 23, { align: 'right' });
+    doc.text(formatearPrecio(totalConIva), xResumenFirma + anchoCol - 4, y + 23, {
+      align: 'right',
+    });
   }
 
   let yResumenFirma = y + 26 + 6;
@@ -1044,7 +1171,13 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
 
     // Mismo rectángulo donde se pinta la firma manual (firma_base64) — se reutiliza como
     // posición del campo de firma en Documenso para que ambos métodos firmen en el mismo sitio.
-    cajaFirmaDocumenso = { pagina: paginaResumenPago, x: xResumenFirma + 4, y: yResumenFirma + 10, width: 55, height: 18 };
+    cajaFirmaDocumenso = {
+      pagina: paginaResumenPago,
+      x: xResumenFirma + 4,
+      y: yResumenFirma + 10,
+      width: 55,
+      height: 18,
+    };
 
     if (p.firmado && p.firma_base64) {
       doc.addImage(p.firma_base64, 'PNG', xResumenFirma + 4, yResumenFirma + 10, 55, 18);
@@ -1052,7 +1185,10 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       doc.setFontSize(8);
       doc.setTextColor(...GRIS_TEXTO);
       doc.text(
-        doc.splitTextToSize(`${t.firmadoPor} ${p.firma_nombre ?? ''} — ${p.firma_fecha?.slice(0, 10) ?? ''}`, anchoCol - 8),
+        doc.splitTextToSize(
+          `${t.firmadoPor} ${p.firma_nombre ?? ''} — ${p.firma_fecha?.slice(0, 10) ?? ''}`,
+          anchoCol - 8,
+        ),
         xResumenFirma + 4,
         yResumenFirma + 30,
       );
@@ -1088,27 +1224,59 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
       margin: { left: xPlanForma, right: 210 - xPlanForma - anchoCol },
       tableWidth: anchoCol,
       head: [[t.planPago, ...t.columnasPago.slice(1)]],
-      body: p.plan_pago.map((plazo) => [plazo.concepto, `${plazo.porcentaje}%`, formatearPrecio(plazo.importe)]),
+      body: p.plan_pago.map((plazo) => [
+        plazo.concepto,
+        `${plazo.porcentaje}%`,
+        formatearPrecio(plazo.importe),
+      ]),
       // valign 'middle' — por defecto autoTable alinea arriba, y con un concepto largo que ocupa
       // varias líneas el % y el importe (una sola línea) quedaban pegados al borde superior de la
       // fila en vez de centrados (reportado 2026-08-11). cellWidth fijo en % e importe para que
       // ninguno de los dos tenga que partirse en dos líneas ("33,33%" no cabía en 10mm — reportado
       // 2026-08-14) — el concepto es el único que se ajusta al ancho restante.
-      styles: { font: FUENTE_PDF, lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0, lineColor: GRIS_BORDE, valign: 'middle' },
-      headStyles: { fillColor: colorClaroRgb, textColor: colorOscuroRgb, fontStyle: 'bold', fontSize: 8.5 },
+      styles: {
+        font: FUENTE_PDF,
+        lineWidth: configPlantilla.tabla.lineas ? 0.1 : 0,
+        lineColor: GRIS_BORDE,
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: colorClaroRgb,
+        textColor: colorOscuroRgb,
+        fontStyle: 'bold',
+        fontSize: 8.5,
+      },
       bodyStyles: { fontSize: 8.5, textColor: [30, 30, 30] },
-      columnStyles: { 1: { halign: 'right', cellWidth: 14 }, 2: { halign: 'right', cellWidth: 24 } },
+      columnStyles: {
+        1: { halign: 'right', cellWidth: 14 },
+        2: { halign: 'right', cellWidth: 24 },
+      },
     });
-    yPlanForma = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    yPlanForma =
+      (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
   }
 
   // Izquierda: condiciones de pago (encima de forma de pago) — sin caja, en blanco
-  if (condicionesPago && (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)) {
+  if (
+    condicionesPago &&
+    (condicionesPago.delai || condicionesPago.penalizacion || condicionesPago.medio)
+  ) {
     const camposCond: [string, string][] = [];
-    if (condicionesPago.delai) camposCond.push([idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago', condicionesPago.delai]);
+    if (condicionesPago.delai)
+      camposCond.push([
+        idioma === 'fr' ? 'Délai de paiement' : 'Plazo de pago',
+        condicionesPago.delai,
+      ]);
     if (condicionesPago.penalizacion)
-      camposCond.push([idioma === 'fr' ? 'Pénalité de retard' : 'Penalización por retraso', condicionesPago.penalizacion]);
-    if (condicionesPago.medio) camposCond.push([idioma === 'fr' ? 'Moyens de paiement' : 'Medio de pago', condicionesPago.medio]);
+      camposCond.push([
+        idioma === 'fr' ? 'Pénalité de retard' : 'Penalización por retraso',
+        condicionesPago.penalizacion,
+      ]);
+    if (condicionesPago.medio)
+      camposCond.push([
+        idioma === 'fr' ? 'Moyens de paiement' : 'Medio de pago',
+        condicionesPago.medio,
+      ]);
 
     // Igual que el bloque de nota/seguro más abajo: si el bloque no cabe entero en lo que queda
     // de página, se pasa a una nueva en vez de dejarlo pintado a caballo entre el contenido y el
@@ -1127,7 +1295,11 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     doc.setFont(FUENTE_PDF, 'bold');
     doc.setFontSize(8);
     doc.setTextColor(...colorRgb);
-    doc.text(idioma === 'fr' ? 'Conditions de paiement' : 'Condiciones de pago', xPlanForma, yPlanForma + 4);
+    doc.text(
+      idioma === 'fr' ? 'Conditions de paiement' : 'Condiciones de pago',
+      xPlanForma,
+      yPlanForma + 4,
+    );
     let yCond = yPlanForma + 11;
     for (const [label, valor] of camposCond) {
       doc.setFont(FUENTE_PDF, 'bold');
@@ -1187,12 +1359,15 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     const esFrancia = pais === 'Francia';
     const lineaSeguro = [
       entidad.seguro,
-      entidad.num_attestation && (esFrancia ? `Police n° ${entidad.num_attestation}` : `Nº ${entidad.num_attestation}`),
+      entidad.num_attestation &&
+        (esFrancia ? `Police n° ${entidad.num_attestation}` : `Nº ${entidad.num_attestation}`),
     ]
       .filter(Boolean)
       .join('   ·   ');
     const lineasSeguro = doc.splitTextToSize(lineaSeguro, anchoContenido - 8);
-    const alto = esFrancia ? 15 + lineasSeguro.length * 4.2 + DECENNALE_BULLETS_FR.length * 4 + 4 : 20;
+    const alto = esFrancia
+      ? 15 + lineasSeguro.length * 4.2 + DECENNALE_BULLETS_FR.length * 4 + 4
+      : 20;
 
     if (y + alto > 270) {
       doc.addPage();
@@ -1264,7 +1439,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
     doc.setFont(FUENTE_PDF, 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...GRIS_TEXTO);
-    doc.text(doc.splitTextToSize(configPlantilla.piePagina, anchoContenido), 105, yPie, { align: 'center' });
+    doc.text(doc.splitTextToSize(configPlantilla.piePagina, anchoContenido), 105, yPie, {
+      align: 'center',
+    });
   }
 
   // ---- Términos y condiciones ----
@@ -1335,7 +1512,9 @@ export async function construirPdfPresupuesto(p: Presupuesto, opciones?: Opcione
         doc.setFont(FUENTE_PDF, 'italic');
         doc.setFontSize(11);
         doc.setTextColor(...colorRgb);
-        doc.text(doc.splitTextToSize(mensajeGracias, anchoContenido), 105, 280, { align: 'center' });
+        doc.text(doc.splitTextToSize(mensajeGracias, anchoContenido), 105, 280, {
+          align: 'center',
+        });
       }
       piePaginaNumerado(doc, margen, entidad.razon_social ?? '', i, totalPaginas, t.pagina);
     }
