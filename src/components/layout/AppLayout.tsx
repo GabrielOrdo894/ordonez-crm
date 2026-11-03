@@ -10,7 +10,7 @@ import { ClienteForm } from '../../modules/clientes/ClienteForm';
 import { supabase } from '../../lib/supabase';
 import { notaSistema } from '../../lib/notaSistema';
 import { crearGastoKilometricoPendiente } from '../../lib/gastoKilometrico';
-import { conciliarCobrosAutomaticos } from '../../lib/conciliacionBancaria';
+import { conciliarAutomaticos } from '../../lib/conciliacionBancaria';
 import { useToast } from '../../hooks/useToast';
 import type { PrefillVisita, Visita } from '../../modules/visitas/types';
 import type { ClienteFormPrefill } from '../../modules/clientes/ClienteForm';
@@ -76,12 +76,12 @@ export function AppLayout() {
   useEffect(() => {
     if (cobrosAutoConciliados.current) return;
     cobrosAutoConciliados.current = true;
-    conciliarCobrosAutomaticos()
+    conciliarAutomaticos()
       .then(({ conciliados, avisos }) => {
         for (const a of avisos) toast.warning(a);
         if (conciliados === 0) return;
-        toast.success(`${conciliados} cobro(s) del banco conciliado(s) automáticamente con su factura`);
-        for (const clave of ['movimientos_banco', 'facturas', 'asientos_contables']) {
+        toast.success(`${conciliados} movimiento(s) del banco conciliado(s) automáticamente`);
+        for (const clave of ['movimientos_banco', 'facturas', 'pagos_factura', 'gastos', 'asientos_contables']) {
           queryClient.invalidateQueries({ queryKey: [clave] });
         }
       })

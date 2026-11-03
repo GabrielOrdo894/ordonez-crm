@@ -14,6 +14,8 @@
 //      necesita paso del tiempo, de ahí que viva aquí y no en el frontend.
 //   4. Comprueba que los avisos de visita llegaron a Gmail, que el servidor de firmas responde y que
 //      los tokens de Google Calendar/Gmail y la clave de Google Maps siguen valiendo (ver cada función).
+//   5. Envía las confirmaciones de visita al cliente que notificar-visita dejó programadas por crearse
+//      la visita fuera del horario de envío (08:00–18:30 hora de Francia).
 //
 // Reutiliza el patrón de autorización de alerta-diaria/index.ts y el cálculo de distancia
 // (Distance Matrix con fallback Haversine) de notificar-visita/index.ts.
@@ -374,6 +376,40 @@ async function verificarAvisosVisita(supabase: SupabaseClient): Promise<{ verifi
   return { verificados, noLlegados };
 }
 
+// Confirmaciones al cliente programadas por notificar-visita fuera del horario de envío (08:00–18:30
+// hora de Francia, Gabriel 2026-11-03): se mandan las que ya han llegado a su hora llamando a
+// notificar-visita en modo 'solo_cliente' (el aviso interno ya salió al crear la visita). Solo visitas
+// Pendiente y fuera de la papelera: una cancelada, realizada o eliminada entre medias no se confirma.
+// Si el envío falla, se queda programada y se reintenta en la siguiente pasada.
+async function enviarConfirmacionesProgramadas(supabase: SupabaseClient): Promise<{ enviadas: number; errores: string[] }> {
+  const { data, error } = await supabase
+    .from('visitas')
+    .select('id, aviso_cliente_programado_motivo')
+    .is('eliminado_en', null)
+    .eq('estado', 'Pendiente')
+    .not('aviso_cliente_programado_en', 'is', null)
+    .lte('aviso_cliente_programado_en', new Date().toISOString());
+  if (error) throw new Error(`visitas (confirmaciones programadas): ${error.message}`);
+  const urlBase = Deno.env.get('SUPABASE_URL')!;
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  let enviadas = 0;
+  const errores: string[] = [];
+  for (const v of (data ?? []) as { id: string; aviso_cliente_programado_motivo: string | null }[]) {
+    const res = await fetch(`${urlBase}/functions/v1/notificar-visita`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${serviceKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visitaId: v.id, modo: 'solo_cliente', motivo: v.aviso_cliente_programado_motivo ?? undefined }),
+    });
+    if (!res.ok) {
+      errores.push(`${v.id}: ${await res.text()}`);
+      continue;
+    }
+    enviadas++;
+  }
+  if (errores.length > 0) console.error('enviarConfirmacionesProgramadas:', errores.join(' | '));
+  return { enviadas, errores };
+}
+
 // Servidor de firmas autoalojado (Documenso en firma.ordonezrenov.com, 2026-10-20): el 20/10 devolvía
 // 502 y solo se supo al intentar generar un enlace de firma. Se anota el estado en empresa_config y la
 // campana avisa mientras siga caído. Cualquier respuesta < 500 cuenta como «responde».
@@ -518,15 +554,26 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma, integracionesGoogle] = await Promise.all([
-      autocompletarVisitas(supabase),
-      rechazarPresupuestosCaducados(supabase),
-      marcarSolicitudesNoConcretadas(supabase),
-      verificarAvisosVisita(supabase),
-      comprobarServidorFirma(supabase),
-      comprobarIntegracionesGoogle(supabase),
-    ]);
-    return jsonResponse({ ok: true, ...visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, servidorFirma, integracionesGoogle });
+    const [visitasResultado, presupuestosRechazados, solicitudesNoConcretadas, avisosVisita, confirmacionesProgramadas, servidorFirma, integracionesGoogle] =
+      await Promise.all([
+        autocompletarVisitas(supabase),
+        rechazarPresupuestosCaducados(supabase),
+        marcarSolicitudesNoConcretadas(supabase),
+        verificarAvisosVisita(supabase),
+        enviarConfirmacionesProgramadas(supabase),
+        comprobarServidorFirma(supabase),
+        comprobarIntegracionesGoogle(supabase),
+      ]);
+    return jsonResponse({
+      ok: true,
+      ...visitasResultado,
+      presupuestosRechazados,
+      solicitudesNoConcretadas,
+      avisosVisita,
+      confirmacionesProgramadas,
+      servidorFirma,
+      integracionesGoogle,
+    });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   } finally {

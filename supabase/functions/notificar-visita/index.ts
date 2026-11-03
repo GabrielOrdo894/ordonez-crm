@@ -6,14 +6,22 @@
 // Usa refresh_token_gmail de `google_config`, separado del de Calendar desde 2026-08-05 —
 // ver src/lib/googleCalendar.ts. Ver también docs/producto/bloque6-solicitudes-seguimiento.md.
 //
-// Body esperado: { "visitaId": "<uuid>", "motivo"?: "reprogramacion" }
+// Body esperado: { "visitaId": "<uuid>", "motivo"?: "reprogramacion", "modo"?: "solo_cliente" }
 // motivo: "reprogramacion" solo cambia los textos del asunto/cuerpo ("reprogramada" en vez de
 // "agendada"/"confirmada") — los destinatarios son siempre los mismos. Lo usa
 // VisitaReprogramarPage.tsx tras mover fecha/hora/duración/empleado de una visita ya agendada.
+// modo: "solo_cliente" salta el aviso interno y manda solo la confirmación al cliente, sin mirar
+// la franja horaria — lo usan automatizaciones-crm (envío diferido) y «Enviar ahora» en la ficha.
+//
+// Franja de envío al cliente (Gabriel, 2026-11-03): la confirmación al cliente solo sale entre las
+// 08:00 y las 18:30 hora de Francia (`_shared/franjaEnvioCliente.ts`). Fuera de esa franja queda
+// programada en visitas.aviso_cliente_programado_en para las 08:00 siguientes y la manda
+// automatizaciones-crm. El aviso interno al equipo sale siempre al momento.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { esLlamadaAutorizada } from '../_shared/autorizacion.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
+import { calcularEnvioProgramado, fechaHoraLegible, instanteVisita } from '../_shared/franjaEnvioCliente.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': 'https://ordonezrenov.com',
@@ -502,14 +510,73 @@ function construirHtml(opts: {
 </div>`;
 }
 
+type DatosEmpresa = {
+  notificaciones_visita_emails_extra?: string[];
+  es?: { telefono?: string; email?: string };
+  fr?: { telefono?: string; email?: string };
+};
+
+type VisitaCliente = {
+  email: string | null;
+  idioma: string | null;
+  fecha_visita: string;
+  nombre: string | null;
+  tipo: string | null;
+  empleado: string | null;
+};
+
+// Confirmación al CLIENTE, en su idioma — envío aparte porque la plantilla y el destinatario son
+// distintos del aviso interno (bug/hueco real corregido 2026-08-18: antes solo se avisaba al
+// equipo, nunca al propio cliente, así que no había recordatorio automático que redujera los
+// "no-shows"). Best-effort: un fallo no debe tumbar el aviso interno que ya se envió.
+async function enviarConfirmacionCliente(opts: {
+  v: VisitaCliente;
+  datos: DatosEmpresa;
+  reprogramada: boolean;
+  hora: string;
+  direccionHtml: string;
+  mapsUrl: string | null;
+}): Promise<'enviado' | 'sin_email' | 'error'> {
+  const { v, datos, reprogramada, hora, direccionHtml, mapsUrl } = opts;
+  if (!v.email || !EMAIL_VALIDO.test(v.email)) return 'sin_email';
+  try {
+    const fr = v.idioma === 'Français';
+    const contactoEmpresa = fr ? datos.fr : datos.es;
+    const asuntoCliente = fr
+      ? `${reprogramada ? 'Nouvelle date de votre visite technique' : 'Confirmation de votre visite technique'} — ${v.fecha_visita} ${hora}`
+      : `${reprogramada ? 'Nueva fecha de tu visita técnica' : 'Confirmación de tu visita técnica'} — ${v.fecha_visita} ${hora}`;
+    const cuerpoCliente = construirHtmlCliente({
+      fr,
+      reprogramada,
+      nombreCliente: v.nombre ?? '',
+      fechaTxt: fechaLegible(v.fecha_visita),
+      hora,
+      direccionHtml,
+      mapsUrl,
+      tipo: v.tipo || (fr ? 'À définir' : 'Sin especificar'),
+      empleado: v.empleado ?? '',
+      telefonoEmpresa: contactoEmpresa?.telefono || null,
+      emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
+    });
+    await enviarSmtp([v.email], asuntoCliente, cuerpoCliente);
+    return 'enviado';
+  } catch (err) {
+    console.error('No se pudo enviar la confirmación al cliente:', String(err instanceof Error ? err.message : err));
+    return 'error';
+  }
+}
+
+const SIN_PROGRAMACION = { aviso_cliente_programado_en: null, aviso_cliente_programado_motivo: null };
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (!(await esLlamadaAutorizada(req))) return jsonResponse({ error: 'No autorizado' }, 401);
 
   try {
-    const { visitaId, motivo } = await req.json();
+    const { visitaId, motivo, modo } = await req.json();
     if (!visitaId) return jsonResponse({ error: 'Falta "visitaId" en el body' }, 400);
     const reprogramada = motivo === 'reprogramacion';
+    const soloCliente = modo === 'solo_cliente';
 
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
@@ -518,11 +585,7 @@ Deno.serve(async (req: Request) => {
     if (!v.fecha_visita || !v.hora_visita) return jsonResponse({ error: 'La visita no tiene fecha/hora definidas' }, 400);
 
     const { data: empresaRow } = await supabase.from('empresa_config').select('datos').eq('id', 1).maybeSingle();
-    const datos = (empresaRow?.datos ?? {}) as {
-      notificaciones_visita_emails_extra?: string[];
-      es?: { telefono?: string; email?: string };
-      fr?: { telefono?: string; email?: string };
-    };
+    const datos = (empresaRow?.datos ?? {}) as DatosEmpresa;
     const extra = Array.isArray(datos.notificaciones_visita_emails_extra) ? datos.notificaciones_visita_emails_extra : [];
     const destinatarios = Array.from(new Set([REMITENTE_BASE, ...extra].filter(Boolean)));
 
@@ -531,9 +594,41 @@ Deno.serve(async (req: Request) => {
 
     const tieneCoords = typeof v.lat === 'number' && typeof v.lng === 'number';
     const oficina = v.pais === 'Francia' ? OFICINA_FR : OFICINA_ES;
-    const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat, v.lng) : null;
     const mapsUrl = v.direccion ? enlaceMaps(v.direccion, v.lat, v.lng) : null;
     const direccionHtml = direccionEnHtml(v.direccion, v.direccion_extra, mapsUrl, 'No indicada');
+
+    // Envío diferido de la confirmación al cliente (programada fuera del horario de envío) o
+    // «Enviar ahora» desde la ficha: el aviso interno ya salió al crear/reprogramar la visita.
+    if (soloCliente) {
+      // Sin motivo explícito se usa el guardado al programarla (si la anterior sí llegó al cliente,
+      // esta tiene que decir «nueva fecha», no «confirmación»).
+      const reprogramadaCliente = reprogramada || (!motivo && v.aviso_cliente_programado_motivo === 'reprogramacion');
+      if (instanteVisita(v.fecha_visita, hora).getTime() < Date.now()) {
+        const { error: e } = await supabase.from('visitas').update(SIN_PROGRAMACION).eq('id', visitaId);
+        if (e) console.error('notificar-visita: no se pudo descartar la confirmación programada', e.message);
+        return jsonResponse({ ok: true, clienteNotificado: false, omitido: 'La visita ya había pasado' });
+      }
+      const resultado = await enviarConfirmacionCliente({ v, datos, reprogramada: reprogramadaCliente, hora, direccionHtml, mapsUrl });
+      if (resultado === 'error') return jsonResponse({ ok: false, error: 'No se pudo enviar la confirmación al cliente' }, 500);
+      const { error: e } = await supabase
+        .from('visitas')
+        .update({ ...SIN_PROGRAMACION, ...(resultado === 'enviado' ? { aviso_cliente_email: v.email } : {}) })
+        .eq('id', visitaId);
+      if (e) console.error('notificar-visita: no se pudo anotar la confirmación al cliente', e.message);
+      const { error: errorNota } = await supabase.from('notas_cliente').insert({
+        visita_id: visitaId,
+        tipo: 'sistema',
+        texto:
+          resultado === 'enviado'
+            ? `Confirmación de visita enviada al cliente (${v.email}) — envío programado`
+            : 'Confirmación al cliente programada descartada: no tiene email válido',
+        autor: 'Sistema',
+      });
+      if (errorNota) console.error('notificar-visita: no se pudo guardar la nota del aviso', errorNota.message);
+      return jsonResponse({ ok: true, clienteNotificado: resultado === 'enviado' });
+    }
+
+    const distanciaTexto = tieneCoords ? await calcularDistancia(oficina, v.lat, v.lng) : null;
 
     // Fotos y PDFs previos del cliente (bucket privado `fotos-visita`) — solo en el aviso interno
     // del equipo, no en la confirmación al cliente (no le aporta nada ver sus propios archivos).
@@ -587,38 +682,17 @@ Deno.serve(async (req: Request) => {
 
     await enviarSmtp(destinatarios, asunto, cuerpo);
 
-    // Confirmación al CLIENTE, en su idioma — envío aparte porque la plantilla y el destinatario
-    // son distintos del aviso interno de arriba (bug/hueco real corregido 2026-08-18: antes solo
-    // se avisaba al equipo, nunca al propio cliente, así que no había recordatorio automático que
-    // redujera los "no-shows"). Best-effort: si falla, no debe tumbar el aviso interno que ya se
-    // envió correctamente.
-    let clienteNotificado = false;
-    if (v.email && EMAIL_VALIDO.test(v.email)) {
-      try {
-        const fr = v.idioma === 'Français';
-        const contactoEmpresa = fr ? datos.fr : datos.es;
-        const asuntoCliente = fr
-          ? `${reprogramada ? 'Nouvelle date de votre visite technique' : 'Confirmation de votre visite technique'} — ${v.fecha_visita} ${hora}`
-          : `${reprogramada ? 'Nueva fecha de tu visita técnica' : 'Confirmación de tu visita técnica'} — ${v.fecha_visita} ${hora}`;
-        const cuerpoCliente = construirHtmlCliente({
-          fr,
-          reprogramada,
-          nombreCliente: v.nombre ?? '',
-          fechaTxt: fechaLegible(v.fecha_visita),
-          hora,
-          direccionHtml,
-          mapsUrl,
-          tipo: v.tipo || (fr ? 'À définir' : 'Sin especificar'),
-          empleado: v.empleado ?? '',
-          telefonoEmpresa: contactoEmpresa?.telefono || null,
-          emailEmpresa: contactoEmpresa?.email || REMITENTE_BASE,
-        });
-        await enviarSmtp([v.email], asuntoCliente, cuerpoCliente);
-        clienteNotificado = true;
-      } catch (err) {
-        console.error('No se pudo enviar la confirmación al cliente:', String(err instanceof Error ? err.message : err));
-      }
-    }
+    // Confirmación al cliente: al momento si estamos en la franja de envío (08:00–18:30 hora de
+    // Francia) o si la visita es inminente; si no, queda programada para las 08:00 siguientes y la
+    // manda automatizaciones-crm. Si la confirmación anterior no llegó a salir (seguía programada),
+    // esta no es una «nueva fecha» para el cliente: le llega como confirmación normal.
+    const reprogramadaCliente = reprogramada && !v.aviso_cliente_programado_en;
+    const tieneEmail = !!v.email && EMAIL_VALIDO.test(v.email);
+    const programadoPara = tieneEmail ? calcularEnvioProgramado(new Date(), v.fecha_visita, hora) : null;
+    const resultadoCliente = programadoPara
+      ? 'programado'
+      : await enviarConfirmacionCliente({ v, datos, reprogramada: reprogramadaCliente, hora, direccionHtml, mapsUrl });
+    const clienteNotificado = resultadoCliente === 'enviado';
 
     // Seguimiento de la entrega (2026-10-19): el SMTP de Hostinger aceptó dos avisos sin error y
     // los entregó más de una hora tarde. Se anota el asunto exacto para que automatizaciones-crm lo busque en el
@@ -632,6 +706,8 @@ Deno.serve(async (req: Request) => {
         aviso_cliente_email: clienteNotificado ? v.email : null,
         aviso_verificado_en: null,
         aviso_no_llegado_en: null,
+        aviso_cliente_programado_en: programadoPara ? programadoPara.toISOString() : null,
+        aviso_cliente_programado_motivo: programadoPara && reprogramadaCliente ? 'reprogramacion' : null,
       })
       .eq('id', visitaId);
     if (errorSeguimiento) console.error('notificar-visita: no se pudo anotar el envío del aviso', errorSeguimiento.message);
@@ -640,12 +716,14 @@ Deno.serve(async (req: Request) => {
       tipo: 'sistema',
       texto: clienteNotificado
         ? `Aviso de visita enviado al equipo y confirmación al cliente (${v.email})`
-        : 'Aviso de visita enviado al equipo (sin confirmación al cliente: no tiene email válido o falló su envío)',
+        : programadoPara
+          ? `Aviso de visita enviado al equipo; confirmación al cliente (${v.email}) programada para el ${fechaHoraLegible(programadoPara)} (fuera del horario de envío, 08:00–18:30)`
+          : 'Aviso de visita enviado al equipo (sin confirmación al cliente: no tiene email válido o falló su envío)',
       autor: 'Sistema',
     });
     if (errorNota) console.error('notificar-visita: no se pudo guardar la nota del aviso', errorNota.message);
 
-    return jsonResponse({ ok: true, destinatarios, clienteNotificado });
+    return jsonResponse({ ok: true, destinatarios, clienteNotificado, clienteProgramadoPara: programadoPara?.toISOString() ?? null });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500);
   }

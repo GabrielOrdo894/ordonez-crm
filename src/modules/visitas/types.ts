@@ -70,7 +70,16 @@ export type Visita = {
   aviso_cliente_email?: string | null;
   aviso_verificado_en?: string | null;
   aviso_no_llegado_en?: string | null;
+  // Confirmación al cliente pendiente de salir (2026-11-03): notificar-visita solo la manda de
+  // 08:00 a 18:30 hora de Francia; fuera de esa franja la programa aquí y la envía automatizaciones-crm.
+  aviso_cliente_programado_en?: string | null;
+  aviso_cliente_programado_motivo?: 'reprogramacion' | null;
 };
+
+/** "mié 04 nov, 08:00" — cuándo saldrá la confirmación al cliente programada. */
+export function textoEnvioProgramado(iso: string): string {
+  return new Date(iso).toLocaleString('es', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
 
 /** Una visita agendada es cualquier registro con fecha de visita, esté pendiente o ya realizada. */
 export function esVisitaAgendada(visita: Pick<Visita, 'fecha_visita'>): boolean {

@@ -99,6 +99,19 @@ export default function GastosPage() {
       .update({ estado, gasto_id: null })
       .in('gasto_id', gastoIds);
     if (error) throw error;
+    // Un movimiento que pagaba varios gastos (movimientos_banco_enlaces) vuelve a Pendiente: ya no
+    // cuadra con el banco y hay que revisarlo.
+    const { data: enlaces, error: errorEnlaces } = await supabase
+      .from('movimientos_banco_enlaces')
+      .delete()
+      .in('gasto_id', gastoIds)
+      .select('movimiento_id');
+    if (errorEnlaces) throw errorEnlaces;
+    const movimientos = (enlaces ?? []).map((e) => e.movimiento_id as string);
+    if (movimientos.length > 0) {
+      const { error: errorEstado } = await supabase.from('movimientos_banco').update({ estado: 'Pendiente' }).in('id', movimientos);
+      if (errorEstado) throw errorEstado;
+    }
   }
 
   const eliminarMutation = useMutation({

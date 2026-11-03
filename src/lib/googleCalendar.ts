@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { formatearTelefonoVisual } from '../modules/clientes/types';
-import type { ArchivoPrevio } from '../modules/visitas/types';
+import { textoEnvioProgramado, type ArchivoPrevio } from '../modules/visitas/types';
 
 const CLIENT_ID = import.meta.env.VITE_GCAL_CLIENT_ID;
 
@@ -361,6 +361,10 @@ export async function sincronizarGoogleCalendarVisita(opts: {
     });
     if (errorAviso || r?.ok === false) {
       avisos.push(`No se pudo enviar el email de confirmación de la visita: ${errorAviso?.message ?? r?.error}`);
+    } else if (typeof r?.clienteProgramadoPara === 'string') {
+      // Fuera del horario de envío (08:00–18:30): el aviso al equipo ya salió, la confirmación al
+      // cliente la manda automatizaciones-crm a su hora.
+      avisos.push(`La confirmación al cliente saldrá el ${textoEnvioProgramado(r.clienteProgramadoPara)} (fuera del horario de envío, 08:00–18:30)`);
     }
   }
 

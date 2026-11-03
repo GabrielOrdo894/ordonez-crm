@@ -124,6 +124,19 @@ export async function anularPagoFactura(factura: Pick<Factura, 'id'>, pagoId: st
     .update({ estado: 'Pendiente', factura_id: null, pago_id: null })
     .eq('pago_id', pagoId);
   if (errorMovimiento) throw errorMovimiento;
+  // Un movimiento que cubría varios cobros (movimientos_banco_enlaces) vuelve a Pendiente con el
+  // resto de sus enlaces: ya no cuadra con el banco y hay que revisarlo.
+  const { data: enlaces, error: errorEnlaces } = await supabase
+    .from('movimientos_banco_enlaces')
+    .delete()
+    .eq('pago_id', pagoId)
+    .select('movimiento_id');
+  if (errorEnlaces) throw errorEnlaces;
+  const movimientos = (enlaces ?? []).map((e) => e.movimiento_id as string);
+  if (movimientos.length > 0) {
+    const { error: errorEstado } = await supabase.from('movimientos_banco').update({ estado: 'Pendiente' }).in('id', movimientos);
+    if (errorEstado) throw errorEstado;
+  }
   return recalcularCobroFactura(factura.id);
 }
 

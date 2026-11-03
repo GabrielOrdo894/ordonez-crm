@@ -1349,3 +1349,30 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   `telefono_extra_titular` (p. ej. «Marido»), se ven y se editan en la pestaña Datos de la ficha de
   cliente y se guardan en todas sus visitas, igual que el teléfono principal (prefijo obligatorio).
   No identifica al cliente: `agruparClientes()` y los cruces por teléfono siguen usando solo `telefono`.
+- **Confirmación de visita al cliente solo de 08:00 a 18:30** (2026-11-03, petición de Gabriel: poder registrar
+  visitas de noche sin que el cliente reciba el email a medianoche). `notificar-visita` manda el aviso interno al
+  equipo siempre al momento, pero la confirmación al cliente solo dentro de esa franja (hora de Francia, también
+  fines de semana — `_shared/franjaEnvioCliente.ts`, con tests); fuera de ella la deja programada en
+  `visitas.aviso_cliente_programado_en` para las 08:00 siguientes (y `aviso_cliente_programado_motivo` =
+  `'reprogramacion'` si debe decir «nueva fecha»), y `automatizaciones-crm` (cada 30 min) la envía llamando a
+  `notificar-visita` con `modo: 'solo_cliente'` (solo visitas Pendiente fuera de la papelera; si falla se reintenta).
+  Si entre las 08:00 y la visita quedan menos de 3 h, sale al momento. Si la confirmación anterior no llegó a salir,
+  una reprogramación llega como confirmación normal, no como «nueva fecha». La ficha de la visita muestra
+  «Confirmación al cliente programada para…» con «Enviar ahora»; cancelar o realizar la visita la descarta
+  (`cambiarEstadoVisita`). «Reenviar confirmación» a mano respeta la misma franja.
+- **Conciliación bancaria v2** (2026-11-03, petición de Gabriel). `movimientos_banco_enlaces` es la lista completa de lo
+  que concilia cada movimiento: cobros de factura (`pago_id`, con `pago_previo = true` si el cobro ya estaba registrado
+  a mano: deshacer solo lo suelta, no lo anula), gastos (`gasto_id`) y operaciones diversas (`operacion_id` =
+  `documento_id` del libro). Un movimiento puede tener varios enlaces (una transferencia que paga varias facturas o
+  varios tickets de un proveedor). Las columnas `factura_id`/`gasto_id`/`pago_id` de `movimientos_banco` siguen para el
+  caso de un solo documento (banco-sync, purga RGPD) y el trigger `sincronizar_enlace_movimiento` crea o borra su
+  enlace. `anularPagoFactura` y la baja de gastos sueltan también los enlaces múltiples. Sugerencias en
+  `src/lib/sugerenciasConciliacion.ts` (pura, con tests): número de factura en el concepto, cobro o gasto ya registrado
+  del mismo importe (cobros ±10 días, gastos de −10 a +3), combinación exacta de varios, pendiente exacto de una
+  factura, y reglas. `conciliarAutomaticos()` concilia sola solo una coincidencia única y exacta con documentos que ya
+  existen (al abrir el CRM y al importar un OFX). `reglas_banco` («si contiene X → gasto pendiente con cuenta/IVA/
+  proveedor, operación contra la cuenta Y, o ignorar») se crean al conciliar marcando «Recordar para los próximos».
+  Los gastos creados desde el banco nacen `pendiente` (sin asiento hasta confirmarlos con justificante en Gastos). Las
+  operaciones (TVA 44551, IS 444, comisión 627, peajes sin justificante 6251, socio 455, préstamo 164, caja 53,
+  transferencia interna 58, URSSAF 646, rémunération 641) van al libro contra 512. Filtro «Sin justificante»:
+  pagos sin conciliar o con algún gasto sin adjunto.

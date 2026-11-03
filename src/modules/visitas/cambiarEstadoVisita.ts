@@ -19,7 +19,10 @@ export async function cambiarEstadoVisita(
   opts: { motivo?: string; usuario: string },
 ): Promise<string[]> {
   const avisos: string[] = [];
-  const { error } = await supabase.from('visitas').update({ estado }).eq('id', visita.id);
+  // Una visita cancelada o realizada no debe recibir la confirmación al cliente que quedó programada
+  // fuera del horario de envío (automatizaciones-crm solo mira Pendientes, esto limpia la ficha).
+  const limpiarProgramada = estado !== 'Pendiente' ? { aviso_cliente_programado_en: null, aviso_cliente_programado_motivo: null } : {};
+  const { error } = await supabase.from('visitas').update({ estado, ...limpiarProgramada }).eq('id', visita.id);
   if (error) throw error;
 
   const textoNota =

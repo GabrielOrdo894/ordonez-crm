@@ -12,7 +12,7 @@ import { ReferidoIncentivoBox } from './ReferidoIncentivoBox';
 import { parsearTextoEnriquecido } from '../../lib/textoEnriquecido';
 import { supabase } from '../../lib/supabase';
 import { formatearTelefonoVisual } from '../clientes/types';
-import type { Visita } from './types';
+import { textoEnvioProgramado, type Visita } from './types';
 
 export function urlGoogleMaps(v: Visita) {
   if (v.lat != null && v.lng != null) return `https://www.google.com/maps/search/?api=1&query=${v.lat},${v.lng}`;
@@ -52,15 +52,35 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
       const { data, error } = await supabase.functions.invoke('notificar-visita', { body: { visitaId: visita.id } });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error ?? 'El envío no se completó');
-      return data as { ok: true; clienteNotificado: boolean };
+      return data as { ok: true; clienteNotificado: boolean; clienteProgramadoPara: string | null };
     },
     onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      if (r.clienteProgramadoPara) {
+        toast.success(`Aviso reenviado al equipo; la confirmación al cliente saldrá el ${textoEnvioProgramado(r.clienteProgramadoPara)}`);
+        return;
+      }
       toast.success(r.clienteNotificado ? 'Confirmación reenviada al cliente y al equipo' : 'Aviso reenviado al equipo (el cliente no tiene email válido)');
     },
     onError: (error) => toast.error(mensajeError(error, 'No se pudo reenviar la confirmación')),
   });
+  // Confirmación al cliente programada fuera del horario de envío (08:00–18:30): «Enviar ahora» la
+  // manda sin esperar a automatizaciones-crm (solo al cliente, el aviso interno ya salió).
+  const enviarAhoraMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('notificar-visita', { body: { visitaId: visita.id, modo: 'solo_cliente' } });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error ?? 'El envío no se completó');
+      return data as { ok: true; clienteNotificado: boolean };
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['visitas'] });
+      toast.success(r.clienteNotificado ? 'Confirmación enviada al cliente' : 'No se envió: el cliente no tiene email válido o la visita ya pasó');
+    },
+    onError: (error) => toast.error(mensajeError(error, 'No se pudo enviar la confirmación')),
+  });
   const puedeReenviarAviso = visita.estado === 'Pendiente' && !!visita.fecha_visita && !!visita.hora_visita;
+  const confirmacionProgramada = puedeReenviarAviso ? visita.aviso_cliente_programado_en : null;
   const estadoAviso = !visita.aviso_enviado_en
     ? null
     : visita.aviso_verificado_en
@@ -188,6 +208,18 @@ export function VisitaDetalleContenido({ visita }: { visita: Visita }) {
               {reenviarAvisoMutation.isPending ? 'Reenviando...' : 'Reenviar confirmación'}
             </button>
             {estadoAviso && <span className={`text-xs ${estadoAviso.clase}`}>{estadoAviso.texto}</span>}
+          </div>
+        )}
+        {confirmacionProgramada && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+            <span className="text-xs text-amber-700">Confirmación al cliente programada para el {textoEnvioProgramado(confirmacionProgramada)}</span>
+            <button
+              onClick={() => enviarAhoraMutation.mutate()}
+              disabled={enviarAhoraMutation.isPending}
+              className="text-xs text-brand hover:underline disabled:opacity-60"
+            >
+              {enviarAhoraMutation.isPending ? 'Enviando...' : 'Enviar ahora'}
+            </button>
           </div>
         )}
       </div>
