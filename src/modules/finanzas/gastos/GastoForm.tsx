@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Paperclip, Receipt, UploadCloud, X, Eye, Building2, Coins, CreditCard } from 'lucide-react';
+import {
+  ArrowLeft,
+  Paperclip,
+  Receipt,
+  UploadCloud,
+  X,
+  Eye,
+  Building2,
+  Coins,
+  CreditCard,
+} from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
 import { Input } from '../../../components/ui/Input';
@@ -16,8 +26,13 @@ import { ProveedorForm } from '../proveedores/ProveedorForm';
 import type { Proveedor } from '../proveedores/types';
 import { CategoriaPicker } from './CategoriaPicker';
 import { cuentaLabel, GRUPOS_CATEGORIA } from './categorias';
+import { SelectorProveedor } from './SelectorProveedor';
 import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
-import { cuentaAmortizacionDe, registrarAsientoGasto, rectificarAsientos } from '../../../lib/asientosContables';
+import {
+  cuentaAmortizacionDe,
+  registrarAsientoGasto,
+  rectificarAsientos,
+} from '../../../lib/asientosContables';
 import { calcularIndemnizacionKm, tarifaPorCv, CV_OPCIONES } from './baremoKilometrico';
 import { calcularKmIdaYVuelta } from '../../../lib/calcularKmIdaYVuelta';
 import { MapsAutocomplete } from '../../google/MapsAutocomplete';
@@ -30,7 +45,9 @@ import { mensajeFaltanDatos, validarGasto } from './validarGasto';
 // tabla `inmovilizado` al guardar (ver guardarMutation), en vez de dejarlo como un paso manual
 // aparte en Fiscalidad → Inmovilizado que era fácil olvidar y dejaba el bilan/Liasse Fiscale
 // descuadrados en silencio (hallazgo real, auditoría 2026-09-08).
-const CUENTAS_INMOVILIZADO = new Set(GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? []);
+const CUENTAS_INMOVILIZADO = new Set(
+  GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? [],
+);
 const NUEVO_PROVEEDOR = '__nuevo__';
 const TIPO_INTRACOM = 'INTRACOM';
 // Compra a un proveedor de fuera de la UE (importación) — desde 2022 Francia autoliquida su TVA
@@ -47,9 +64,21 @@ const CUENTA_KILOMETRICO = '6251';
 // bien. Fuentes: keobiz.fr/le-mag/compte-compta-carburant, pennylane.com/fr/fiches-pratiques/plan-comptable/compte-6256-missions.
 const PLANTILLAS_RAPIDAS = [
   { label: 'Gasolina', descripcion: 'Carburant véhicule', cuenta_contable: '6061' },
-  { label: 'Peaje', descripcion: 'Péage autoroute — déplacement professionnel', cuenta_contable: '6251' },
-  { label: 'Comida', descripcion: 'Repas seul en déplacement professionnel', cuenta_contable: '6256' },
-  { label: 'Teléfono', descripcion: 'Reembolso 50% línea telefónica profesional', cuenta_contable: '626' },
+  {
+    label: 'Peaje',
+    descripcion: 'Péage autoroute — déplacement professionnel',
+    cuenta_contable: '6251',
+  },
+  {
+    label: 'Comida',
+    descripcion: 'Repas seul en déplacement professionnel',
+    cuenta_contable: '6256',
+  },
+  {
+    label: 'Teléfono',
+    descripcion: 'Reembolso 50% línea telefónica profesional',
+    cuenta_contable: '626',
+  },
 ];
 
 function fechaHoy() {
@@ -57,7 +86,17 @@ function fechaHoy() {
   return hoyLocalIso();
 }
 
-function Seccion({ numero, titulo, icono: Icono, children }: { numero: number; titulo: string; icono: typeof Receipt; children: ReactNode }) {
+function Seccion({
+  numero,
+  titulo,
+  icono: Icono,
+  children,
+}: {
+  numero: number;
+  titulo: string;
+  icono: typeof Receipt;
+  children: ReactNode;
+}) {
   return (
     <section className="bg-surface border border-gray-200 rounded-sm p-4">
       <div className="flex items-center gap-2 border-b border-gray-200 pb-2.5 mb-4">
@@ -117,12 +156,16 @@ function formDesdeGasto(g: Gasto): FormState {
   return {
     fecha: g.fecha ?? fechaHoy(),
     descripcion: g.descripcion ?? '',
-    categoria: g.categoria ?? '',
+    // Los gastos creados desde el banco o desde /rapido llegan con la cuenta pero sin categoría: se
+    // deduce de la cuenta para que el formulario salga completo (petición de Gabriel 2026-11-04).
+    categoria: g.categoria || (g.cuenta_contable ? cuentaLabel(g.cuenta_contable) : ''),
     proveedor_id: g.proveedor_id,
     proveedor: g.proveedor ?? '',
     pais: g.pais ?? PAIS_GASTOS,
     importe_total: (g.importe_base ?? 0) + (g.importe_iva ?? 0),
-    tipo_iva: g.tipo_iva ?? ((g.pais ?? PAIS_GASTOS) === PAIS_GASTOS ? TIPO_IVA_GASTO_POR_DEFECTO : 'IVA_21'),
+    tipo_iva:
+      g.tipo_iva ??
+      ((g.pais ?? PAIS_GASTOS) === PAIS_GASTOS ? TIPO_IVA_GASTO_POR_DEFECTO : 'IVA_21'),
     cuenta_contable: g.cuenta_contable ?? '',
     num_factura_proveedor: g.num_factura_proveedor ?? '',
     es_kilometrico: g.km != null,
@@ -144,7 +187,14 @@ type GastoFormProps = {
   confirmarPago?: boolean;
 };
 
-export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, confirmarPago = false }: GastoFormProps) {
+export function GastoForm({
+  onClose,
+  gasto,
+  duplicarDesde,
+  prefill,
+  onGuardado,
+  confirmarPago = false,
+}: GastoFormProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => {
@@ -153,7 +203,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
       const copia = formDesdeGasto(duplicarDesde);
       // Un duplicado de un gasto antiguo registrado como España nace ya en Francia, con un tipo francés.
       const tipoIva = copia.pais === PAIS_GASTOS ? copia.tipo_iva : TIPO_IVA_GASTO_POR_DEFECTO;
-      return { ...copia, pais: PAIS_GASTOS, tipo_iva: tipoIva, fecha: fechaHoy(), num_factura_proveedor: '' };
+      return {
+        ...copia,
+        pais: PAIS_GASTOS,
+        tipo_iva: tipoIva,
+        fecha: fechaHoy(),
+        num_factura_proveedor: '',
+      };
     }
     if (prefill) {
       return {
@@ -168,7 +224,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
   // adjunto.path es lo que se persiste en gastos.adjunto_url (bucket privado, el nombre de columna
   // se mantiene por compatibilidad) — adjunto.url es una signed URL de corta duración solo para
   // previsualizar en esta sesión, nunca se guarda.
-  const [adjunto, setAdjunto] = useState<{ path: string; url: string; nombre: string; tipo: string } | null>(null);
+  const [adjunto, setAdjunto] = useState<{
+    path: string;
+    url: string;
+    nombre: string;
+    tipo: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!gasto?.adjunto_url) return;
@@ -182,7 +243,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
           toast.error(`No se pudo cargar el justificante: ${error.message}`);
           return;
         }
-        setAdjunto({ path: gasto.adjunto_url!, url: data.signedUrl, nombre: gasto.adjunto_nombre ?? '', tipo: gasto.adjunto_tipo ?? '' });
+        setAdjunto({
+          path: gasto.adjunto_url!,
+          url: data.signedUrl,
+          nombre: gasto.adjunto_nombre ?? '',
+          tipo: gasto.adjunto_tipo ?? '',
+        });
       });
     return () => {
       cancelado = true;
@@ -200,7 +266,10 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
 
   // 231 (inmovilizado en curso) no se amortiza hasta que se termina: no se da de alta como activo
   // (auditoría 2026-10-01).
-  const esInmovilizado = !!form.cuenta_contable && CUENTAS_INMOVILIZADO.has(form.cuenta_contable) && form.cuenta_contable !== '231';
+  const esInmovilizado =
+    !!form.cuenta_contable &&
+    CUENTAS_INMOVILIZADO.has(form.cuenta_contable) &&
+    form.cuenta_contable !== '231';
   const [duracionAmortizacion, setDuracionAmortizacion] = useState(5);
   // Si el gasto ya estaba enlazado a un activo, precarga su duración real en vez del default —
   // editar otro campo del gasto no debe pisar en silencio la duración de amortización ya decidida.
@@ -208,7 +277,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     queryKey: ['inmovilizado', gasto?.inmovilizado_id],
     enabled: !!gasto?.inmovilizado_id,
     queryFn: async () => {
-      const { data, error } = await supabase.from('inmovilizado').select('duracion_anios, cuenta_pcg').eq('id', gasto!.inmovilizado_id!).single();
+      const { data, error } = await supabase
+        .from('inmovilizado')
+        .select('duracion_anios, cuenta_pcg')
+        .eq('id', gasto!.inmovilizado_id!)
+        .single();
       if (error) throw error;
       return data as { duracion_anios: number; cuenta_pcg: string };
     },
@@ -220,14 +293,20 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
   const { data: proveedores } = useQuery({
     queryKey: ['proveedores'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('proveedores').select('*').order('razon_social', { ascending: true });
+      const { data, error } = await supabase
+        .from('proveedores')
+        .select('*')
+        .order('razon_social', { ascending: true });
       if (error) throw error;
       return data as Proveedor[];
     },
   });
   // Orden alfabético aplicado aquí: ['proveedores'] la comparte ProveedoresPage ordenada por fecha.
   const proveedoresOrdenados = useMemo(
-    () => [...(proveedores ?? [])].sort((a, b) => (a.razon_social ?? '').localeCompare(b.razon_social ?? '', 'es')),
+    () =>
+      [...(proveedores ?? [])].sort((a, b) =>
+        (a.razon_social ?? '').localeCompare(b.razon_social ?? '', 'es'),
+      ),
     [proveedores],
   );
 
@@ -292,9 +371,14 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
   // el 31 ago. 2026, esta comprobación se había quedado sin actualizar).
   const esAmortizacion = form.cuenta_contable.startsWith('681');
   const porcentaje =
-    esIntracomunitario || esImportacion || esAmortizacion || form.es_kilometrico ? 0 : porcentajeIva(form.tipo_iva);
-  const importeTotalEfectivo = form.es_kilometrico ? calcularIndemnizacionKm(form.km, form.vehiculo_cv) : form.importe_total;
-  const importeBase = porcentaje > 0 ? importeTotalEfectivo / (1 + porcentaje / 100) : importeTotalEfectivo;
+    esIntracomunitario || esImportacion || esAmortizacion || form.es_kilometrico
+      ? 0
+      : porcentajeIva(form.tipo_iva);
+  const importeTotalEfectivo = form.es_kilometrico
+    ? calcularIndemnizacionKm(form.km, form.vehiculo_cv)
+    : form.importe_total;
+  const importeBase =
+    porcentaje > 0 ? importeTotalEfectivo / (1 + porcentaje / 100) : importeTotalEfectivo;
   const importeIvaDeducible = importeTotalEfectivo - importeBase;
 
   useEffect(() => {
@@ -305,7 +389,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
 
   useEffect(() => {
     if (form.es_kilometrico && form.tipo_iva !== 'EXENTO') {
-      setForm((f) => ({ ...f, tipo_iva: 'EXENTO', cuenta_contable: f.cuenta_contable || CUENTA_KILOMETRICO }));
+      setForm((f) => ({
+        ...f,
+        tipo_iva: 'EXENTO',
+        cuenta_contable: f.cuenta_contable || CUENTA_KILOMETRICO,
+      }));
     }
   }, [form.es_kilometrico, form.tipo_iva]);
 
@@ -315,7 +403,10 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     // valor_adquisicion del activo (bug real, corregido 2026-09-10).
     const valor = Math.max(0, valorBruto);
     if (modoImporte === 'base') {
-      setForm((f) => ({ ...f, importe_total: porcentaje > 0 ? valor * (1 + porcentaje / 100) : valor }));
+      setForm((f) => ({
+        ...f,
+        importe_total: porcentaje > 0 ? valor * (1 + porcentaje / 100) : valor,
+      }));
     } else {
       setForm((f) => ({ ...f, importe_total: valor }));
     }
@@ -338,13 +429,17 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     setSubiendo(true);
     const extension = file.name.split('.').pop() ?? 'jpg';
     const path = `gastos/${crypto.randomUUID()}.${extension}`;
-    const { error } = await supabase.storage.from('justificantes').upload(path, file, { contentType: file.type });
+    const { error } = await supabase.storage
+      .from('justificantes')
+      .upload(path, file, { contentType: file.type });
     if (error) {
       setSubiendo(false);
       toast.error(error.message);
       return;
     }
-    const { data, error: errorFirma } = await supabase.storage.from('justificantes').createSignedUrl(path, 3600);
+    const { data, error: errorFirma } = await supabase.storage
+      .from('justificantes')
+      .createSignedUrl(path, 3600);
     setSubiendo(false);
     if (errorFirma) {
       toast.error(errorFirma.message);
@@ -355,15 +450,23 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     // se borraba al momento y, si se cancelaba el formulario, el gasto — documento contable que hay
     // que conservar 10 años — quedaba apuntando a un fichero inexistente (auditoría 2026-10-01).
     if (adjunto?.path && adjunto.path !== gasto?.adjunto_url) {
-      const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([adjunto.path]);
-      if (errorBorrado) console.warn('No se pudo borrar el justificante anterior en Storage:', errorBorrado.message);
+      const { error: errorBorrado } = await supabase.storage
+        .from('justificantes')
+        .remove([adjunto.path]);
+      if (errorBorrado)
+        console.warn(
+          'No se pudo borrar el justificante anterior en Storage:',
+          errorBorrado.message,
+        );
     }
     setAdjunto({ path, url: data.signedUrl, nombre: file.name, tipo: file.type });
   };
 
   // Un gasto que sigue pendiente de revisar puede guardarse incompleto (no se contabiliza todavía);
   // todo lo que acaba 'pagado' — nuevo, editado o confirmado — debe tener sus datos legales.
-  const estadoFinal: Gasto['estado_gasto'] = confirmarPago ? 'pagado' : (gasto?.estado_gasto ?? 'pagado');
+  const estadoFinal: Gasto['estado_gasto'] = confirmarPago
+    ? 'pagado'
+    : (gasto?.estado_gasto ?? 'pagado');
 
   const guardarMutation = useMutation({
     mutationFn: async () => {
@@ -378,7 +481,8 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
           num_factura_proveedor: form.num_factura_proveedor || null,
           adjunto_url: adjunto?.path ?? null,
           km: form.es_kilometrico ? form.km : null,
-          proveedorIdentificador: proveedores?.find((p) => p.id === form.proveedor_id)?.identificador ?? null,
+          proveedorIdentificador:
+            proveedores?.find((p) => p.id === form.proveedor_id)?.identificador ?? null,
         });
         if (faltan.length > 0) throw new Error(mensajeFaltanDatos(faltan));
       }
@@ -402,17 +506,35 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
           // fuera el adjunto o el proveedor, deshaciendo en silencio cualquier corrección manual
           // hecha después en Fiscalidad → Inmovilizado (ActivoForm edita los mismos campos de forma
           // independiente). Hallazgo real, auditoría 2026-09-21.
-          const cambioDescripcion = datosActivo.descripcion !== (gasto?.descripcion || gasto?.proveedor || 'Activo sin descripción');
+          const cambioDescripcion =
+            datosActivo.descripcion !==
+            (gasto?.descripcion || gasto?.proveedor || 'Activo sin descripción');
           const cambioCuenta = datosActivo.cuenta_pcg !== gasto?.cuenta_contable;
           const cambioFecha = datosActivo.fecha_adquisicion !== gasto?.fecha;
           const cambioValor = datosActivo.valor_adquisicion !== gasto?.importe_base;
-          const cambioDuracion = inmovilizadoVinculado != null && datosActivo.duracion_anios !== inmovilizadoVinculado.duracion_anios;
-          if (!gasto || cambioDescripcion || cambioCuenta || cambioFecha || cambioValor || cambioDuracion) {
-            const { error } = await supabase.from('inmovilizado').update(datosActivo).eq('id', inmovilizadoId);
+          const cambioDuracion =
+            inmovilizadoVinculado != null &&
+            datosActivo.duracion_anios !== inmovilizadoVinculado.duracion_anios;
+          if (
+            !gasto ||
+            cambioDescripcion ||
+            cambioCuenta ||
+            cambioFecha ||
+            cambioValor ||
+            cambioDuracion
+          ) {
+            const { error } = await supabase
+              .from('inmovilizado')
+              .update(datosActivo)
+              .eq('id', inmovilizadoId);
             if (error) throw error;
           }
         } else {
-          const { data, error } = await supabase.from('inmovilizado').insert(datosActivo).select('id').single();
+          const { data, error } = await supabase
+            .from('inmovilizado')
+            .insert(datosActivo)
+            .select('id')
+            .single();
           if (error) throw error;
           inmovilizadoId = data.id as string;
         }
@@ -428,7 +550,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
         fecha: form.fecha,
         descripcion:
           form.descripcion ||
-          (form.es_kilometrico ? `Indemnité kilométrique — ${form.km} km (${form.vehiculo_cv} CV)` : null),
+          (form.es_kilometrico
+            ? `Indemnité kilométrique — ${form.km} km (${form.vehiculo_cv} CV)`
+            : null),
         categoria: form.categoria || null,
         proveedor: form.proveedor || null,
         proveedor_id: form.proveedor_id,
@@ -465,17 +589,31 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     onSuccess: async (id) => {
       // Ya guardado con el justificante nuevo (o sin ninguno): ahora sí se borra el que se sustituyó.
       if (gasto?.adjunto_url && gasto.adjunto_url !== (adjunto?.path ?? null)) {
-        const { error: errorBorrado } = await supabase.storage.from('justificantes').remove([gasto.adjunto_url]);
-        if (errorBorrado) console.warn('No se pudo borrar el justificante sustituido en Storage:', errorBorrado.message);
+        const { error: errorBorrado } = await supabase.storage
+          .from('justificantes')
+          .remove([gasto.adjunto_url]);
+        if (errorBorrado)
+          console.warn(
+            'No se pudo borrar el justificante sustituido en Storage:',
+            errorBorrado.message,
+          );
       }
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
       queryClient.invalidateQueries({ queryKey: ['asientos_contables'] });
-      toast.success(confirmarPago ? 'Gasto registrado como pagado' : gasto ? 'Gasto actualizado' : 'Gasto registrado');
+      toast.success(
+        confirmarPago
+          ? 'Gasto registrado como pagado'
+          : gasto
+            ? 'Gasto actualizado'
+            : 'Gasto registrado',
+      );
       if (esInmovilizado) {
         queryClient.invalidateQueries({ queryKey: ['inmovilizado'] });
         toast.success('Activo sincronizado en Fiscalidad → Inmovilizado');
       } else if (gasto?.inmovilizado_id) {
-        toast.warning('La cuenta ya no es de Immobilisations: el gasto se desvinculó del activo (el activo no se ha borrado).');
+        toast.warning(
+          'La cuenta ya no es de Immobilisations: el gasto se desvinculó del activo (el activo no se ha borrado).',
+        );
       }
       // Se corrige siempre el asiento desde cero (rectificarAsientos no hace nada si nunca existió
       // — un gasto nuevo, o uno que seguía "pendiente" de revisión sin contabilizar todavía) y se
@@ -498,11 +636,16 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
               importe_iva: Math.round(importeIvaDeducible * 100) / 100,
               tipo_iva: form.tipo_iva,
               km: form.es_kilometrico ? form.km : null,
-              cuenta_amortizacion: esAmortizacion && inmovilizadoVinculado ? cuentaAmortizacionDe(inmovilizadoVinculado.cuenta_pcg) : null,
+              cuenta_amortizacion:
+                esAmortizacion && inmovilizadoVinculado
+                  ? cuentaAmortizacionDe(inmovilizadoVinculado.cuenta_pcg)
+                  : null,
             });
           }
         } catch (error) {
-          toast.warning(`Gasto guardado, pero no se pudo actualizar el libro diario: ${(error as Error).message}`);
+          toast.warning(
+            `Gasto guardado, pero no se pudo actualizar el libro diario: ${(error as Error).message}`,
+          );
         }
       }
       if (id) onGuardado?.(id);
@@ -511,7 +654,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
     onError: (error) => toast.error(error.message),
   });
 
-  const esImagenAdjunto = adjunto?.tipo ? adjunto.tipo.startsWith('image/') : !adjunto?.url.toLowerCase().includes('.pdf');
+  const esImagenAdjunto = adjunto?.tipo
+    ? adjunto.tipo.startsWith('image/')
+    : !adjunto?.url.toLowerCase().includes('.pdf');
 
   // Página completa en vez de modal — con 12 grupos y ~50 cuentas del PCG no cabía con comodidad
   // en un modal (hallazgo real, auditoría 2026-08-21).
@@ -531,9 +676,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
   }
 
   return (
-    <div className="max-w-3xl mx-auto animate-[scale-in_180ms_ease-out]">
+    <div className="max-w-5xl mx-auto animate-[scale-in_180ms_ease-out]">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-5">
-        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+        >
           <ArrowLeft size={15} />
           Volver a gastos
         </button>
@@ -545,7 +693,13 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
       </div>
 
       {creandoProveedor ? (
-        <ProveedorForm variante="inline" open onClose={() => setCreandoProveedor(false)} proveedor={null} onCreado={handleProveedorCreado} />
+        <ProveedorForm
+          variante="inline"
+          open
+          onClose={() => setCreandoProveedor(false)}
+          proveedor={null}
+          onCreado={handleProveedorCreado}
+        />
       ) : (
         <>
           <h1 className="text-xl font-bold text-gray-900 mb-1">
@@ -563,7 +717,12 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
             <div className="flex gap-2 mb-4">
               <span className="text-xs text-gray-400 self-center mr-1">Plantillas rápidas:</span>
               {PLANTILLAS_RAPIDAS.map((p) => (
-                <Button key={p.label} size="sm" variant="secondary" onClick={() => aplicarPlantilla(p)}>
+                <Button
+                  key={p.label}
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => aplicarPlantilla(p)}
+                >
                   {p.label}
                 </Button>
               ))}
@@ -575,23 +734,26 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
 
           <div className="flex flex-col gap-4">
             <Seccion numero={1} titulo="Proveedor" icono={Building2}>
-              <Select
-                label="Proveedor"
-                options={[
-                  { value: '', label: '— Sin proveedor —' },
-                  ...proveedoresOrdenados.map((p) => ({ value: p.id, label: `${p.razon_social} · ${p.pais}` })),
-                  { value: NUEVO_PROVEEDOR, label: '+ Añadir proveedor' },
-                ]}
-                value={form.proveedor_id ?? ''}
-                onChange={(e) => handleSeleccionarProveedor(e.target.value)}
+              <SelectorProveedor
+                proveedores={proveedoresOrdenados}
+                value={form.proveedor_id}
+                nombreLibre={form.proveedor}
+                onChange={(id) => handleSeleccionarProveedor(id ?? '')}
+                onNuevo={() => handleSeleccionarProveedor(NUEVO_PROVEEDOR)}
               />
             </Seccion>
 
             <Seccion numero={2} titulo="Detalles del gasto" icono={Receipt}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <FechaPicker label="Fecha" value={form.fecha} onChange={(fecha) => setForm((f) => ({ ...f, fecha }))} />
+                <FechaPicker
+                  label="Fecha"
+                  value={form.fecha}
+                  onChange={(fecha) => setForm((f) => ({ ...f, fecha }))}
+                />
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Categoría contable</label>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Categoría contable
+                  </label>
                   <button
                     type="button"
                     onClick={() => setMostrandoCategorias(true)}
@@ -626,15 +788,21 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                 <Input
                   label="Nº factura proveedor"
                   value={form.num_factura_proveedor}
-                  onChange={(e) => setForm((f) => ({ ...f, num_factura_proveedor: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, num_factura_proveedor: e.target.value }))
+                  }
                 />
                 {/* Sin selector de país: todo gasto va a la EURL francesa. Los 2 gastos antiguos que
                     quedaron como España conservan su país al editarlos (no se cambia la contabilidad
                     en silencio). */}
                 <div>
-                  <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">País del gasto</p>
+                  <p className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    País del gasto
+                  </p>
                   <p className="text-sm text-gray-700 py-1.5">
-                    {form.pais === PAIS_GASTOS ? 'Francia — EURL' : `${form.pais} (registro anterior)`}
+                    {form.pais === PAIS_GASTOS
+                      ? 'Francia — EURL'
+                      : `${form.pais} (registro anterior)`}
                   </p>
                 </div>
               </div>
@@ -650,7 +818,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                       onChange={setDireccionVisita}
                       onSelect={handleSeleccionarDireccionVisita}
                     />
-                    {calculandoKm && <p className="text-xs text-gray-400 mt-1">Calculando distancia...</p>}
+                    {calculandoKm && (
+                      <p className="text-xs text-gray-400 mt-1">Calculando distancia...</p>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
                     <Input
@@ -664,19 +834,24 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                       label="Puissance fiscale del vehículo (CV)"
                       options={CV_OPCIONES.map((cv) => ({ value: String(cv), label: `${cv} CV` }))}
                       value={String(form.vehiculo_cv)}
-                      onChange={(e) => setForm((f) => ({ ...f, vehiculo_cv: Number(e.target.value) }))}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, vehiculo_cv: Number(e.target.value) }))
+                      }
                     />
                   </div>
                   <div className="bg-brand-light rounded-sm px-4 py-3 flex items-center justify-between mb-3">
                     <p className="text-xs text-gray-600">
                       Barème kilométrique 2026: {form.km} km × {tarifaPorCv(form.vehiculo_cv)} €/km
                     </p>
-                    <p className="text-base font-semibold text-brand">{formatearPrecio(importeTotalEfectivo)}</p>
+                    <p className="text-base font-semibold text-brand">
+                      {formatearPrecio(importeTotalEfectivo)}
+                    </p>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">
-                    Indemnité kilométrique por uso profesional puntual de un vehículo personal — sin IVA (no es una compra,
-                    es un reembolso). Válido hasta 5.000 km/año; si este vehículo supera esa cifra en el ejercicio, avisa
-                    para ajustar el cálculo (la fórmula cambia por tramos).
+                    Indemnité kilométrique por uso profesional puntual de un vehículo personal — sin
+                    IVA (no es una compra, es un reembolso). Válido hasta 5.000 km/año; si este
+                    vehículo supera esa cifra en el ejercicio, avisa para ajustar el cálculo (la
+                    fórmula cambia por tramos).
                   </p>
                   <button
                     type="button"
@@ -690,7 +865,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                 <>
                   <div className="flex items-center justify-between mb-3">
                     <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      {modoImporte === 'base' ? 'Base imponible (sin IVA)' : 'Importe total (con IVA)'}
+                      {modoImporte === 'base'
+                        ? 'Base imponible (sin IVA)'
+                        : 'Importe total (con IVA)'}
                     </label>
                     <div className="inline-flex rounded-sm border border-gray-200 overflow-hidden text-xs shrink-0">
                       <button
@@ -704,7 +881,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                         type="button"
                         onClick={() => setModoImporte('base')}
                         className={`px-2.5 py-1 border-l border-gray-200 ${
-                          modoImporte === 'base' ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'
+                          modoImporte === 'base'
+                            ? 'bg-brand text-white'
+                            : 'bg-surface text-gray-600 hover:bg-gray-50'
                         }`}
                       >
                         Base sin IVA
@@ -714,7 +893,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                     <ImporteInput
-                      value={modoImporte === 'base' ? Number(importeBase.toFixed(2)) : Number(form.importe_total.toFixed(2))}
+                      value={
+                        modoImporte === 'base'
+                          ? Number(importeBase.toFixed(2))
+                          : Number(form.importe_total.toFixed(2))
+                      }
                       onChange={handleImporteChange}
                     />
                     {esIntracomunitario || esImportacion ? (
@@ -726,23 +909,32 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                         Sin IVA — apunte contable
                       </p>
                     ) : (
-                      <SelectorIva pais={form.pais} value={form.tipo_iva} onChange={(tipo_iva) => setForm((f) => ({ ...f, tipo_iva }))} />
+                      <SelectorIva
+                        pais={form.pais}
+                        value={form.tipo_iva}
+                        onChange={(tipo_iva) => setForm((f) => ({ ...f, tipo_iva }))}
+                      />
                     )}
                   </div>
 
-                  {form.pais === PAIS_GASTOS && !esIntracomunitario && !esImportacion && !esAmortizacion && (
-                    <p className="text-xs text-gray-400 mb-3">
-                      Ticket de España con IVA español (gasolina, material…): el IVA sí se paga, pero no se
-                      puede restar en la declaración de TVA francesa, así que forma parte del coste. Elige
-                      «Exento» (aquí significa «sin TVA francesa deducible», no que no te cobraran IVA) e
-                      introduce el total pagado. Solo si el proveedor facturó sin IVA con el nº de TVA
-                      intracomunitario de la EURL, marca «Intracomunitaria».
-                    </p>
-                  )}
+                  {form.pais === PAIS_GASTOS &&
+                    !esIntracomunitario &&
+                    !esImportacion &&
+                    !esAmortizacion && (
+                      <p className="text-xs text-gray-400 mb-3">
+                        Ticket de España con IVA español (gasolina, material…): el IVA sí se paga,
+                        pero no se puede restar en la declaración de TVA francesa, así que forma
+                        parte del coste. Elige «Exento» (aquí significa «sin TVA francesa
+                        deducible», no que no te cobraran IVA) e introduce el total pagado. Solo si
+                        el proveedor facturó sin IVA con el nº de TVA intracomunitario de la EURL,
+                        marca «Intracomunitaria».
+                      </p>
+                    )}
                   {esAmortizacion && (
                     <p className="text-xs text-gray-400 mb-3">
-                      Las dotaciones a amortizaciones son un apunte contable interno, no una factura de proveedor — no llevan
-                      IVA deducible, por lo que no sumarán nada en el Asistente de IVA.
+                      Las dotaciones a amortizaciones son un apunte contable interno, no una factura
+                      de proveedor — no llevan IVA deducible, por lo que no sumarán nada en el
+                      Asistente de IVA.
                     </p>
                   )}
                 </>
@@ -751,7 +943,9 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
               {!form.es_kilometrico && (
                 <>
                   <div className="mb-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Origen de la compra</p>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                      Origen de la compra
+                    </p>
                     <div className="inline-flex border border-gray-200 rounded-sm overflow-hidden text-sm">
                       <button
                         type="button"
@@ -759,7 +953,10 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                         onClick={() =>
                           setForm((f) => ({
                             ...f,
-                            tipo_iva: f.pais === PAIS_GASTOS ? TIPO_IVA_GASTO_POR_DEFECTO : tipoIvaPorDefecto(f.pais),
+                            tipo_iva:
+                              f.pais === PAIS_GASTOS
+                                ? TIPO_IVA_GASTO_POR_DEFECTO
+                                : tipoIvaPorDefecto(f.pais),
                           }))
                         }
                         className={`px-2.5 py-1 ${!esIntracomunitario && !esImportacion ? 'bg-brand text-white' : 'bg-surface text-gray-600 hover:bg-gray-50'}`}
@@ -786,8 +983,8 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                   </div>
                   {(esIntracomunitario || esImportacion) && (
                     <p className="text-xs text-gray-400 mb-3">
-                      El importe total se registra como base, sin IVA soportado directo. Se declarará por autoliquidación en
-                      el Asistente de IVA
+                      El importe total se registra como base, sin IVA soportado directo. Se
+                      declarará por autoliquidación en el Asistente de IVA
                       {esImportacion
                         ? ' (importación fuera de la UE, líneas A4 e I1)'
                         : esServicioSegunCuenta(form.cuenta_contable)
@@ -803,12 +1000,18 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                       <p className="text-sm text-gray-900">{formatearPrecio(importeBase)}</p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible ({porcentaje}%)</p>
-                      <p className="text-sm text-gray-900">{formatearPrecio(importeIvaDeducible)}</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        IVA deducible ({porcentaje}%)
+                      </p>
+                      <p className="text-sm text-gray-900">
+                        {formatearPrecio(importeIvaDeducible)}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
-                      <p className="text-base font-semibold text-brand">{formatearPrecio(importeTotalEfectivo)}</p>
+                      <p className="text-base font-semibold text-brand">
+                        {formatearPrecio(importeTotalEfectivo)}
+                      </p>
                     </div>
                   </div>
                 </>
@@ -824,7 +1027,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                     className="flex items-center gap-2.5 text-left overflow-hidden"
                   >
                     {esImagenAdjunto ? (
-                      <img src={adjunto.url} alt="" className="w-9 h-9 object-cover rounded-sm border border-gray-200 shrink-0" />
+                      <img
+                        src={adjunto.url}
+                        alt=""
+                        className="w-9 h-9 object-cover rounded-sm border border-gray-200 shrink-0"
+                      />
                     ) : (
                       <span className="w-9 h-9 rounded-sm bg-brand-light flex items-center justify-center shrink-0">
                         <Paperclip size={14} className="text-brand" />
@@ -844,7 +1051,11 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                           .from('justificantes')
                           .remove([adjunto.path])
                           .then(({ error }) => {
-                            if (error) console.warn('No se pudo borrar el justificante en Storage:', error.message);
+                            if (error)
+                              console.warn(
+                                'No se pudo borrar el justificante en Storage:',
+                                error.message,
+                              );
                           });
                       }
                       setAdjunto(null);
@@ -869,12 +1080,19 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
                     if (file) handleSubirAdjunto(file);
                   }}
                   className={`flex flex-col items-center justify-center gap-1.5 border border-dashed rounded-sm py-5 text-center cursor-pointer transition-colors ${
-                    arrastrando ? 'border-brand bg-brand-light/60' : 'border-gray-300 hover:border-brand hover:bg-brand-light/40'
+                    arrastrando
+                      ? 'border-brand bg-brand-light/60'
+                      : 'border-gray-300 hover:border-brand hover:bg-brand-light/40'
                   }`}
                 >
-                  <UploadCloud size={20} className={subiendo ? 'text-gray-300 animate-pulse' : 'text-gray-400'} />
+                  <UploadCloud
+                    size={20}
+                    className={subiendo ? 'text-gray-300 animate-pulse' : 'text-gray-400'}
+                  />
                   <span className="text-sm text-gray-600">
-                    {subiendo ? 'Subiendo...' : 'Arrastra una foto o PDF aquí, o haz clic para elegir'}
+                    {subiendo
+                      ? 'Subiendo...'
+                      : 'Arrastra una foto o PDF aquí, o haz clic para elegir'}
                   </span>
                   <input
                     type="file"
@@ -889,7 +1107,10 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
           </div>
 
           <div className="flex items-center justify-between gap-2 flex-wrap mt-5">
-            <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800"
+            >
               <ArrowLeft size={15} />
               Volver a gastos
             </button>
@@ -900,7 +1121,10 @@ export function GastoForm({ onClose, gasto, duplicarDesde, prefill, onGuardado, 
         </>
       )}
 
-      <VistaPreviaAdjunto url={vistaPreviaAbierta ? adjunto?.url ?? null : null} onClose={() => setVistaPreviaAbierta(false)} />
+      <VistaPreviaAdjunto
+        url={vistaPreviaAbierta ? (adjunto?.url ?? null) : null}
+        onClose={() => setVistaPreviaAbierta(false)}
+      />
     </div>
   );
 }

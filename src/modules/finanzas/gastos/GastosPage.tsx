@@ -26,7 +26,17 @@ import { VistaPreviaAdjunto } from './VistaPreviaAdjunto';
 
 const PAISES_FILTRO = ['Todos', 'España', 'Francia'];
 const SIN_CATEGORIZAR = '__sin_categorizar__';
-const ESTADOS_FILTRO = ['Todos', 'Pendientes de revisar', 'Pagados'];
+const ESTADOS_FILTRO = ['Todos', 'Por completar', 'Pagados'];
+
+// Un gasto pendiente se completa en el formulario; el de kilometraje se confirma directamente.
+function textoCompletar(g: Gasto) {
+  return g.km != null ? 'Confirmar kilometraje' : 'Completar registro';
+}
+
+// Kilometraje y amortizaciones no llevan ticket (validarGasto tampoco lo pide).
+function necesitaJustificante(g: Gasto) {
+  return g.km == null && g.cuenta_contable !== '681';
+}
 
 function totalConIva(g: Gasto) {
   return (g.importe_base ?? 0) + (g.importe_iva ?? 0);
@@ -39,7 +49,9 @@ function totalConIva(g: Gasto) {
 // auditoría 2026-09-08). Sin automatizar la creación del activo a propósito — sigue siendo una
 // decisión manual (duración de amortización, etc.) — pero al menos queda visible aquí, igual que
 // "Sin categorizar" para la cuenta de espera 471.
-const CUENTAS_INMOVILIZADO = new Set(GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? []);
+const CUENTAS_INMOVILIZADO = new Set(
+  GRUPOS_CATEGORIA.find((g) => g.id === 'immobilisations')?.cuentas ?? [],
+);
 
 export default function GastosPage() {
   const toast = useToast();
@@ -62,7 +74,10 @@ export default function GastosPage() {
   const { data: gastos, isLoading } = useQuery({
     queryKey: ['gastos'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('gastos').select('*').order('fecha', { ascending: false });
+      const { data, error } = await supabase
+        .from('gastos')
+        .select('*')
+        .order('fecha', { ascending: false });
       if (error) throw error;
       return data as Gasto[];
     },
@@ -86,7 +101,8 @@ export default function GastosPage() {
     const validas = rutas.filter((r): r is string => !!r);
     if (validas.length === 0) return;
     const { error } = await supabase.storage.from('justificantes').remove(validas);
-    if (error) console.warn('No se pudieron borrar todos los justificantes en Storage:', error.message);
+    if (error)
+      console.warn('No se pudieron borrar todos los justificantes en Storage:', error.message);
   }
 
   // movimientos_banco.gasto_id apunta a gastos sin ON DELETE: un gasto creado o enlazado desde el
@@ -109,7 +125,10 @@ export default function GastosPage() {
     if (errorEnlaces) throw errorEnlaces;
     const movimientos = (enlaces ?? []).map((e) => e.movimiento_id as string);
     if (movimientos.length > 0) {
-      const { error: errorEstado } = await supabase.from('movimientos_banco').update({ estado: 'Pendiente' }).in('id', movimientos);
+      const { error: errorEstado } = await supabase
+        .from('movimientos_banco')
+        .update({ estado: 'Pendiente' })
+        .in('id', movimientos);
       if (errorEstado) throw errorEstado;
     }
   }
@@ -142,7 +161,10 @@ export default function GastosPage() {
       const { error } = await supabase
         .from('gastos')
         .delete()
-        .in('id', seleccionados.map((g) => g.id));
+        .in(
+          'id',
+          seleccionados.map((g) => g.id),
+        );
       if (error) throw error;
       await borrarJustificanteSiHay(seleccionados.map((g) => g.adjunto_url));
     },
@@ -162,7 +184,10 @@ export default function GastosPage() {
     mutationFn: async (g: Gasto) => {
       const faltan = validarGasto({ ...g, proveedorIdentificador: null });
       if (faltan.length > 0) throw new Error(mensajeFaltanDatos(faltan));
-      const { error } = await supabase.from('gastos').update({ estado_gasto: 'pagado' }).eq('id', g.id);
+      const { error } = await supabase
+        .from('gastos')
+        .update({ estado_gasto: 'pagado' })
+        .eq('id', g.id);
       if (error) throw error;
       if (g.pais === 'Francia') {
         try {
@@ -180,7 +205,10 @@ export default function GastosPage() {
         } catch (errorAsiento) {
           // Sin asiento no puede quedar "pagado": se devuelve a pendiente para reintentarlo, en vez
           // de un gasto pagado fuera del libro diario (auditoría contable 2026-09-29).
-          const { error: errorVuelta } = await supabase.from('gastos').update({ estado_gasto: 'pendiente' }).eq('id', g.id);
+          const { error: errorVuelta } = await supabase
+            .from('gastos')
+            .update({ estado_gasto: 'pendiente' })
+            .eq('id', g.id);
           if (errorVuelta) throw errorVuelta;
           throw errorAsiento;
         }
@@ -232,7 +260,9 @@ export default function GastosPage() {
     // mismo .order() y Tanstack Query cachea el resultado de la primera que carga (mismo bug ya
     // corregido en Facturas/Presupuestos; hallazgo real de Gabriel 2026-09-25).
     const ordenados = [...gastos].sort(
-      (a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? '') || (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+      (a, b) =>
+        (b.fecha ?? '').localeCompare(a.fecha ?? '') ||
+        (b.created_at ?? '').localeCompare(a.created_at ?? ''),
     );
     return ordenados.filter((g) => {
       if (filtroPais !== 'Todos' && g.pais !== filtroPais) return false;
@@ -241,11 +271,12 @@ export default function GastosPage() {
       } else if (filtroCategoria !== 'Todas' && g.categoria !== filtroCategoria) {
         return false;
       }
-      if (filtroEstado === 'Pendientes de revisar' && g.estado_gasto !== 'pendiente') return false;
+      if (filtroEstado === 'Por completar' && g.estado_gasto !== 'pendiente') return false;
       if (filtroEstado === 'Pagados' && g.estado_gasto !== 'pagado') return false;
       if (desde && (!g.fecha || g.fecha < desde)) return false;
       if (hasta && (!g.fecha || g.fecha > hasta)) return false;
-      if (q && !`${g.descripcion ?? ''} ${g.proveedor ?? ''}`.toLowerCase().includes(q)) return false;
+      if (q && !`${g.descripcion ?? ''} ${g.proveedor ?? ''}`.toLowerCase().includes(q))
+        return false;
       return true;
     });
   }, [gastos, busqueda, filtroPais, filtroCategoria, filtroEstado, desde, hasta]);
@@ -272,9 +303,13 @@ export default function GastosPage() {
       { label: 'Total gastos', valor: todos.length },
       { label: 'Total este mes', valor: `${formatearPrecioEntero(totalEsteMes)}` },
       { label: 'Base deducible', valor: `${formatearPrecioEntero(totalBase)}` },
-      { label: 'IVA deducible', valor: `${formatearPrecioEntero(totalIvaDeducible)}`, acento: true },
+      {
+        label: 'IVA deducible',
+        valor: `${formatearPrecioEntero(totalIvaDeducible)}`,
+        acento: true,
+      },
       { label: 'Sin categorizar', valor: sinCategorizar, acento: sinCategorizar > 0 },
-      { label: 'Pendientes de revisar', valor: pendientesRevisar, acento: pendientesRevisar > 0 },
+      { label: 'Por completar', valor: pendientesRevisar, acento: pendientesRevisar > 0 },
       ...(inmovilizadoSinVincular > 0
         ? [{ label: 'Inmovilizado sin vincular', valor: inmovilizadoSinVincular, acento: true }]
         : []),
@@ -290,13 +325,21 @@ export default function GastosPage() {
     return <GastoForm onClose={() => setCreandoNuevo(false)} gasto={null} />;
   }
   if (confirmandoPago) {
-    return <GastoForm onClose={() => setConfirmandoPago(null)} gasto={confirmandoPago} confirmarPago />;
+    return (
+      <GastoForm onClose={() => setConfirmandoPago(null)} gasto={confirmandoPago} confirmarPago />
+    );
   }
   if (gastoSeleccionado) {
     return <GastoForm onClose={() => setGastoSeleccionado(null)} gasto={gastoSeleccionado} />;
   }
   if (duplicandoDesde) {
-    return <GastoForm onClose={() => setDuplicandoDesde(null)} gasto={null} duplicarDesde={duplicandoDesde} />;
+    return (
+      <GastoForm
+        onClose={() => setDuplicandoDesde(null)}
+        gasto={null}
+        duplicarDesde={duplicandoDesde}
+      />
+    );
   }
 
   return (
@@ -322,7 +365,11 @@ export default function GastosPage() {
             { key: 'categoria', label: 'Categoría' },
             { key: 'pais', label: 'País' },
             { key: 'cuenta_contable', label: 'Cuenta contable' },
-            { key: 'base', label: 'Base (sin IVA)', valor: (g) => (g.importe_base ?? 0).toFixed(2) },
+            {
+              key: 'base',
+              label: 'Base (sin IVA)',
+              valor: (g) => (g.importe_base ?? 0).toFixed(2),
+            },
             { key: 'iva', label: 'IVA deducible', valor: (g) => (g.importe_iva ?? 0).toFixed(2) },
             { key: 'total', label: 'Total (con IVA)', valor: (g) => totalConIva(g).toFixed(2) },
             { key: 'num_factura_proveedor', label: 'Nº factura proveedor' },
@@ -350,13 +397,28 @@ export default function GastosPage() {
         />
         <Select
           label="Categoría"
-          options={categoriasDisponibles.map((c) => ({ value: c, label: c === SIN_CATEGORIZAR ? '— Sin categorizar —' : c }))}
+          options={categoriasDisponibles.map((c) => ({
+            value: c,
+            label: c === SIN_CATEGORIZAR ? '— Sin categorizar —' : c,
+          }))}
           value={filtroCategoria}
           onChange={(e) => setFiltroCategoria(e.target.value)}
           className="w-56"
         />
-        <Input label="Fecha desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-40" />
-        <Input label="Fecha hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-40" />
+        <Input
+          label="Fecha desde"
+          type="date"
+          value={desde}
+          onChange={(e) => setDesde(e.target.value)}
+          className="w-40"
+        />
+        <Input
+          label="Fecha hasta"
+          type="date"
+          value={hasta}
+          onChange={(e) => setHasta(e.target.value)}
+          className="w-40"
+        />
       </div>
 
       <KpiRow items={kpis} />
@@ -405,7 +467,19 @@ export default function GastosPage() {
             {
               key: 'estado_gasto',
               label: 'Estado',
-              render: (g) => (g.estado_gasto === 'pendiente' ? <Badge variant="pendiente">Pendiente de revisar</Badge> : null),
+              // Insignias en lugar de avisos escritos en la descripción (petición de Gabriel 2026-11-04).
+              render: (g) => (
+                <div className="flex flex-col items-start gap-1">
+                  {g.estado_gasto === 'pendiente' && (
+                    <Badge variant="pendiente">
+                      {g.km != null ? 'Kilometraje por confirmar' : 'Por completar'}
+                    </Badge>
+                  )}
+                  {necesitaJustificante(g) && !g.adjunto_url && (
+                    <Badge variant="en-espera">Sin justificante</Badge>
+                  )}
+                </div>
+              ),
             },
             {
               key: 'base',
@@ -428,7 +502,9 @@ export default function GastosPage() {
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();
-                      const { data, error } = await supabase.storage.from('justificantes').createSignedUrl(g.adjunto_url!, 3600);
+                      const { data, error } = await supabase.storage
+                        .from('justificantes')
+                        .createSignedUrl(g.adjunto_url!, 3600);
                       if (error) {
                         toast.error(error.message);
                         return;
@@ -452,18 +528,39 @@ export default function GastosPage() {
                 const rapidas: AccionRapida[] =
                   g.estado_gasto === 'pendiente'
                     ? [
-                        { icon: Check, label: 'Registrar pago', tono: 'brand', onClick: () => registrarPago(g) },
-                        { icon: X, label: 'Rechazar', tono: 'peligro', onClick: () => rechazarPendienteMutation.mutate(g.id) },
+                        {
+                          icon: Check,
+                          label: textoCompletar(g),
+                          tono: 'brand',
+                          onClick: () => registrarPago(g),
+                        },
+                        {
+                          icon: X,
+                          label: 'Rechazar',
+                          tono: 'peligro',
+                          onClick: () => rechazarPendienteMutation.mutate(g.id),
+                        },
                       ]
-                    : [{ icon: Copy, label: 'Duplicar', tono: 'neutro', onClick: () => setDuplicandoDesde(g) }];
+                    : [
+                        {
+                          icon: Copy,
+                          label: 'Duplicar',
+                          tono: 'neutro',
+                          onClick: () => setDuplicandoDesde(g),
+                        },
+                      ];
                 return (
                   <AccionesFila
                     rapidas={rapidas}
                     menu={[
                       ...(g.estado_gasto === 'pendiente'
                         ? [
-                            { label: 'Registrar pago', onClick: () => registrarPago(g) },
-                            { label: 'Rechazar', onClick: () => rechazarPendienteMutation.mutate(g.id), destructivo: true },
+                            { label: textoCompletar(g), onClick: () => registrarPago(g) },
+                            {
+                              label: 'Rechazar',
+                              onClick: () => rechazarPendienteMutation.mutate(g.id),
+                              destructivo: true,
+                            },
                           ]
                         : []),
                       { label: 'Editar', onClick: () => setGastoSeleccionado(g) },
@@ -481,8 +578,12 @@ export default function GastosPage() {
       <GastoResumen
         gasto={gastoEnResumen}
         onClose={() => setGastoEnResumen(null)}
+        textoModificar={
+          gastoEnResumen?.estado_gasto === 'pendiente' ? textoCompletar(gastoEnResumen) : undefined
+        }
         onModificar={() => {
-          setGastoSeleccionado(gastoEnResumen);
+          if (gastoEnResumen?.estado_gasto === 'pendiente') registrarPago(gastoEnResumen);
+          else setGastoSeleccionado(gastoEnResumen);
           setGastoEnResumen(null);
         }}
       />

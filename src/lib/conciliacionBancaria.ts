@@ -334,17 +334,15 @@ export async function vincularACobrosExistentes(
     );
   }
   await reservarMovimiento(movimiento.id);
-  const { error } = await supabase
-    .from('movimientos_banco_enlaces')
-    .insert(
-      pagos.map((p) => ({
-        movimiento_id: movimiento.id,
-        factura_id: p.factura_id,
-        pago_id: p.id,
-        importe: p.monto,
-        pago_previo: true,
-      })),
-    );
+  const { error } = await supabase.from('movimientos_banco_enlaces').insert(
+    pagos.map((p) => ({
+      movimiento_id: movimiento.id,
+      factura_id: p.factura_id,
+      pago_id: p.id,
+      importe: p.monto,
+      pago_previo: true,
+    })),
+  );
   if (error) {
     await liberarMovimiento(movimiento.id);
     throw error.code === '23505'
@@ -452,14 +450,12 @@ export async function registrarComoOperacion(
     await liberarMovimiento(movimiento.id);
     throw error;
   }
-  const { error } = await supabase
-    .from('movimientos_banco_enlaces')
-    .insert({
-      movimiento_id: movimiento.id,
-      operacion_id: operacionId,
-      importe,
-      concepto: `${concepto} (${cuenta})`,
-    });
+  const { error } = await supabase.from('movimientos_banco_enlaces').insert({
+    movimiento_id: movimiento.id,
+    operacion_id: operacionId,
+    importe,
+    concepto: `${concepto} (${cuenta})`,
+  });
   if (error) {
     await anularOperacionDiversa(operacionId, hoyLocalIso());
     await liberarMovimiento(movimiento.id);
@@ -492,8 +488,7 @@ export async function crearGastoPendienteDesdeMovimiento(
     .insert({
       fecha: movimiento.fecha,
       descripcion:
-        regla?.descripcion ||
-        `${comercioDeMovimiento(movimiento.descripcion) || 'Pago bancario'} — pago bancario (falta justificante)`,
+        regla?.descripcion || comercioDeMovimiento(movimiento.descripcion) || 'Pago bancario',
       categoria: cuenta ? cuentaLabel(cuenta) : null,
       proveedor,
       proveedor_id: regla?.proveedor_id ?? null,

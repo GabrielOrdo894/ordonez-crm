@@ -323,7 +323,7 @@ async function procesarPago(
       .from('gastos')
       .insert({
         fecha: m.fecha,
-        descripcion: `${etiqueta} — pago bancario (revisar cuenta e IVA)`,
+        descripcion: etiqueta,
         categoria: null,
         proveedor: m.contraparte,
         proveedor_id: null,

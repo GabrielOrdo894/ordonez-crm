@@ -14,16 +14,22 @@ function totalConIva(g: Gasto) {
 
 function fechaLarga(fecha: string | null) {
   if (!fecha) return '—';
-  return new Date(fecha).toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(fecha).toLocaleDateString('es', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 type GastoResumenProps = {
   gasto: Gasto | null;
   onClose: () => void;
   onModificar: () => void;
+  // Texto del botón para un gasto por completar (por defecto «Modificar»).
+  textoModificar?: string;
 };
 
-export function GastoResumen({ gasto, onClose, onModificar }: GastoResumenProps) {
+export function GastoResumen({ gasto, onClose, onModificar, textoModificar }: GastoResumenProps) {
   // Bucket privado (justificantes) — adjunto_url guarda el path, no una URL usable directamente,
   // hace falta resolver una signed URL de corta duración para poder enlazarla.
   const [urlFirmada, setUrlFirmada] = useState<string | null>(null);
@@ -65,13 +71,15 @@ export function GastoResumen({ gasto, onClose, onModificar }: GastoResumenProps)
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={onModificar}>Modificar</Button>
+          <Button onClick={onModificar}>{textoModificar ?? 'Modificar'}</Button>
         </>
       }
     >
       <div className="space-y-5">
         <div>
-          <p className="text-base font-semibold text-gray-900">{gasto.descripcion || 'Sin descripción'}</p>
+          <p className="text-base font-semibold text-gray-900">
+            {gasto.descripcion || 'Sin descripción'}
+          </p>
           <div className="flex items-center gap-2 mt-1.5">
             {gasto.categoria && <Badge variant="default">{gasto.categoria}</Badge>}
             {gasto.pais && <Badge variant="realizada">{gasto.pais}</Badge>}
@@ -112,15 +120,17 @@ export function GastoResumen({ gasto, onClose, onModificar }: GastoResumenProps)
         <div className="bg-brand-light rounded-sm px-4 py-3 flex justify-between items-center">
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">Base</p>
-            <p className="text-sm text-gray-900">{formatearPrecio((gasto.importe_base ?? 0))}</p>
+            <p className="text-sm text-gray-900">{formatearPrecio(gasto.importe_base ?? 0)}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-gray-500">IVA deducible</p>
-            <p className="text-sm text-gray-900">{formatearPrecio((gasto.importe_iva ?? 0))}</p>
+            <p className="text-sm text-gray-900">{formatearPrecio(gasto.importe_iva ?? 0)}</p>
           </div>
           <div className="text-right">
             <p className="text-xs uppercase tracking-wide text-gray-500">Total</p>
-            <p className="text-base font-semibold text-brand">{formatearPrecio(totalConIva(gasto))}</p>
+            <p className="text-base font-semibold text-brand">
+              {formatearPrecio(totalConIva(gasto))}
+            </p>
           </div>
         </div>
 
