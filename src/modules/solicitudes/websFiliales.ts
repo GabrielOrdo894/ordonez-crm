@@ -86,7 +86,7 @@ export type SesionWeb = {
 
 const BUSCADORES_OTROS = /duckduckgo|yahoo|ecosia|qwant|yandex|brave|startpage|lilo/;
 const REDES = /facebook|instagram|linkedin|^t\.co$|twitter|^x\.com$|pinterest|tiktok|youtube|whatsapp|threads/;
-const IA = /chatgpt|openai|perplexity|gemini|claude|copilot|mistral/;
+const IA = /chatgpt\.com|openai\.com|perplexity\.ai|gemini\.google|claude\.ai|copilot\.microsoft|chat\.mistral/;
 const PROPIAS = /ordonezrenov|costabath|ordonezfachadas|ordonezstudio/;
 
 export function canalDe(referente: string | null, utmFuente: string | null, utmMedio: string | null): string {

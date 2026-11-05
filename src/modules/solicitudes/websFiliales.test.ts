@@ -48,6 +48,8 @@ describe('canalDe', () => {
     expect(canalDe('l.instagram.com', null, null)).toBe('Redes sociales');
     expect(canalDe('chatgpt.com', null, null)).toBe('Asistentes de IA');
     expect(canalDe('gemini.google.com', null, null)).toBe('Asistentes de IA');
+    expect(canalDe('claude.ai', null, null)).toBe('Asistentes de IA');
+    expect(canalDe(null, 'prueba-claude', null)).toBe('Otras webs');
     expect(canalDe('ordonezrenov.com', null, null)).toBe('Webs propias');
     expect(canalDe('pagesjaunes.fr', null, null)).toBe('Otras webs');
     expect(canalDe(null, 'facebook', null)).toBe('Redes sociales');
