@@ -28,6 +28,7 @@ import { PendienteEnvioDetalle } from './PendienteEnvioDetalle';
 import { EntradaManualPanel } from './EntradaManualPanel';
 import { AvisosPanel } from './AvisosPanel';
 import { AsistenteWebPanel } from './AsistenteWebPanel';
+import { WebsFilialesPanel } from './WebsFilialesPanel';
 import {
   ESTADOS_SOLICITUD,
   ETIQUETA_ESTADO_SOLICITUD,
@@ -40,7 +41,7 @@ import {
   tieneRespuestaSinRevisar,
 } from './types';
 
-type Pestana = 'entrantes' | 'pendientes' | 'avisos' | 'manual' | 'asistente';
+type Pestana = 'entrantes' | 'pendientes' | 'avisos' | 'manual' | 'asistente' | 'webs';
 
 const PESTANAS: { value: Pestana; label: string }[] = [
   { value: 'entrantes', label: 'Solicitud de presupuesto' },
@@ -48,6 +49,7 @@ const PESTANAS: { value: Pestana; label: string }[] = [
   { value: 'avisos', label: 'Avisos' },
   { value: 'manual', label: 'Entrada manual' },
   { value: 'asistente', label: 'Asistente web' },
+  { value: 'webs', label: 'Webs filiales' },
 ];
 
 function fecha(f: string | null) {
@@ -705,6 +707,8 @@ export default function SolicitudesPage() {
       {pestana === 'manual' && <EntradaManualPanel onCreada={() => navigate('/solicitudes/entrantes')} />}
 
       {pestana === 'asistente' && <AsistenteWebPanel onAbrirSolicitud={(id) => setViendo({ tipo: 'solicitud', id })} />}
+
+      {pestana === 'webs' && <WebsFilialesPanel onAbrirSolicitud={(id) => setViendo({ tipo: 'solicitud', id })} />}
     </div>
   );
 }

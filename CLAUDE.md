@@ -1394,3 +1394,18 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   AVENANT/ANEXO, condiciones cortas que remiten al original, y se firma por Documenso como cualquier presupuesto. No
   tiene acomptes ni factura propios: «Crear factura final (con avenants)» del original añade las líneas de sus
   avenants aceptados. No entra en el embudo (trigger `funnel_eventos_ignorar_avenants`) ni en los avisos de plazos.
+- **Medición propia de las webs filiales** (2026-11-05, petición de Gabriel): costabath.com, ordonezfachadas.com y
+  ordonezstudio.com cargan `assets/medicion.js` (fuente única en `negocio/equipo-marketing/webs-filiales/comun/medicion.js`,
+  copiarla a cada `<web>/sitio/assets/` al cambiarla; en Studio, subir también el `?v=` de las etiquetas `<script>`). Manda a la
+  Edge Function pública `web-eventos` (`--no-verify-jwt`; solo esos orígenes, de los que se deduce el sitio; lista cerrada de
+  eventos; 40 por petición y 600 por sesión; robots descartados) cada página vista, procedencia (solo el dominio y los `utm_`),
+  dispositivo, idioma, scroll 25/50/75/100, tiempo visible, clics en WhatsApp/teléfono/email/botones de contacto (con dónde
+  estaba el botón y qué ponía) y los pasos, errores y envío del formulario (los avisa `web.js` con `window.medir`; el envío lleva
+  el `id` que devuelve `solicitud-web`). Tabla `web_eventos` (RLS: el equipo solo lee). Sin cookies: la sesión es un código
+  aleatorio en `sessionStorage` (se borra al cerrar la pestaña) y `vista_n` numera sus páginas; no mide si el navegador pide
+  «No rastrear» (DNT/GPC). Es la medición de audiencia exenta de consentimiento (CNIL/AEPD), explicada en las páginas de
+  cookies de Costabath y Studio. Se envía con `fetch` + `keepalive`, no con `sendBeacon` (algunos antivirus lo descartan en
+  silencio, comprobado en el Chrome de Gabriel). Se ve en Solicitudes → **Webs filiales** (`WebsFilialesPanel.tsx`; agregación
+  pura y con tests en `websFiliales.ts`): comparación entre webs, visitas por día, embudo del formulario, botones pulsados,
+  procedencia, páginas, recorridos, resultado real de las solicitudes (`resultadoReal` del asistente) y últimas visitas. Solo hay
+  datos desde el 05/11/2026. ordonezrenov.com sigue con GA4 + Tag Manager y `asistente_eventos`.
