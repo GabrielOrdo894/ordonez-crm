@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { formatearPrecio } from '../finanzas/lineas';
+import { calcularTotales, formatearPrecio } from '../finanzas/lineas';
 import { fechaVisitaCorta } from '../../lib/fechas';
 import { plazoQueTocaFacturar } from '../finanzas/presupuestos/planPago';
 import type { PlazoPago } from '../finanzas/presupuestos/types';
@@ -389,6 +389,22 @@ export function useNotificaciones() {
         resumen: `${f.cliente_nombre ?? 'Cliente sin nombre'} — pendiente de cobro.`,
         to: '/finanzas/facturas',
         urgente: true,
+      });
+    }
+
+    // Acompte creado automáticamente al aceptarse el presupuesto (acompte-automatico, 2026-11-10): el
+    // CRM no se lo manda al cliente. Se avisa durante 7 días mientras siga sin ningún cobro.
+    const limiteAcompteAuto = isoHaceDias(7);
+    for (const f of facturas ?? []) {
+      if (!f.acompte_auto_creado_en || f.estado_cobro !== 'Pendiente') continue;
+      if (f.acompte_auto_creado_en.slice(0, 10) < limiteAcompteAuto) continue;
+      lista.push({
+        id: `acompte-auto-${f.id}`,
+        categoria: 'factura',
+        titulo: `Acompte ${f.numero ?? ''} creado: envíaselo a ${f.cliente_nombre ?? 'el cliente'}`,
+        resumen: `Se ha creado solo al aceptarse el presupuesto (${formatearPrecio(calcularTotales(f.lineas).totalConIva)}). No se ha enviado nada al cliente.`,
+        to: '/finanzas/facturas',
+        state: { verDocId: f.id, verDocTipo: 'factura' },
       });
     }
 

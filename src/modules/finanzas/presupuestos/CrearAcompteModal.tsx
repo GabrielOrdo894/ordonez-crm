@@ -17,6 +17,7 @@ import type { Presupuesto } from './types';
 import { hoyLocalIso } from '../../../lib/fechas';
 import { supabase } from '../../../lib/supabase';
 import { useToast } from '../../../hooks/useToast';
+import { useConfirmar } from '../../../hooks/useConfirm';
 
 function fechaHoy() {
   // Hora local, no UTC (auditoría 2026-09-26: de madrugada daba el día anterior).
@@ -40,6 +41,7 @@ export function CrearAcompteModal({
   plazoInicial = 0,
 }: CrearAcompteModalProps) {
   const toast = useToast();
+  const confirmar = useConfirmar();
   const [creando, setCreando] = useState(false);
   const [modo, setModo] = useState<Modo>('porcentaje');
   const [plazoIdx, setPlazoIdx] = useState(0);
@@ -97,6 +99,15 @@ export function CrearAcompteModal({
       toast.error(error.message);
       return;
     }
+    // Desde 2026-11-10 el primer acompte se crea solo al aceptarse el presupuesto: evitar duplicarlo
+    // a mano (una factura numerada no se puede borrar, solo anular con rectificativa).
+    if (
+      (count ?? 0) > 0 &&
+      !(await confirmar(
+        `Este presupuesto ya tiene ${count} acompte(s), quizá el creado automáticamente al aceptarlo. ¿Crear otro?`,
+      ))
+    )
+      return;
     const referencia = `AC-${String((count ?? 0) + 1).padStart(2, '0')}`;
     const tipoServicio = getTiposServicio(presupuesto.idioma === 'Français' ? 'fr' : 'es')[1];
     const precioSinIva = pct > 0 ? importeTtc / (1 + pct / 100) : importeTtc;

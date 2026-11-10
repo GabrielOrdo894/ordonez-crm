@@ -58,6 +58,8 @@ export type Factura = {
   resena_auto_programada_en: string | null;
   // true: recordatorio-pago-automatico no programa recordatorios para esta factura (2026-11-03).
   recordatorios_desactivados?: boolean;
+  // Acompte creado solo al aceptarse el presupuesto (Edge Function acompte-automatico, 2026-11-10).
+  acompte_auto_creado_en?: string | null;
   // Cobro de una estructura empresarial anterior a la EURL actual (2026-08-22) — se registra en
   // el CRM solo para que lineaDeduccionAcomptes calcule bien la factura definitiva, pero no es
   // ingreso real de la EURL: no genera apuntes en asientos_contables ni cuenta en el Asistente de

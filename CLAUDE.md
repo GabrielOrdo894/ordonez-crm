@@ -1394,6 +1394,20 @@ Para gráficos → `recharts` (añadir en Bloque 4, solo Dashboard admin).
   AVENANT/ANEXO, condiciones cortas que remiten al original, y se firma por Documenso como cualquier presupuesto. No
   tiene acomptes ni factura propios: «Crear factura final (con avenants)» del original añade las líneas de sus
   avenants aceptados. No entra en el embudo (trigger `funnel_eventos_ignorar_avenants`) ni en los avisos de plazos.
+- **Acompte automático al aceptarse un presupuesto** (2026-11-10, petición de Gabriel: «los acomptes se tienen que
+  generar al instante que se firma el presupuesto», también en la aceptación manual). El trigger
+  `presupuestos_acompte_automatico` (migración `20261110200000`) salta cuando un presupuesto pasa a `Aceptado` por
+  cualquier vía (webhook de Documenso, «Marcar aceptado» en la lista o la ficha, SQL) y llama por pg_net a la Edge
+  Function `acompte-automatico`, que crea la factura del **primer plazo del plan de pago** igual que «Crear anticipo»
+  (lógica pura en `_shared/acompteAutomatico.ts`, con tests que la comparan con `calcularLinea` y
+  `construirAsientosFacturaEmision` del frontend): número por `asignar_numero_factura`, vencimiento a 7 días,
+  transferencia, apuntes de emisión si es de Francia, nota de sistema, historial y email a Gabriel. **Nunca envía nada
+  al cliente**; la campana avisa 7 días «Acompte AC-xxxx creado: envíaselo» (`facturas.acompte_auto_creado_en`). No
+  crea nada si el presupuesto ya tiene alguna factura viva (la comprobación y el INSERT van en
+  `crear_acompte_automatico()` con la fila del presupuesto bloqueada), si es orientativo o avenant, o si el plan de
+  pago tiene menos de dos plazos (un solo pago = factura final). Si falla (periodo bloqueado, fecha fuera de orden)
+  avisa por email para hacerlo a mano. Ojo: PostgREST devuelve una fila de nulls, no `null`, cuando la función SQL
+  devuelve null — mirar siempre `id`. «Crear anticipo» pide confirmación si ya existe un acompte.
 - **Medición propia de las webs filiales** (2026-11-05, petición de Gabriel): costabath.com, ordonezfachadas.com y
   ordonezstudio.com cargan `assets/medicion.js` (fuente única en `negocio/equipo-marketing/webs-filiales/comun/medicion.js`,
   copiarla a cada `<web>/sitio/assets/` al cambiarla; en Studio, subir también el `?v=` de las etiquetas `<script>`). Manda a la
