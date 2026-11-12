@@ -102,6 +102,7 @@ const CONTABILIDAD_SECTION: NavSection = {
   icon: BookOpen,
   items: [
     { to: '/contabilidad/ingresos', label: 'Libro de Ingresos', icon: BookOpen },
+    { to: '/contabilidad/comisiones', label: 'Comisiones', icon: Percent },
     { to: '/contabilidad/gastos', label: 'Libro de Gastos', icon: Wallet },
     { to: '/contabilidad/resultado', label: 'Resultado', icon: TrendingUp },
     { to: '/contabilidad/banco', label: 'Movimientos bancarios', icon: ArrowLeftRight },

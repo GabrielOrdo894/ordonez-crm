@@ -17,6 +17,7 @@ const TITULOS: Record<string, string> = {
   '/finanzas/facturas': 'Facturas',
   '/finanzas/proveedores': 'Proveedores',
   '/contabilidad/ingresos': 'Libro de Ingresos',
+  '/contabilidad/comisiones': 'Comisiones',
   '/contabilidad/gastos': 'Libro de Gastos',
   '/contabilidad/resultado': 'Resultado',
   '/fiscalidad/dashboard': 'Fiscalidad · Dashboard',

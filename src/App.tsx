@@ -60,6 +60,7 @@ const FacturasPage = lazy(() => import('./modules/finanzas/facturas/FacturasPage
 const GastosPage = lazy(() => import('./modules/finanzas/gastos/GastosPage'));
 const ProveedoresPage = lazy(() => import('./modules/finanzas/proveedores/ProveedoresPage'));
 const LibroIngresosPage = lazy(() => import('./modules/contabilidad/LibroIngresosPage'));
+const ComisionesPage = lazy(() => import('./modules/contabilidad/ComisionesPage'));
 const ResultadoPage = lazy(() => import('./modules/contabilidad/ResultadoPage'));
 const BancoPage = lazy(() => import('./modules/contabilidad/BancoPage'));
 const LibroDiarioPage = lazy(() => import('./modules/contabilidad/LibroDiarioPage'));
@@ -194,6 +195,7 @@ export default function App() {
             <Route path="/finanzas/facturas" element={<FacturasPage />} />
             <Route path="/finanzas/proveedores" element={<ProveedoresPage />} />
             <Route path="/contabilidad/ingresos" element={<LibroIngresosPage />} />
+            <Route path="/contabilidad/comisiones" element={<ComisionesPage />} />
             <Route path="/contabilidad/gastos" element={<GastosPage />} />
             <Route path="/contabilidad/resultado" element={<ResultadoPage />} />
             <Route path="/contabilidad/banco" element={<BancoPage />} />
