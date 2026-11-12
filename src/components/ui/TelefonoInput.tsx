@@ -29,10 +29,11 @@ const OPCIONES_PAIS = [
   { value: '', label: 'País' },
   { value: 'ES', label: '+34' },
   { value: 'FR', label: '+33' },
+  { value: 'CH', label: '+41' },
 ];
 
 function esPais(v: string): v is PaisTelefono {
-  return v === 'ES' || v === 'FR';
+  return v === 'ES' || v === 'FR' || v === 'CH';
 }
 
 export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onBlur }: TelefonoInputProps) {
@@ -104,7 +105,7 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
           value={textoVisible}
           onChange={(e) => alEscribir(e.target.value)}
           onBlur={onBlur}
-          placeholder={pais === 'FR' ? '7 44 50 11 73' : pais === 'ES' ? '659 88 47 06' : 'Elige el país'}
+          placeholder={pais === 'FR' ? '7 44 50 11 73' : pais === 'ES' ? '659 88 47 06' : pais === 'CH' ? '78 243 01 17' : 'Elige el país'}
           className={`flex-1 min-w-0 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none ${
             error ? 'border-red-400' : ''
           }`}

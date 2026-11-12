@@ -67,6 +67,21 @@ describe('formatearTelefonoVisual / tieneCodigoPais (formato internacional, 2026
   });
 });
 
+describe('teléfonos suizos (+41)', () => {
+  it('reconoce y formatea un número con prefijo +41 / 0041', () => {
+    expect(tieneCodigoPais('+41 78 243 01 17')).toBe(true);
+    expect(formatearTelefonoVisual('+41782430117')).toBe('+41 78 243 01 17');
+    expect(formatearTelefonoVisual('0041782430117')).toBe('+41 78 243 01 17');
+    expect(telefonoInternacional('CH', '782430117')).toBe('+41 78 243 01 17');
+  });
+
+  it('con el país elegido quita el 0 nacional y agrupa mientras se escribe', () => {
+    expect(nucleoDesdeTexto('CH', '078 243 01 17')).toBe('782430117');
+    expect(formatearNucleoTelefono('CH', '78243')).toBe('78 243');
+    expect(nucleoDeValorParcial('CH', '+41 78 2')).toBe('782');
+  });
+});
+
 describe('TelefonoInput — reformateo en vivo (nucleoDesdeTexto / formatearNucleoTelefono / telefonoInternacional)', () => {
   it('Francia: quita el 0 nacional y agrupa 1-2-2-2-2, tecleado o con 0 delante', () => {
     expect(nucleoDesdeTexto('FR', '744501173')).toBe('744501173');

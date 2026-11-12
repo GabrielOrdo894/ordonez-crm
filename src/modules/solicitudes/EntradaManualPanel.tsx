@@ -38,7 +38,7 @@ export function EntradaManualPanel({ onCreada }: EntradaManualPanelProps) {
   const crearMutation = useMutation({
     mutationFn: async () => {
       // Mismo criterio que VisitaForm.tsx: un número sin prefijo es ambiguo (ES/FR) y no se adivina.
-      if (form.telefono.trim() && !tieneCodigoPais(form.telefono)) throw new Error('Añade el prefijo del país: +34 o +33');
+      if (form.telefono.trim() && !tieneCodigoPais(form.telefono)) throw new Error('Añade el prefijo del país: +34, +33 o +41');
       const { data, error } = await supabase
         .from('solicitudes')
         .insert({

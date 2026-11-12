@@ -238,8 +238,8 @@ export function ClienteDetalleContenido({
       // Mismas reglas que al registrar una visita (auditoría 2026-10-01: aquí no se validaba nada).
       if (!datos.nombre.trim()) throw new Error('Falta el nombre.');
       if (!datos.telefono.trim() && !datos.email.trim()) throw new Error('Hace falta al menos el teléfono o el email.');
-      if (datos.telefono.trim() && !tieneCodigoPais(datos.telefono)) throw new Error('Añade el prefijo del país al teléfono: +34 (España) o +33 (Francia).');
-      if (datos.telefonoExtra.trim() && !tieneCodigoPais(datos.telefonoExtra)) throw new Error('Añade el prefijo del país al teléfono extra: +34 (España) o +33 (Francia).');
+      if (datos.telefono.trim() && !tieneCodigoPais(datos.telefono)) throw new Error('Añade el prefijo del país al teléfono: +34 (España), +33 (Francia) o +41 (Suiza).');
+      if (datos.telefonoExtra.trim() && !tieneCodigoPais(datos.telefonoExtra)) throw new Error('Añade el prefijo del país al teléfono extra: +34 (España), +33 (Francia) o +41 (Suiza).');
       if (datos.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(datos.email.trim())) throw new Error('El email no tiene un formato válido.');
       // Los datos de contacto son del cliente, no de una visita: se cambian en TODAS sus visitas. Antes
       // solo en la última, y al cambiar el teléfono el cliente se partía en dos fichas.
@@ -893,7 +893,7 @@ export function ClienteDetalleContenido({
             <Input
               label="Teléfono extra (opcional)"
               type="tel"
-              hint="Con prefijo: +33 o +34"
+              hint="Con prefijo: +33, +34 o +41"
               value={formEdicion.telefonoExtra}
               onChange={(e) => setFormEdicion((f) => f && { ...f, telefonoExtra: e.target.value })}
             />

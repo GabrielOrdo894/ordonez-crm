@@ -63,7 +63,7 @@ export function normalizarNombre(nombre: string) {
 // español con obra en Francia y móvil francés (caso real 2026-09-25, Ricardo no conseguía llamarle
 // desde su móvil español sin el +33). Quien sabe el país es Gabriel: VisitaForm pide el prefijo al
 // guardar (tieneCodigoPais) y a partir de ahí el número ya queda guardado en internacional.
-export function nucleoTelefono(tel: string | null | undefined): { pais: 'ES' | 'FR'; nucleo: string } | null {
+export function nucleoTelefono(tel: string | null | undefined): { pais: PaisTelefono; nucleo: string } | null {
   if (!tel) return null;
   const bruto = tel.trim();
   const digitos = bruto.replace(/\D/g, '');
@@ -79,6 +79,13 @@ export function nucleoTelefono(tel: string | null | undefined): { pais: 'ES' | '
   if (digitos.startsWith('34') && digitos.length === 11) nucleoEs = digitos.slice(2);
   else if (!conMas && digitos.startsWith('0034') && digitos.length === 13) nucleoEs = digitos.slice(4);
   if (nucleoEs && nucleoEs.length === 9) return { pais: 'ES', nucleo: nucleoEs };
+
+  // Suiza (2026-11-12, cliente real con móvil suizo): solo con prefijo explícito +41/0041. El "0"
+  // nacional suizo (078...) tiene 10 dígitos como el francés y se sigue leyendo como Francia.
+  let nucleoCh: string | null = null;
+  if (digitos.startsWith('41') && digitos.length === 11) nucleoCh = digitos.slice(2);
+  else if (!conMas && digitos.startsWith('0041') && digitos.length === 13) nucleoCh = digitos.slice(4);
+  if (nucleoCh && nucleoCh.length === 9) return { pais: 'CH', nucleo: nucleoCh };
 
   return null;
 }
@@ -100,16 +107,16 @@ export function formatearTelefonoVisual(tel: string | null | undefined): string 
   return telefonoInternacional(info.pais, info.nucleo);
 }
 
-export type PaisTelefono = 'ES' | 'FR';
-const PREFIJO_TELEFONO: Record<PaisTelefono, string> = { ES: '+34', FR: '+33' };
-const GRUPOS_TELEFONO: Record<PaisTelefono, number[]> = { ES: [3, 2, 2, 2], FR: [1, 2, 2, 2, 2] };
+export type PaisTelefono = 'ES' | 'FR' | 'CH';
+const PREFIJO_TELEFONO: Record<PaisTelefono, string> = { ES: '+34', FR: '+33', CH: '+41' };
+const GRUPOS_TELEFONO: Record<PaisTelefono, number[]> = { ES: [3, 2, 2, 2], FR: [1, 2, 2, 2, 2], CH: [2, 3, 2, 2] };
 
 // Núcleo (hasta 9 dígitos) a partir de lo que se teclea o pega en el campo de teléfono, ya sabido
 // el país (selector de TelefonoInput.tsx): solo dígitos, y en Francia se quita el 0 inicial del
 // formato nacional ("0744501173" → "744501173") — el núcleo francés nunca empieza por 0.
 export function nucleoDesdeTexto(pais: PaisTelefono, texto: string): string {
   let digitos = texto.replace(/\D/g, '');
-  if (pais === 'FR') digitos = digitos.replace(/^0+/, '');
+  if (pais === 'FR' || pais === 'CH') digitos = digitos.replace(/^0+/, '');
   return digitos.slice(0, 9);
 }
 
