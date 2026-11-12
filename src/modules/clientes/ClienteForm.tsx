@@ -159,7 +159,7 @@ export function ClienteForm({ onClose, onCreado, prefill }: ClienteFormProps) {
     if (!form.apellidos) nuevosErrores.apellidos = 'Obligatorio';
     // Mismas reglas que VisitaForm (auditoría 2026-10-01): prefijo obligatorio y email válido.
     if (!form.telefono) nuevosErrores.telefono = 'Obligatorio';
-    else if (!tieneCodigoPais(form.telefono)) nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España), +33 (Francia) o +41 (Suiza)';
+    else if (!tieneCodigoPais(form.telefono)) nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España), +33 (Francia) u «Otro» con su prefijo (+41…)';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (form.esEmpresa && !form.empresaNombre) nuevosErrores.empresaNombre = 'Obligatorio';

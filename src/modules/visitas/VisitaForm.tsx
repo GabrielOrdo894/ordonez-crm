@@ -546,7 +546,7 @@ export function VisitaForm({ onClose, visita, prefill }: VisitaFormProps) {
     // teléfono no es el de la obra — se le pide a quien registra la visita, que sí lo sabe
     // (Gabriel, 2026-09-25). Al guardar se almacena ya en formato internacional.
     else if (form.telefono && !tieneCodigoPais(form.telefono))
-      nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España), +33 (Francia) o +41 (Suiza)';
+      nuevosErrores.telefono = 'Añade el prefijo del país: +34 (España), +33 (Francia) u «Otro» con su prefijo (+41…)';
     if (form.email && !EMAIL_RE.test(form.email.trim())) nuevosErrores.email = 'Formato de email no válido';
     if (!form.direccion) nuevosErrores.direccion = 'Obligatorio';
     if (!form.tipo) nuevosErrores.tipo = 'Obligatorio';

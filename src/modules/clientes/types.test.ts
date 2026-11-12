@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  esTelefonoOtroPais,
   formatearNucleoTelefono,
   formatearTelefonoVisual,
   normalizarNombre,
@@ -67,18 +68,19 @@ describe('formatearTelefonoVisual / tieneCodigoPais (formato internacional, 2026
   });
 });
 
-describe('teléfonos suizos (+41)', () => {
-  it('reconoce y formatea un número con prefijo +41 / 0041', () => {
+describe('teléfonos de otros países (opción «Otro»)', () => {
+  it('acepta un número libre con + y su prefijo, y lo deja como está', () => {
     expect(tieneCodigoPais('+41 78 243 01 17')).toBe(true);
-    expect(formatearTelefonoVisual('+41782430117')).toBe('+41 78 243 01 17');
-    expect(formatearTelefonoVisual('0041782430117')).toBe('+41 78 243 01 17');
-    expect(telefonoInternacional('CH', '782430117')).toBe('+41 78 243 01 17');
+    expect(formatearTelefonoVisual('+41 78 243 01 17')).toBe('+41 78 243 01 17');
+    expect(formatearTelefonoVisual(' +41  78 243 01 17 ')).toBe('+41 78 243 01 17');
+    expect(normalizarTelefono('+41 78 243 01 17')).toBe('782430117');
   });
 
-  it('con el país elegido quita el 0 nacional y agrupa mientras se escribe', () => {
-    expect(nucleoDesdeTexto('CH', '078 243 01 17')).toBe('782430117');
-    expect(formatearNucleoTelefono('CH', '78243')).toBe('78 243');
-    expect(nucleoDeValorParcial('CH', '+41 78 2')).toBe('782');
+  it('no acepta un número sin +, demasiado corto, ni un +34/+33 incompleto', () => {
+    expect(esTelefonoOtroPais('41782430117')).toBe(false);
+    expect(esTelefonoOtroPais('+41 78')).toBe(false);
+    expect(tieneCodigoPais('+34 659 88')).toBe(false);
+    expect(tieneCodigoPais('+33 6 87')).toBe(false);
   });
 });
 

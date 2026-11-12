@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FocusEventHandler } from 'react';
 import { Select } from './Select';
 import {
+  esTelefonoOtroPais,
   formatearNucleoTelefono,
   nucleoDeValorParcial,
   nucleoDesdeTexto,
@@ -16,7 +17,8 @@ import {
 // 0034 o el 0 nacional francés) el selector se coloca solo. El selector arranca VACÍO a propósito
 // — el país del teléfono no es el de la obra y no se deduce (ver nucleoTelefono en
 // clientes/types.ts): hasta que se elige, el valor se deja tal cual y la validación del
-// formulario pide el prefijo al guardar.
+// formulario pide el prefijo al guardar. «Otro» (2026-11-12) es para cualquier otro país: el número
+// se escribe libre, con su «+» y su prefijo ("+41 78 243 01 17"), y se guarda tal cual.
 type TelefonoInputProps = {
   label?: string;
   value: string;
@@ -29,15 +31,22 @@ const OPCIONES_PAIS = [
   { value: '', label: 'País' },
   { value: 'ES', label: '+34' },
   { value: 'FR', label: '+33' },
-  { value: 'CH', label: '+41' },
+  { value: 'OTRO', label: 'Otro' },
 ];
 
+type Seleccion = PaisTelefono | 'OTRO' | '';
+
+function seleccionDe(valor: string): Seleccion {
+  return nucleoTelefono(valor)?.pais ?? (esTelefonoOtroPais(valor) ? 'OTRO' : '');
+}
+
 function esPais(v: string): v is PaisTelefono {
-  return v === 'ES' || v === 'FR' || v === 'CH';
+  return v === 'ES' || v === 'FR';
 }
 
 export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onBlur }: TelefonoInputProps) {
-  const [pais, setPais] = useState<PaisTelefono | ''>(() => nucleoTelefono(value)?.pais ?? '');
+  const [seleccion, setPais] = useState<Seleccion>(() => seleccionDe(value));
+  const pais: PaisTelefono | '' = seleccion === 'OTRO' ? '' : seleccion;
 
   // El valor puede cambiar desde fuera (prefill de una solicitud, elegir un cliente, "Cambiar"
   // que lo vacía): el selector sigue al prefijo del valor nuevo, y se vacía si el valor se vacía.
@@ -49,9 +58,8 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
       cambioPropio.current = false;
       return;
     }
-    const info = nucleoTelefono(value);
-    if (info) setPais(info.pais);
-    else if (value.trim() === '') setPais('');
+    const nueva = seleccionDe(value);
+    if (nueva || value.trim() === '') setPais(nueva);
   }, [value]);
 
   const info = nucleoTelefono(value);
@@ -81,7 +89,7 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
 
   const alCambiarPais = (nuevo: string) => {
     if (!esPais(nuevo)) {
-      setPais('');
+      setPais(nuevo === 'OTRO' ? 'OTRO' : '');
       return;
     }
     setPais(nuevo);
@@ -96,7 +104,7 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
       {label && <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">{label}</label>}
       <div className="flex gap-2">
         <div className="w-24 shrink-0">
-          <Select options={OPCIONES_PAIS} value={pais} onChange={(e) => alCambiarPais(e.target.value)} error={error ? ' ' : undefined} />
+          <Select options={OPCIONES_PAIS} value={seleccion} onChange={(e) => alCambiarPais(e.target.value)} error={error ? ' ' : undefined} />
         </div>
         <input
           type="tel"
@@ -105,7 +113,7 @@ export function TelefonoInput({ label = 'Teléfono', value, onChange, error, onB
           value={textoVisible}
           onChange={(e) => alEscribir(e.target.value)}
           onBlur={onBlur}
-          placeholder={pais === 'FR' ? '7 44 50 11 73' : pais === 'ES' ? '659 88 47 06' : pais === 'CH' ? '78 243 01 17' : 'Elige el país'}
+          placeholder={pais === 'FR' ? '7 44 50 11 73' : pais === 'ES' ? '659 88 47 06' : seleccion === 'OTRO' ? '+41 78 243 01 17' : 'Elige el país'}
           className={`flex-1 min-w-0 border border-gray-200 rounded-sm px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none ${
             error ? 'border-red-400' : ''
           }`}
