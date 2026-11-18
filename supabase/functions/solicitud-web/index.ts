@@ -14,7 +14,9 @@
 // ordonezstudio.com (2026-10-27, estudio de arquitectura de Francisco Ordoñez) manda el formulario de contacto de
 // su portada (tipo de proyecto, nombre, teléfono, email y descripción; sin municipio ni plazo), fuente `ordonezstudio`.
 //
-// Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, version?, web }
+// Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, version?, hueco?, fuente?, web }
+// La página de contacto de ordonezrenov.com (2026-11-18) manda fuente `pagina_contacto`, version `contacto-A`/`contacto-B`
+// (test A/B) y, en la variante B, el hueco de visita elegido de los que devuelve `huecos-visita`.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
@@ -25,8 +27,9 @@ const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.co
 const ORIGENES_COSTABATH = ['https://costabath.com', 'https://www.costabath.com'];
 const ORIGENES_STUDIO = ['https://ordonezstudio.com', 'https://www.ordonezstudio.com'];
 const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV, ...ORIGENES_COSTABATH, ...ORIGENES_STUDIO];
-const FUENTES_RENOV = ['calculadora_bano', 'calculadora_general', 'pdf_bano_4m2', 'foto_web', 'estimador_plazos'];
+const FUENTES_RENOV = ['calculadora_bano', 'calculadora_general', 'pdf_bano_4m2', 'foto_web', 'estimador_plazos', 'pagina_contacto'];
 const ETIQUETA_FUENTE_RENOV: Record<string, string> = {
+  pagina_contacto: 'la página de contacto',
   calculadora_bano: 'la calculadora de baño',
   calculadora_general: 'la calculadora de reformas',
   pdf_bano_4m2: 'el PDF del artículo del baño de 4 m²',
@@ -124,6 +127,11 @@ Deno.serve(async (req: Request) => {
   const pagina = texto(body.pagina, 300);
   const idioma = body.idioma === 'fr' ? 'fr' : 'es';
   const version = texto(body.version, 40);
+  // Página de contacto (test A/B, 2026-11-18): hueco de visita que el cliente prefiere, «AAAA-MM-DD HH:MM».
+  const hueco = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(texto(body.hueco, 16)) ? texto(body.hueco, 16) : '';
+  const huecoTexto = hueco
+    ? `${new Date(`${hueco.slice(0, 10)}T12:00:00`).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}, ${hueco.slice(11)} (a confirmar)`
+    : '';
   // Desde ordonezrenov.com también envían las calculadoras, el PDF del blog y los formularios del blog
   // (2026-10-27): mandan su `fuente` en el cuerpo; cualquier otro valor se trata como el asistente web.
   const fuenteRenov = FUENTES_RENOV.includes(texto(body.fuente, 40)) ? texto(body.fuente, 40) : `asistente_web_${idioma}`;
@@ -160,6 +168,7 @@ Deno.serve(async (req: Request) => {
     descripcion,
     esStudio && !municipio ? '' : `Municipio: ${municipio || 'sin indicar'}`,
     esStudio && !plazo ? '' : `Plazo: ${etiquetaPlazo[plazo] ?? 'sin indicar'}`,
+    huecoTexto ? `Visita preferida: ${huecoTexto}` : '',
   ].filter(Boolean).join('\n');
 
   const { data: fila, error } = await supabase
@@ -212,7 +221,7 @@ Deno.serve(async (req: Request) => {
     const urgente = plazo === 'urgente' || plazo === 'urgent';
     const filas = [
       ['Trabajo', tipo], ['Municipio', municipio], ['Plazo', etiquetaPlazo[plazo] ?? ''], ['Nombre', nombre],
-      ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina], ['Plantilla', version],
+      ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina], ['Plantilla', version], ['Visita preferida', huecoTexto],
     ].filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#666">${k}</td><td style="padding:4px 0"><b>${esc(v)}</b></td></tr>`).join('');
     await enviarAviso(
       marca,

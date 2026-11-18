@@ -23,6 +23,9 @@ const SITIOS: Record<string, string> = {
   'https://www.ordonezfachadas.com': 'ordonezfachadas',
   'https://ordonezstudio.com': 'ordonezstudio',
   'https://www.ordonezstudio.com': 'ordonezstudio',
+  // Test A/B de la página de contacto de ordonezrenov.com (2026-11-18): la variante va en la ruta (`?ab=A|B`).
+  'https://ordonezrenov.com': 'ordonezrenov',
+  'https://www.ordonezrenov.com': 'ordonezrenov',
 };
 const EVENTOS = new Set([
   'vista',
@@ -37,6 +40,7 @@ const EVENTOS = new Set([
   'form_error',
   'enviado',
   'error_envio',
+  'hueco',
 ]);
 const MAX_POR_PETICION = 40;
 const MAX_POR_SESION = 600;
