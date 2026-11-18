@@ -689,6 +689,23 @@ Deno.serve(async (req: Request) => {
     const reprogramadaCliente = reprogramada && !v.aviso_cliente_programado_en;
     const tieneEmail = !!v.email && EMAIL_VALIDO.test(v.email);
     const programadoPara = tieneEmail ? calcularEnvioProgramado(new Date(), v.fecha_visita, hora) : null;
+    // Reintento a los 30 min si la confirmación al cliente falla (Gabriel 2026-11-18, visita de María:
+    // la función se cortó por «CPU Time exceeded» tras el aviso interno y no quedó nada anotado). Se deja
+    // programado ANTES de intentar el envío para que, aunque la función muera, automatizaciones-crm
+    // reintente solo la confirmación al cliente (modo solo_cliente).
+    const reintentoCliente = new Date(Date.now() + 30 * 60 * 1000);
+    if (tieneEmail && !programadoPara) {
+      const { error: errorPrevio } = await supabase
+        .from('visitas')
+        .update({
+          aviso_enviado_en: new Date().toISOString(),
+          aviso_asunto: asunto,
+          aviso_cliente_programado_en: reintentoCliente.toISOString(),
+          aviso_cliente_programado_motivo: reprogramadaCliente ? 'reprogramacion' : null,
+        })
+        .eq('id', visitaId);
+      if (errorPrevio) console.error('notificar-visita: no se pudo dejar programado el reintento', errorPrevio.message);
+    }
     const resultadoCliente = programadoPara
       ? 'programado'
       : await enviarConfirmacionCliente({ v, datos, reprogramada: reprogramadaCliente, hora, direccionHtml, mapsUrl });
@@ -706,8 +723,13 @@ Deno.serve(async (req: Request) => {
         aviso_cliente_email: clienteNotificado ? v.email : null,
         aviso_verificado_en: null,
         aviso_no_llegado_en: null,
-        aviso_cliente_programado_en: programadoPara ? programadoPara.toISOString() : null,
-        aviso_cliente_programado_motivo: programadoPara && reprogramadaCliente ? 'reprogramacion' : null,
+        aviso_cliente_programado_en: programadoPara
+          ? programadoPara.toISOString()
+          : resultadoCliente === 'error'
+            ? reintentoCliente.toISOString()
+            : null,
+        aviso_cliente_programado_motivo:
+          (programadoPara || resultadoCliente === 'error') && reprogramadaCliente ? 'reprogramacion' : null,
       })
       .eq('id', visitaId);
     if (errorSeguimiento) console.error('notificar-visita: no se pudo anotar el envío del aviso', errorSeguimiento.message);
@@ -718,7 +740,9 @@ Deno.serve(async (req: Request) => {
         ? `Aviso de visita enviado al equipo y confirmación al cliente (${v.email})`
         : programadoPara
           ? `Aviso de visita enviado al equipo; confirmación al cliente (${v.email}) programada para el ${fechaHoraLegible(programadoPara)} (fuera del horario de envío, 08:00–18:30)`
-          : 'Aviso de visita enviado al equipo (sin confirmación al cliente: no tiene email válido o falló su envío)',
+          : resultadoCliente === 'error'
+            ? `Aviso de visita enviado al equipo; falló la confirmación al cliente (${v.email}), se reintentará el ${fechaHoraLegible(reintentoCliente)}`
+            : 'Aviso de visita enviado al equipo (sin confirmación al cliente: no tiene email válido)',
       autor: 'Sistema',
     });
     if (errorNota) console.error('notificar-visita: no se pudo guardar la nota del aviso', errorNota.message);
