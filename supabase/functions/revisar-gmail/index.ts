@@ -826,6 +826,10 @@ async function revisarRespuestasProgramadas(token: string, supabase: SupabaseCli
 // (empresa_config.datos.solicitudes_emails_excluidos) — para que hilos con la aseguradora,
 // proveedores, gestoría, etc. no se cuelen como solicitud nueva solo por haber ida y vuelta.
 // Admite email completo o dominio entero con el formato "@dominio.com".
+// Asuntos de las propuestas de artículo/entrevista y de la nota de prensa enviadas a medios.
+const ASUNTO_CAMPANA_MEDIOS =
+  /propuesta de art[ií]culo|proposition d['’]article|article proposal|propuesta de entrevista|proposition d['’]interview|hasta que llega el iva|sauf la tva/i;
+
 function estaExcluido(email: string, listaNegra: string[]): boolean {
   const e = email.toLowerCase();
   return listaNegra.some((entry) => {
@@ -916,6 +920,15 @@ async function detectarConversacionesDirectas(token: string, supabase: SupabaseC
       (m) => extraerEmail(cabecera(m.payload?.headers ?? [], 'From')) === NUESTRO_EMAIL,
     );
     if (!tieneMensajeNuestro) continue;
+
+    // Campañas a medios (linkbuilding): sus respuestas y rebotes no son clientes (Gabriel 2026-11-18).
+    const esCampanaMedios = mensajesHilo.some((m) =>
+      ASUNTO_CAMPANA_MEDIOS.test(cabecera(m.payload?.headers ?? [], 'Subject')),
+    );
+    if (esCampanaMedios) {
+      excluidas++;
+      continue;
+    }
 
     const ultimoMsg = mensajesHilo[mensajesHilo.length - 1];
     const headersUltimo = ultimoMsg.payload?.headers ?? [];
