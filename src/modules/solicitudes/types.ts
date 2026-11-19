@@ -197,6 +197,8 @@ export const FUENTE_LABEL: Record<string, string> = {
   pdf_bano_4m2: 'PDF del blog (baño 4 m²)',
   foto_web: 'Fotos desde el blog',
   estimador_plazos: 'Estimador de plazos (blog)',
+  pagina_contacto: 'Página de contacto (web)',
+  pagina_proyecto: 'Página de proyecto (web)',
   asistente_web_es: 'Asistente web (ES)',
   asistente_web_fr: 'Asistente web (FR)',
   autoenvio_gabriel: 'Autoenvío Gabriel',

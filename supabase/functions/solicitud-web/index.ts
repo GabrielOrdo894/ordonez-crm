@@ -17,6 +17,7 @@
 // Body: { tipo, municipio, plazo, nombre, telefono, email?, descripcion?, idioma, pagina, version?, hueco?, fuente?, web }
 // La página de contacto de ordonezrenov.com (2026-11-18) manda fuente `pagina_contacto`, version `contacto-A`/`contacto-B`
 // (test A/B) y, en la variante B, el hueco de visita elegido de los que devuelve `huecos-visita`.
+// Las entradas de proyecto (plantilla B, 2026-11-19) mandan fuente `pagina_proyecto` y version `proyecto-<slug>`.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
@@ -27,9 +28,10 @@ const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.co
 const ORIGENES_COSTABATH = ['https://costabath.com', 'https://www.costabath.com'];
 const ORIGENES_STUDIO = ['https://ordonezstudio.com', 'https://www.ordonezstudio.com'];
 const ORIGENES = [...ORIGENES_FACHADAS, ...ORIGENES_RENOV, ...ORIGENES_COSTABATH, ...ORIGENES_STUDIO];
-const FUENTES_RENOV = ['calculadora_bano', 'calculadora_general', 'pdf_bano_4m2', 'foto_web', 'estimador_plazos', 'pagina_contacto'];
+const FUENTES_RENOV = ['calculadora_bano', 'calculadora_general', 'pdf_bano_4m2', 'foto_web', 'estimador_plazos', 'pagina_contacto', 'pagina_proyecto'];
 const ETIQUETA_FUENTE_RENOV: Record<string, string> = {
   pagina_contacto: 'la página de contacto',
+  pagina_proyecto: 'una página de proyecto',
   calculadora_bano: 'la calculadora de baño',
   calculadora_general: 'la calculadora de reformas',
   pdf_bano_4m2: 'el PDF del artículo del baño de 4 m²',
