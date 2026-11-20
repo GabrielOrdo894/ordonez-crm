@@ -18,10 +18,25 @@
 // La página de contacto de ordonezrenov.com (2026-11-18) manda fuente `pagina_contacto`, version `contacto-A`/`contacto-B`
 // (test A/B) y, en la variante B, el hueco de visita elegido de los que devuelve `huecos-visita`.
 // Las entradas de proyecto (plantilla B, 2026-11-19) mandan fuente `pagina_proyecto` y version `proyecto-<slug>`.
-import { createClient } from 'jsr:@supabase/supabase-js@2';
+// Variante B con hueco y dirección (2026-11-20, decisión de Gabriel): además de la solicitud se crea la visita
+// como en VisitaForm.tsx (evento de Calendar + notificar-visita, que manda la confirmación al cliente). Campos
+// opcionales nuevos: direccion, direccion_extra, lat, lng, ciudad, pais_direccion ('España' | 'Francia').
+// Sin dirección no se crea visita: solo la solicitud, con el aviso de que hay que pedírsela.
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2';
 import { SMTPClient } from 'https://deno.land/x/denomailer/mod.ts';
 import { codificarCabeceraMime, limpiarHtmlCorreo } from '../_shared/correo.ts';
 import { esc } from '../_shared/html.ts';
+import {
+  construirEventoPayload,
+  deducirPaisZona,
+  dividirNombreCompleto,
+  empleadoPorIdioma,
+  formatearTelefonoVisual,
+  sumarMinutos,
+  textoFechaHora,
+  tipoVisitaDesdeWeb,
+  type EventoVisita,
+} from '../_shared/visitaWeb.ts';
 
 const ORIGENES_FACHADAS = ['https://ordonezfachadas.com', 'https://www.ordonezfachadas.com'];
 const ORIGENES_RENOV = ['https://ordonezrenov.com', 'https://www.ordonezrenov.com'];
@@ -80,6 +95,187 @@ async function enviarAviso(remitente: string, asunto: string, cuerpoHtml: string
   } finally {
     await client.close();
   }
+}
+
+function numero(v: unknown, min: number, max: number): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+}
+
+function mensajeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e && 'message' in e) return String((e as { message: unknown }).message);
+  return String(e);
+}
+
+async function notaSistema(supabase: SupabaseClient, visitaId: string, texto: string): Promise<void> {
+  const { error } = await supabase.from('notas_cliente').insert({ visita_id: visitaId, tipo: 'sistema', texto, autor: 'Sistema' });
+  if (error) console.error('notas_cliente:', error.message);
+}
+
+// Mismo token que la Edge Function google-token: refresh_token de Calendar en google_config.
+async function crearEventoCalendar(supabase: SupabaseClient, visita: EventoVisita): Promise<string> {
+  const { data: config, error } = await supabase.from('google_config').select('refresh_token').eq('id', 1).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!config?.refresh_token) throw new Error('Google Calendar no está conectado');
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  if (!clientId || !clientSecret) throw new Error('Faltan GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET');
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: config.refresh_token, grant_type: 'refresh_token' }),
+  });
+  const tokenData = await tokenRes.json().catch(() => ({}));
+  if (!tokenRes.ok || !tokenData.access_token) {
+    throw new Error(tokenData.error_description ?? 'No se pudo renovar el token de Google Calendar');
+  }
+
+  const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tokenData.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(construirEventoPayload(visita)),
+  });
+  if (!res.ok) throw new Error(`No se pudo crear el evento en Google Calendar (${res.status}): ${await res.text().catch(() => '')}`);
+  const evento = await res.json();
+  if (!evento.id) throw new Error('Google Calendar no devolvió el id del evento');
+  return evento.id as string;
+}
+
+type DatosReserva = {
+  solicitudId: string;
+  fuente: string;
+  fecha: string;
+  hora: string;
+  nombreCompleto: string;
+  telefono: string;
+  email: string;
+  idioma: 'es' | 'fr';
+  tipo: string;
+  descripcion: string;
+  municipio: string;
+  direccion: string;
+  direccionExtra: string;
+  lat: number | null;
+  lng: number | null;
+  ciudad: string;
+  paisDireccion: string;
+};
+
+// Crea la visita del hueco elegido en la web y devuelve las líneas para el aviso interno. Los fallos
+// no se propagan: la solicitud ya está guardada y la respuesta al navegador no depende de esto.
+async function reservarVisitaWeb(supabase: SupabaseClient, d: DatosReserva): Promise<string[]> {
+  // 1. El hueco sigue libre (mismo criterio que huecos-visita).
+  const { data: ocupadas, error: errorOcupadas } = await supabase
+    .from('visitas')
+    .select('id')
+    .eq('fecha_visita', d.fecha)
+    .eq('hora_visita', `${d.hora}:00`)
+    .neq('estado', 'Cancelada')
+    .is('eliminado_en', null)
+    .limit(1);
+  if (errorOcupadas) {
+    console.error('Comprobar hueco:', errorOcupadas.message);
+    return [`No se ha creado la visita: no se pudo comprobar si el hueco estaba libre (${errorOcupadas.message})`];
+  }
+  if ((ocupadas ?? []).length > 0) {
+    const aviso = 'El hueco elegido ya estaba ocupado, hay que proponerle otro';
+    const { data: sol, error: errorLeer } = await supabase.from('solicitudes').select('comentario_cliente').eq('id', d.solicitudId).single();
+    if (errorLeer) console.error('Leer comentario:', errorLeer.message);
+    else {
+      const { error: errorComentario } = await supabase
+        .from('solicitudes')
+        .update({ comentario_cliente: [sol.comentario_cliente, aviso].filter(Boolean).join('\n') })
+        .eq('id', d.solicitudId);
+      if (errorComentario) console.error('Comentario hueco ocupado:', errorComentario.message);
+    }
+    return [aviso];
+  }
+
+  // 2. La visita, con los mismos valores que el alta de VisitaForm.tsx.
+  const { pais, zona } = deducirPaisZona({ municipio: d.municipio, ciudad: d.ciudad, paisDireccion: d.paisDireccion, idioma: d.idioma });
+  const { nombre, apellidos } = dividirNombreCompleto(d.nombreCompleto);
+  const nueva = {
+    nombre,
+    apellidos,
+    telefono: formatearTelefonoVisual(d.telefono),
+    email: d.email || null,
+    idioma: d.idioma === 'fr' ? 'Français' : 'Español',
+    contacto: 'Formulario',
+    referido_por: null,
+    direccion: d.direccion,
+    direccion_extra: d.direccionExtra || null,
+    lat: d.lat,
+    lng: d.lng,
+    pais,
+    zona,
+    tipo: tipoVisitaDesdeWeb(d.tipo),
+    descripcion: d.descripcion || null,
+    fecha_visita: d.fecha,
+    hora_visita: d.hora,
+    hora_fin_visita: sumarMinutos(d.hora, 60),
+    empleado: empleadoPorIdioma(d.idioma),
+    estado: 'Pendiente',
+    notas: null,
+    fotos_previas: [],
+    google_event_id: null,
+    estado_pipeline: 'Contacto',
+    pipeline_etapa_maxima: 'Contacto',
+    proyecto_id: null,
+  };
+  const { data: visita, error: errorVisita } = await supabase.from('visitas').insert(nueva).select('id').single();
+  if (errorVisita) {
+    console.error('Crear visita:', errorVisita.message);
+    return [`No se pudo crear la visita automáticamente (${errorVisita.message}): hay que darla de alta a mano`];
+  }
+  const lineas = [`Visita creada automáticamente: ${textoFechaHora(d.fecha, d.hora)}`];
+
+  // 3. Solicitud enlazada y Aceptada (como «Crear visita desde esta solicitud») + etapa visita_agendada.
+  const { error: errorEnlace } = await supabase.from('solicitudes').update({ visita_id: visita.id, estado: 'Aceptada' }).eq('id', d.solicitudId);
+  if (errorEnlace) {
+    console.error('Enlazar solicitud:', errorEnlace.message);
+    lineas.push(`No se pudo enlazar la solicitud con la visita: ${errorEnlace.message}`);
+  }
+  const { error: errorFunnel } = await supabase
+    .from('funnel_eventos')
+    .insert({ etapa: 'visita_agendada', solicitud_id: d.solicitudId, fuente: d.fuente });
+  // 23505: ya existía (índice único por etapa), no es un error.
+  if (errorFunnel && errorFunnel.code !== '23505') console.error('funnel visita_agendada:', errorFunnel.message);
+
+  // 4. Nota del sistema.
+  await notaSistema(supabase, visita.id, 'Visita reservada por el cliente desde la página de contacto (hueco elegido en la web)');
+
+  // 5. Evento de Calendar. Si falla, la visita se queda y se anota el error.
+  try {
+    const eventId = await crearEventoCalendar(supabase, nueva);
+    const { error: errorEvento } = await supabase.from('visitas').update({ google_event_id: eventId }).eq('id', visita.id);
+    if (errorEvento) {
+      console.error('Guardar google_event_id:', errorEvento.message);
+      await notaSistema(supabase, visita.id, `Evento creado en Google Calendar, pero no se pudo guardar su ID: ${errorEvento.message}`);
+      lineas.push('Evento de Calendar creado, pero no se guardó su ID en la visita');
+    }
+  } catch (e) {
+    console.error('Google Calendar:', mensajeError(e));
+    await notaSistema(supabase, visita.id, `No se pudo crear el evento de Google Calendar: ${mensajeError(e)}`);
+    lineas.push(`No se pudo crear el evento de Google Calendar: ${mensajeError(e)}`);
+  }
+
+  // 6. Confirmación al cliente y aviso al equipo: notificar-visita con la service role (esLlamadaAutorizada la acepta).
+  try {
+    const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/notificar-visita`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visitaId: visita.id }),
+    });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok || r?.ok === false) throw new Error(r?.error ?? `HTTP ${res.status}`);
+  } catch (e) {
+    console.error('notificar-visita:', mensajeError(e));
+    await notaSistema(supabase, visita.id, `No se pudo enviar el email de confirmación de la visita: ${mensajeError(e)}`);
+    lineas.push(`No se pudo enviar la confirmación de la visita: ${mensajeError(e)}`);
+  }
+  return lineas;
 }
 
 Deno.serve(async (req: Request) => {
@@ -142,6 +338,13 @@ Deno.serve(async (req: Request) => {
   const marca = esRenov ? 'Reformas Ordoñez' : esCostabath ? 'Costabath' : esStudio ? 'Ordoñez Studio' : 'Ordoñez Fachadas';
   const dominio = esCostabath ? 'costabath.com' : esStudio ? 'ordonezstudio.com' : 'ordonezfachadas.com';
   const digitos = telefono.replace(/\D/g, '');
+  // Dirección de la obra (variante B, 2026-11-20): opcional; sin ella no se crea la visita.
+  const direccion = texto(body.direccion, 300);
+  const direccionExtra = texto(body.direccion_extra, 120);
+  const lat = numero(body.lat, -90, 90);
+  const lng = numero(body.lng, -180, 180);
+  const ciudad = texto(body.ciudad, 120);
+  const paisDireccion = ['España', 'Francia'].includes(texto(body.pais_direccion, 20)) ? texto(body.pais_direccion, 20) : '';
 
   // El PDF del blog solo pide el email: entra como solicitud sin teléfono para no perder el contacto.
   const soloEmail = fuente === 'pdf_bano_4m2';
@@ -166,10 +369,12 @@ Deno.serve(async (req: Request) => {
 
   const etiquetaPlazo: Record<string, string> = { urgente: 'Urgente', urgent: 'Urgente', meses: 'Próximos meses', mois: 'Próximos meses', info: 'Solo se informa' };
   // El formulario de Studio no pregunta municipio ni plazo: no se añaden líneas «sin indicar» al comentario.
+  // La variante B de la página de contacto tampoco (2026-11-20): municipio = ciudad de la dirección o vacío.
+  const sinMunicipioNiPlazo = esStudio || (fuente === 'pagina_contacto' && version === 'contacto-B');
   const comentario = [
     descripcion,
-    esStudio && !municipio ? '' : `Municipio: ${municipio || 'sin indicar'}`,
-    esStudio && !plazo ? '' : `Plazo: ${etiquetaPlazo[plazo] ?? 'sin indicar'}`,
+    sinMunicipioNiPlazo && !municipio ? '' : `Municipio: ${municipio || 'sin indicar'}`,
+    sinMunicipioNiPlazo && !plazo ? '' : `Plazo: ${etiquetaPlazo[plazo] ?? 'sin indicar'}`,
     huecoTexto ? `Visita preferida: ${huecoTexto}` : '',
   ].filter(Boolean).join('\n');
 
@@ -218,16 +423,34 @@ Deno.serve(async (req: Request) => {
     if (errorFotos) console.error('comentario con fotos:', errorFotos.message);
   }
 
+  // Variante B de la página de contacto con hueco: visita reservada al momento si hay dirección.
+  let lineasVisita: string[] = [];
+  if (fuente === 'pagina_contacto' && version === 'contacto-B' && hueco) {
+    if (!direccion) lineasVisita = ['Sin dirección: no se ha creado la visita, hay que pedírsela'];
+    else {
+      try {
+        lineasVisita = await reservarVisitaWeb(supabase, {
+          solicitudId: fila.id, fuente, fecha: hueco.slice(0, 10), hora: hueco.slice(11), nombreCompleto: nombre, telefono, email,
+          idioma, tipo, descripcion, municipio, direccion, direccionExtra, lat, lng, ciudad, paisDireccion,
+        });
+      } catch (e) {
+        console.error('reservarVisitaWeb:', mensajeError(e));
+        lineasVisita = [`No se pudo crear la visita automáticamente: ${mensajeError(e)}`];
+      }
+    }
+  }
+
   // El aviso por email nunca hace fallar la solicitud: ya está guardada en el CRM.
   try {
     const urgente = plazo === 'urgente' || plazo === 'urgent';
     const filas = [
       ['Trabajo', tipo], ['Municipio', municipio], ['Plazo', etiquetaPlazo[plazo] ?? ''], ['Nombre', nombre],
       ['Teléfono', telefono], ['Email', email], ['Idioma', idioma === 'fr' ? 'Francés' : 'Español'], ['Página', pagina], ['Plantilla', version], ['Visita preferida', huecoTexto],
+      ['Dirección', [direccion, direccionExtra].filter(Boolean).join(' — ')], ...lineasVisita.map((l) => ['Visita', l]),
     ].filter(([, v]) => v).map(([k, v]) => `<tr><td style="padding:4px 12px 4px 0;color:#666">${k}</td><td style="padding:4px 0"><b>${esc(v)}</b></td></tr>`).join('');
     await enviarAviso(
       marca,
-      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? (fuenteRenov.startsWith('asistente') ? 'web' : `· ${origenTexto}`) : marca} · ${tipo || 'Sin tipo'}${esStudio && !municipio ? '' : ` · ${municipio || 'sin municipio'}`}`,
+      `${urgente ? 'URGENTE · ' : ''}Nueva solicitud ${esRenov ? (fuenteRenov.startsWith('asistente') ? 'web' : `· ${origenTexto}`) : marca} · ${tipo || 'Sin tipo'}${sinMunicipioNiPlazo && !municipio ? '' : ` · ${municipio || 'sin municipio'}`}`,
       `<p>Ha entrado una solicitud desde ${esRenov ? origenTexto : dominio}. Ya está en Solicitudes del CRM.</p>
 <table style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px">${filas}</table>
 ${descripcion ? `<p style="margin-top:12px"><b>Descripción:</b><br>${esc(descripcion).replace(/\n/g, '<br>')}</p>` : ''}

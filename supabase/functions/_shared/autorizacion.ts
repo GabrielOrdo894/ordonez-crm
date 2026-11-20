@@ -8,6 +8,11 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // Google. Única copia (antes había 16 idénticas, una por función).
 export async function esLlamadaAutorizada(req: Request): Promise<boolean> {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  // Llamadas internas entre funciones (solicitud-web, automatizaciones-crm, resena-automatica): mandan la
+  // SUPABASE_SERVICE_ROLE_KEY, que con las claves nuevas (sb_secret_…) no es un JWT. Antes se rechazaban
+  // y las confirmaciones programadas no salían nunca (2026-11-20).
+  const claveServicio = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (claveServicio && token === claveServicio) return true;
   const partes = token.split('.');
   if (partes.length !== 3) return false;
   let payload: { role?: string; sub?: string };
